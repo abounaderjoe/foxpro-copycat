@@ -14,6 +14,12 @@ public interface IConsoleOutput
     void NewLine();
 }
 
+/// <summary>An output device that CLEAR can erase (the IDE's Screen pane).</summary>
+public interface IClearableOutput
+{
+    void Clear();
+}
+
 public sealed class TextWriterOutput(TextWriter writer) : IConsoleOutput
 {
     public int Column { get; private set; }
@@ -829,6 +835,8 @@ public sealed partial class Interpreter : IExpressionHost
         switch (c.What)
         {
             case null:
+                (Output as IClearableOutput)?.Clear();
+                _printedSomething = false;
                 break;
             case "ALL" or "MEMORY":
                 foreach (var n in _frame.Privates.Keys.ToList()) Release(n);

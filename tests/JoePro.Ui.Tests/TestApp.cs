@@ -13,6 +13,7 @@ public sealed class TestApp : Application
     {
         Styles.Add(new FluentTheme());
         Styles.Add(new StyleInclude(new Uri("avares://JoePro.Ui.Tests")) { Source = new Uri("avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml") });
+        Styles.Add(new StyleInclude(new Uri("avares://JoePro.Ui.Tests")) { Source = new Uri("avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml") });
     }
 }
 

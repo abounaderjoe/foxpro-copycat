@@ -28,16 +28,36 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Language: procedures, scoping, arrays, TRY/CATCH, ON ERROR, macros, TEXT/TEXTMERGE, preprocessor | ✅ Done ([ADR 0002](../adr/0002-tree-walking-interpreter-first.md)) |
 | OOP: DEFINE CLASS, inheritance, ADD OBJECT, DODEFAULT, access/assign, Collection | ✅ Done (in Phase 1 scope; Phase 2 finishes BINDEVENT and visibility enforcement) |
 | Built-in functions | 🟡 [263 implemented](functions.md), prioritized by frequency in typical code |
-| Command Window | 🟡 Console Command Window (`joepro`). The IDE Command Window arrives with the Avalonia shell |
-| Browse window | 🟡 `BROWSE` prints records in the console. The editable grid arrives with the IDE shell |
-| Basic form runtime | ⛔ Not started. The object model and base-class property catalog exist; the Avalonia renderer does not |
-| Minimal IDE shell (docking, themes) | ⛔ Not started |
+| Command Window | ✅ In the IDE (Enter runs the line or selection; blocks collect until complete; earlier lines can be re-run), plus the console `joepro` |
+| Browse window | ✅ Editable grid in the IDE: edits write back with REPLACE (rules and triggers apply), append, Ctrl+T toggles deleted. Loads up to 100,000 rows; paging is a later milestone |
+| Basic form runtime | ✅ Forms from code (`DEFINE CLASS … AS Form`) or `.jpform` files (`DO FORM`) render with Avalonia: Label, TextBox, EditBox, CommandButton, CheckBox, OptionGroup, CommandGroup, ComboBox/ListBox, Spinner, Shape, Line, Image, Container, PageFrame, Grid, Timer; ControlSource binding; VFP event order; private data sessions |
+| Minimal IDE shell | ✅ Resizable panes (Data Session, tabbed documents, Command Window), light/dark/system themes, high DPI, code editor with FoxPro highlighting (MODIFY COMMAND, Ctrl+E/F5 run), command palette (Ctrl+Shift+P), status bar. Floating/dockable panels are not done yet |
 | Data import: DBF/FPT/CDX/DBC → Joe Pro, migration report (JSON + HTML) | ✅ Done. DBC property decoding (captions, rules, triggers, relations) is still pending (judgment call J2) |
 | PRG analyzer (macros, DLL declarations, COM, @SAY/GET, DO FORM, FLLs, unsupported SYS()) | ✅ Started (Phase 2 item, brought forward) |
 | Cross-process locking | ⛔ In-process locks only; cross-process locks arrive with the Data Server (Phase 6) |
 | Performance benchmarks | ⛔ Not started |
 
+## Screenshots
+
+Rendered headlessly by `tools/JoePro.Screenshots` (`dotnet run --project tools/JoePro.Screenshots -- docs/images`).
+
+| IDE (light) | IDE (dark) |
+|---|---|
+| ![IDE light](../images/ide-light.png) | ![IDE dark](../images/ide-dark.png) |
+
+| Code editor | A form from a .jpform file |
+|---|---|
+| ![Editor](../images/ide-editor.png) | ![Form](../images/form-customer.png) |
+
+## Known gaps in the UI (Phase 1)
+
+- The form runtime covers the common controls. Not yet supported: OLE/ActiveX controls, Toolbar, FormSet windows,
+  InputMask/Format editing masks, grid dynamic properties (DynamicBackColor…), BINDEVENT, and refusing focus when `When` returns .F.
+- `READ EVENTS` and modal forms use nested dispatcher loops. They have only been exercised headlessly, not yet on a real desktop.
+- The IDE has not been launched on a real Windows/macOS/Linux desktop in this environment; it is exercised by headless UI tests and rendered screenshots.
+
 ## Tests
 
-Run `dotnet test`. The suite covers core semantics, legacy file reading (including real VFP files),
-the data engine, the parser, the runtime (language, commands, SQL) and migration.
+Run `dotnet test`. `JoePro.Tests` covers core semantics, legacy file reading (including real VFP files),
+the data engine, the parser, the runtime (language, commands, SQL) and migration. `JoePro.Ui.Tests` runs
+the form runtime and the IDE shell headlessly (Avalonia headless platform).

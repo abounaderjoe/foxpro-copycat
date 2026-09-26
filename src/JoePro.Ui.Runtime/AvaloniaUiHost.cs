@@ -804,7 +804,15 @@ public sealed class AvaloniaUiHost : IUiHost
                 var canvas = new Canvas { Name = page.Name, Tag = page };
                 page.Native = canvas;
                 AddMembers(page, canvas);
-                tabs.Items.Add(new TabItem { Header = Prop(page, "Caption").Kind == ValueKind.Character ? Prop(page, "Caption").AsString.Replace("\\<", "") : page.Name, Content = canvas, Tag = page });
+                tabs.Items.Add(new TabItem
+                {
+                    Header = Prop(page, "Caption").Kind == ValueKind.Character ? Prop(page, "Caption").AsString.Replace("\\<", "") : page.Name,
+                    Content = canvas,
+                    Tag = page,
+                    FontSize = 13,
+                    MinHeight = 28,
+                    Padding = new Thickness(10, 2),
+                });
             }
             var active = Prop(o, "ActivePage") is { Kind: ValueKind.Number } a && a.AsNumber >= 1 ? (int)a.AsNumber : 1;
             tabs.SelectedIndex = Math.Min(active, pages.Count) - 1;
@@ -861,6 +869,9 @@ public sealed class AvaloniaUiHost : IUiHost
         grid.CanUserResizeColumns = true;
         grid.CanUserSortColumns = false;
         grid.GridLinesVisibility = DataGridGridLinesVisibility.All;
+        grid.RowHeight = 26;
+        grid.ColumnHeaderHeight = 28;
+        grid.FontSize = 13;
         grid.IsReadOnly = readOnly || model.Area.ReadOnly;
         grid.Columns.Clear();
         grid.Columns.Add(new DataGridTextColumn { Header = "", Binding = new Binding(nameof(BrowseRow.Mark)), IsReadOnly = true, Width = new DataGridLength(22) });

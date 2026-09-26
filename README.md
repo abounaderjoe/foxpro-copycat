@@ -15,7 +15,10 @@ Requires the .NET 10 SDK.
 dotnet build
 dotnet test
 
-# Interactive Command Window
+# The IDE (Command Window, Browse, code editor, forms)
+dotnet run --project src/JoePro.Ide
+
+# Console Command Window
 dotnet run --project src/JoePro.Cli
 
 # Import a FoxPro table, database or whole folder and get a migration report
@@ -36,6 +39,8 @@ USE legacy.dbf            && opens a FoxPro table as a read-only snapshot
 IMPORT FOXPRO legacy.dbf  && converts it (plus memo and index tags) into a Joe Pro table
 ```
 
+![Joe Pro IDE](docs/images/ide-light.png)
+
 ## Layout
 
 ```
@@ -46,8 +51,13 @@ src/
   JoePro.Language        preprocessor, lexer, parser, AST
   JoePro.Runtime         interpreter, object model, xBase commands, SELECT-SQL, built-ins
   JoePro.Migration       legacy importer, program analyzer, migration report
+  JoePro.Ui.Runtime      Avalonia rendering of FoxPro forms and controls, Browse grid model
+  JoePro.Ide             the Joe Pro IDE (Avalonia)
   JoePro.Cli             `joepro` command-line host
 tests/
   JoePro.Tests           unit and end-to-end tests
+  JoePro.Ui.Tests        headless UI tests (forms, IDE shell)
   corpus/                legacy sample files used by the tests
+tools/
+  JoePro.Screenshots     renders IDE and form screenshots headlessly
 ```
