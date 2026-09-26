@@ -8,6 +8,7 @@
     <Project Path="src/JoePro.Legacy.Formats/JoePro.Legacy.Formats.csproj" />
     <Project Path="src/JoePro.Migration/JoePro.Migration.csproj" />
     <Project Path="src/JoePro.Runtime/JoePro.Runtime.csproj" />
+    <Project Path="src/JoePro.Tooling/JoePro.Tooling.csproj" />
     <Project Path="src/JoePro.Ui.Runtime/JoePro.Ui.Runtime.csproj" />
   </Folder>
   <Folder Name="/tests/">

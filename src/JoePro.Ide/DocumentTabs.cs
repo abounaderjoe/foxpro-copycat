@@ -41,7 +41,7 @@ public sealed class CodeEditorTab : DocumentTab
 {
     private bool _dirty;
 
-    public CodeEditorTab(string? path, bool dark, JoePro.Runtime.Debugger? debugger = null)
+    public CodeEditorTab(string? path, bool dark, JoePro.Runtime.Debugger? debugger = null, JoePro.Tooling.LanguageService? language = null)
     {
         FilePath = path;
         Editor = new TextEditor
@@ -62,11 +62,13 @@ public sealed class CodeEditorTab : DocumentTab
             Editor.TextArea.LeftMargins.Insert(0, Breakpoints);
         }
         Editor.TextArea.TextView.BackgroundRenderers.Add(ExecutionLine);
+        if (language != null) Intelligence = new EditorIntelligence(Editor, language, () => FilePath);
         Content = Editor;
         UpdateTitle();
     }
 
     public BreakpointMargin? Breakpoints { get; }
+    public EditorIntelligence? Intelligence { get; }
     public ExecutionLineRenderer ExecutionLine { get; } = new();
 
     public void ShowExecutionLine(int line)

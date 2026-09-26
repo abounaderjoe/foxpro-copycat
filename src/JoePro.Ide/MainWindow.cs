@@ -38,6 +38,8 @@ public sealed class MainWindow : Window
         CommandWindow = new CommandWindow(session);
         DataSession = new DataSessionPanel(session, Run);
         Debugger = new IdeDebugger(this, session);
+        Language = new JoePro.Tooling.LanguageService(session.Runtime,
+            () => Directory.Exists(session.Runtime.Options.Default_) ? Directory.EnumerateFiles(session.Runtime.Options.Default_, "*.prg", SearchOption.AllDirectories).Take(2000) : []);
 
         session.Host.Owner = this;
         session.Host.BrowseHandler = model => { OpenDocument(new BrowseTab(model, session.Host, AfterCommand)); return true; };
@@ -119,6 +121,7 @@ public sealed class MainWindow : Window
     public DataSessionPanel DataSession { get; }
     public CommandPalette Palette { get; }
     public IdeDebugger Debugger { get; }
+    public JoePro.Tooling.LanguageService Language { get; }
 
     public void SetStatus(string text) => _status.Text = text;
 
@@ -134,6 +137,18 @@ public sealed class MainWindow : Window
     public void ClearExecutionLine()
     {
         foreach (var t in Documents.Items.OfType<CodeEditorTab>()) t.ShowExecutionLine(0);
+    }
+
+    /// <summary>Opens a file (or the active one) at a line: go-to-definition results.</summary>
+    public void NavigateTo(JoePro.Tooling.SymbolLocation loc)
+    {
+        var tab = loc.File != null ? OpenFile(loc.File) : ActiveEditor;
+        if (tab == null) return;
+        var line = Math.Clamp(loc.Line, 1, tab.Editor.Document.LineCount);
+        tab.Editor.TextArea.Caret.Line = line;
+        tab.Editor.TextArea.Caret.Column = loc.Column;
+        tab.Editor.ScrollToLine(line);
+        tab.Editor.Focus();
     }
 
     private void ToggleBreakpoint()
@@ -190,7 +205,8 @@ public sealed class MainWindow : Window
             Documents.SelectedItem = existing;
             return existing;
         }
-        var tab = new CodeEditorTab(path, IsDark, Debugger.Engine);
+        var tab = new CodeEditorTab(path, IsDark, Debugger.Engine, Language);
+        if (tab.Intelligence != null) tab.Intelligence.NavigateRequested += NavigateTo;
         OpenDocument(tab);
         tab.Editor.Focus();
         return tab;
@@ -267,7 +283,9 @@ public sealed class MainWindow : Window
     private void BuildActions()
     {
         void A(string title, string shortcut, Action run) => _actions.Add(new PaletteAction(title, shortcut, run));
-        A("New program", "Ctrl+N", () => OpenDocument(new CodeEditorTab(null, IsDark, Debugger.Engine)));
+        A("New program", "Ctrl+N", () => OpenDocument(new CodeEditorTab(null, IsDark, Debugger.Engine, Language)));
+        A("Go to definition", "F12", () => ActiveEditor?.Intelligence?.GoToDefinition());
+        A("Show completions", "Ctrl+Space", () => ActiveEditor?.Intelligence?.ShowCompletion());
         A("Open…", "Ctrl+O", () => _ = OpenWithPicker());
         A("Save", "Ctrl+S", () => { if (ActiveEditor is { } t) { if (t.FilePath == null) _ = SaveAs(t); else t.Save(); } });
         A("Run program", "Ctrl+E", RunActive);
@@ -377,6 +395,7 @@ public sealed class MainWindow : Window
             (false, false, Key.F11) => () => Debugger.Resume(DebugAction.StepInto),
             (false, true, Key.F11) => () => Debugger.Resume(DebugAction.StepOut),
             (false, false, Key.F9) => ToggleBreakpoint,
+            (false, false, Key.F12) => () => ActiveEditor?.Intelligence?.GoToDefinition(),
             (true, false, Key.F2) => () => CommandWindow.Editor.Focus(),
             (true, false, Key.W) => Action("Close document").Run,
             _ => null,

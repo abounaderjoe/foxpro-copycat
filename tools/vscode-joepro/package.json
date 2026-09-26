@@ -1,0 +1,61 @@
+{
+  "name": "joepro",
+  "displayName": "Joe Pro (FoxPro)",
+  "description": "FoxPro language support and debugging using Joe Pro: diagnostics, completion, hover, go to definition, breakpoints and stepping.",
+  "version": "0.1.0",
+  "publisher": "joepro",
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Programming Languages", "Debuggers"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:foxpro", "onDebugResolve:joepro"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "foxpro",
+        "aliases": ["FoxPro", "foxpro"],
+        "extensions": [".prg", ".h", ".jpform", ".mpr", ".qpr"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      { "language": "foxpro", "scopeName": "source.foxpro", "path": "./syntaxes/foxpro.tmLanguage.json" }
+    ],
+    "configuration": {
+      "title": "Joe Pro",
+      "properties": {
+        "joepro.executable": {
+          "type": "string",
+          "default": "joepro",
+          "description": "Path to the joepro command-line tool (runs `joepro lsp` and `joepro dap`)."
+        }
+      }
+    },
+    "breakpoints": [{ "language": "foxpro" }],
+    "debuggers": [
+      {
+        "type": "joepro",
+        "label": "Joe Pro",
+        "languages": ["foxpro"],
+        "program": "joepro",
+        "args": ["dap"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": { "type": "string", "description": "The .prg file to run.", "default": "${file}" },
+              "cwd": { "type": "string", "description": "Working directory (SET DEFAULT).", "default": "${workspaceFolder}" },
+              "stopOnEntry": { "type": "boolean", "description": "Stop at the first statement.", "default": false }
+            }
+          }
+        },
+        "initialConfigurations": [
+          { "type": "joepro", "request": "launch", "name": "Run current program", "program": "${file}", "cwd": "${workspaceFolder}" }
+        ]
+      }
+    ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

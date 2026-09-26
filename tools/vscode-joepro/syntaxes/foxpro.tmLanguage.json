@@ -1,0 +1,19 @@
+{
+  "scopeName": "source.foxpro",
+  "name": "FoxPro",
+  "patterns": [
+    { "name": "comment.line.foxpro", "match": "^\\s*(\\*|(?i:NOTE)\\b).*$" },
+    { "name": "comment.line.foxpro", "match": "&&.*$" },
+    { "name": "meta.preprocessor.foxpro", "match": "^\\s*#\\w+.*$" },
+    { "name": "string.quoted.double.foxpro", "begin": "\"", "end": "\"" },
+    { "name": "string.quoted.single.foxpro", "begin": "'", "end": "'" },
+    { "name": "constant.other.date.foxpro", "match": "\\{[^}]*\\}" },
+    { "name": "constant.language.foxpro", "match": "(?i)\\.(T|F|Y|N|NULL)\\." },
+    { "name": "keyword.operator.logical.foxpro", "match": "(?i)\\.(AND|OR|NOT)\\." },
+    { "name": "constant.numeric.foxpro", "match": "\\$?\\b\\d+(\\.\\d+)?\\b" },
+    { "name": "keyword.control.foxpro", "match": "(?i)\\b(IF|ELSE|ENDIF|DO|WHILE|ENDDO|CASE|OTHERWISE|ENDCASE|FOR|EACH|TO|STEP|ENDFOR|NEXT|SCAN|ENDSCAN|EXIT|LOOP|RETURN|TRY|CATCH|FINALLY|ENDTRY|THROW|WITH|ENDWITH)\\b" },
+    { "name": "storage.type.foxpro", "match": "(?i)\\b(PROCEDURE|PROC|FUNCTION|FUNC|ENDPROC|ENDFUNC|DEFINE|CLASS|AS|OF|ENDDEFINE|ADD|OBJECT|PROTECTED|HIDDEN|LOCAL|PRIVATE|PUBLIC|PARAMETERS|LPARAMETERS|DIMENSION|DECLARE)\\b" },
+    { "name": "keyword.other.foxpro", "match": "(?i)\\b(USE|SELECT|GO|TOP|BOTTOM|SKIP|SEEK|LOCATE|CONTINUE|REPLACE|APPEND|BLANK|DELETE|RECALL|PACK|ZAP|INDEX|ON|TAG|SET|ORDER|FILTER|RELATION|INTO|CREATE|TABLE|CURSOR|INSERT|VALUES|UPDATE|FROM|WHERE|GROUP|BY|HAVING|UNION|JOIN|INNER|LEFT|RIGHT|OUTER|FULL|SCATTER|GATHER|MEMVAR|BROWSE|LIST|DISPLAY|COUNT|SUM|CLOSE|OPEN|DATABASE|BEGIN|END|TRANSACTION|ROLLBACK|IMPORT|FOXPRO|STORE|RELEASE|WAIT|WINDOW)\\b" },
+    { "name": "variable.language.foxpro", "match": "(?i)\\b(THIS|THISFORM|THISFORMSET)\\b" }
+  ]
+}

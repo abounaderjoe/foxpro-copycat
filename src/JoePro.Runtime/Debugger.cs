@@ -152,29 +152,38 @@ public sealed class Debugger
     public Breakpoint AddLineBreakpoint(string file, int line, string? condition = null)
     {
         var bp = new Breakpoint { File = Path.GetFullPath(file), Line = line, Condition = string.IsNullOrWhiteSpace(condition) ? null : condition };
-        Breakpoints.Add(bp);
+        lock (Breakpoints) Breakpoints.Add(bp);
         return bp;
     }
 
-    public void SetLineBreakpoints(string file, IEnumerable<(int Line, string? Condition)> lines)
+    /// <summary>Replaces all line breakpoints of a file (safe to call from another thread while the program runs).</summary>
+    public IReadOnlyList<Breakpoint> SetLineBreakpoints(string file, IEnumerable<(int Line, string? Condition)> lines)
     {
         var full = Path.GetFullPath(file);
-        Breakpoints.RemoveAll(b => b.Kind == BreakpointKind.Line && SameFile(b.File, full));
-        foreach (var (line, cond) in lines) AddLineBreakpoint(full, line, cond);
+        var added = lines.Select(l => new Breakpoint { File = full, Line = l.Line, Condition = string.IsNullOrWhiteSpace(l.Condition) ? null : l.Condition }).ToList();
+        lock (Breakpoints)
+        {
+            Breakpoints.RemoveAll(b => b.Kind == BreakpointKind.Line && SameFile(b.File, full));
+            Breakpoints.AddRange(added);
+        }
+        return added;
     }
 
     public Breakpoint AddExpressionBreakpoint(string expression, bool onChange)
     {
         var bp = new Breakpoint { Kind = onChange ? BreakpointKind.OnChange : BreakpointKind.WhenTrue, Expression = expression };
-        Breakpoints.Add(bp);
+        lock (Breakpoints) Breakpoints.Add(bp);
         return bp;
     }
 
     public bool ToggleLineBreakpoint(string file, int line)
     {
         var full = Path.GetFullPath(file);
-        var existing = Breakpoints.FirstOrDefault(b => b.Kind == BreakpointKind.Line && b.Line == line && SameFile(b.File, full));
-        if (existing != null) { Breakpoints.Remove(existing); return false; }
+        lock (Breakpoints)
+        {
+            var existing = Breakpoints.FirstOrDefault(b => b.Kind == BreakpointKind.Line && b.Line == line && SameFile(b.File, full));
+            if (existing != null) { Breakpoints.Remove(existing); return false; }
+        }
         AddLineBreakpoint(full, line);
         return true;
     }
@@ -259,7 +268,9 @@ public sealed class Debugger
     private Breakpoint? MatchBreakpoint(Frame frame, Stmt stmt)
     {
         var file = frame.Unit?.File;
-        foreach (var bp in Breakpoints)
+        Breakpoint[] snapshot;
+        lock (Breakpoints) snapshot = Breakpoints.ToArray();
+        foreach (var bp in snapshot)
         {
             if (!bp.Enabled) continue;
             switch (bp.Kind)
@@ -334,7 +345,9 @@ public sealed class Debugger
         _stepFrame = frame;
         _stepLine = line;
         // Watch-change breakpoints re-prime after a stop so values changed while paused don't fire.
-        foreach (var b in Breakpoints.Where(b => b.Kind == BreakpointKind.OnChange))
+        Breakpoint[] onChange;
+        lock (Breakpoints) onChange = Breakpoints.Where(b => b.Kind == BreakpointKind.OnChange).ToArray();
+        foreach (var b in onChange)
         {
             try { b.LastValue = Runtime.EvaluateInFrame(frame, b.Expression!); b.Primed = true; }
             catch (VfpException) { }

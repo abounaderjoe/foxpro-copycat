@@ -1,0 +1,13 @@
+{
+  "comments": { "lineComment": "&&" },
+  "brackets": [["(", ")"], ["[", "]"], ["{", "}"]],
+  "autoClosingPairs": [
+    { "open": "(", "close": ")" },
+    { "open": "\"", "close": "\"", "notIn": ["string"] },
+    { "open": "'", "close": "'", "notIn": ["string"] }
+  ],
+  "indentationRules": {
+    "increaseIndentPattern": "^\\s*(IF|ELSE|DO\\s+(WHILE|CASE)|CASE|OTHERWISE|FOR|SCAN|TRY|CATCH|FINALLY|WITH|PROC(EDURE)?|FUNC(TION)?|DEFINE\\s+CLASS|TEXT)\\b",
+    "decreaseIndentPattern": "^\\s*(ELSE|ENDIF|ENDDO|ENDCASE|CASE|OTHERWISE|ENDFOR|NEXT|ENDSCAN|CATCH|FINALLY|ENDTRY|ENDWITH|ENDPROC|ENDFUNC|ENDDEFINE|ENDTEXT)\\b"
+  }
+}

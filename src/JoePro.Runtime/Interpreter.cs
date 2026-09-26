@@ -268,7 +268,7 @@ public sealed partial class Interpreter : IExpressionHost
         }
     }
 
-    internal IEnumerable<Variable> VisibleVariables()
+    public IEnumerable<Variable> VisibleVariables()
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var v in _frame.Locals.Values) if (seen.Add(v.Name)) yield return v;

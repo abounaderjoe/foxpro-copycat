@@ -25,6 +25,8 @@ public static class Program
                 "import" when args.Length >= 2 => Import(args.Skip(1).ToArray()),
                 "version" or "--version" => Version(),
                 "functions" => Functions(),
+                "lsp" => new JoePro.Tooling.LspServer(Console.OpenStandardInput(), Console.OpenStandardOutput()).Run(),
+                "dap" => new JoePro.Tooling.DapServer(Console.OpenStandardInput(), Console.OpenStandardOutput()).Run(),
                 "help" or "--help" or "-h" => Help(),
                 _ => Help(1),
             };
@@ -124,6 +126,8 @@ public static class Program
                                           Import a FoxPro .DBF, .DBC or a whole folder and
                                           write migration-report.html/.json
               joepro functions            List the built-in functions implemented so far
+              joepro lsp                  Run the Language Server Protocol server on stdio (editor integration)
+              joepro dap                  Run the Debug Adapter Protocol server on stdio (debugging in VS Code)
               joepro version              Show the version
             """);
         return code;
