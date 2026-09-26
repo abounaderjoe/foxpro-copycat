@@ -8,6 +8,8 @@ public enum TokenKind { Ident, Number, String, Date, Op, Macro, Logical, Null }
 
 public sealed record Token(TokenKind Kind, string Text, int Column)
 {
+    /// <summary>A 0h… binary literal: <see cref="Text"/> holds the hex digits.</summary>
+    public bool IsBinary { get; init; }
     public double Number { get; init; }
     public int Decimals { get; init; }
     public bool IsCurrency { get; init; }
@@ -47,12 +49,24 @@ public static class Preprocessor
             int lineNo = i + 1;
             var sb = new StringBuilder();
             var line = StripInlineComment(physical[i]);
-            // Continuation: a line ending with ';' continues on the next line.
-            while (line.TrimEnd().EndsWith(';') && i + 1 < physical.Length)
+            // Continuation: a line ending with ';' continues on the next line. As in VFP, a ';' at the end of a
+            // comment (&& … ; or * … ;) continues the comment, so the following line is ignored too.
+            if (IsCommentLine(line) && physical[i].TrimEnd().EndsWith(';')) { SkipCommentContinuation(physical, ref i); continue; }
+            while (i + 1 < physical.Length)
             {
                 var t = line.TrimEnd();
-                sb.Append(t, 0, t.Length - 1).Append(' ');
-                line = StripInlineComment(physical[++i]);
+                if (t.EndsWith(';'))
+                {
+                    sb.Append(t, 0, t.Length - 1).Append(' ');
+                    line = StripInlineComment(physical[++i]);
+                    continue;
+                }
+                if (t.Length < physical[i].TrimEnd().Length && physical[i].TrimEnd().EndsWith(';'))
+                {
+                    SkipCommentContinuation(physical, ref i); // "code && comment ;"
+                    break;
+                }
+                break;
             }
             sb.Append(line);
             var text = sb.ToString().Trim();
@@ -79,9 +93,25 @@ public static class Preprocessor
                 i = j;
                 continue;
             }
-            result.Add(new SourceLine { Number = lineNo, Text = text, Tokens = Lexer.Lex(text, lineNo, defines), File = file });
+            // \text and \\text are textmerge output lines: their text is not tokenized.
+            var tokens = text.StartsWith('\\')
+                ? [new Token(TokenKind.Op, text.StartsWith("\\\\") ? "\\\\" : "\\", 0)]
+                : Lexer.Lex(text, lineNo, defines);
+            result.Add(new SourceLine { Number = lineNo, Text = text, Tokens = tokens, File = file });
         }
         return result;
+    }
+
+    private static bool IsCommentLine(string line)
+    {
+        var t = line.TrimStart();
+        return t.StartsWith('*') || IsWord(t, "NOTE", 4);
+    }
+
+    /// <summary>Skips the physical lines that continue a comment ending with ';'.</summary>
+    private static void SkipCommentContinuation(string[] physical, ref int i)
+    {
+        while (physical[i].TrimEnd().EndsWith(';') && i + 1 < physical.Length) i++;
     }
 
     private static bool IsWord(string text, string word, int minLen)
@@ -222,7 +252,18 @@ public static class Lexer
                 continue;
             }
 
-            if (char.IsDigit(c) || (c == '.' && i + 1 < text.Length && char.IsDigit(text[i + 1]) && !PrevIsOperand(tokens)))
+            // 0h… is a binary (Varbinary) literal.
+            if (c == '0' && i + 1 < text.Length && text[i + 1] is 'h' or 'H' && !PrevIsOperand(tokens)
+                && (i + 2 >= text.Length || Uri.IsHexDigit(text[i + 2]) || !char.IsLetterOrDigit(text[i + 2])))
+            {
+                int j = i + 2;
+                while (j < text.Length && Uri.IsHexDigit(text[j])) j++;
+                tokens.Add(new Token(TokenKind.String, text[(i + 2)..j], start) { IsBinary = true });
+                i = j;
+                continue;
+            }
+            // ".5" is a number: member names never start with a digit.
+            if (char.IsDigit(c) || (c == '.' && i + 1 < text.Length && char.IsDigit(text[i + 1]) && !(tokens.Count > 0 && tokens[^1].Kind == TokenKind.Number)))
             {
                 tokens.Add(LexNumber(text, ref i));
                 continue;
@@ -295,9 +336,16 @@ public static class Lexer
         if (tokens.Count == 0) return false;
         var p = tokens[^1];
         // After a command verb at the start of a line ("USE [my file]") '[' opens a string.
+        // After an operator keyword (x OR [a] $ y, CASE [x] = y) '[' opens a string, not a subscript.
+        if (p.Kind == TokenKind.Ident && OperatorWords.Contains(p.Text)) return false;
         if (p.Kind == TokenKind.Ident) return tokens.Count > 1 || !IsStringCommand(p.Text);
         return p.Kind is TokenKind.Number or TokenKind.String || p.IsOp(")") || p.IsOp("]");
     }
+
+    private static readonly HashSet<string> OperatorWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "AND", "OR", "NOT", "CASE", "IF", "ELSEIF", "WHILE", "RETURN", "TO", "IN", "STEP", "WITH", "LIKE", "BETWEEN", "WHERE", "HAVING", "ON",
+    };
 
     private static readonly string[] StringCommands =
     [

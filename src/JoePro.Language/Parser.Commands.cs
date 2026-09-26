@@ -77,6 +77,29 @@ public sealed partial class Parser
             return new DeleteStmt(ParseScope(), false);
         }
         if (V("RECALL")) return new DeleteStmt(ParseScope(), true);
+        if (V("ADD") && AcceptKw("TABLE"))
+        {
+            var tn = NameArg("NAME");
+            Expr? longName = AcceptKw("NAME") ? NameArg() : null;
+            return new AddTableStmt(tn, longName);
+        }
+        if (V("REMOVE") && AcceptKw("TABLE"))
+        {
+            var tn = NameArg("DELETE", "RECYCLE");
+            bool delete = false;
+            while (!AtEnd) { if (AcceptKw("DELETE")) delete = true; else _p++; }
+            return new RemoveTableStmt(tn, delete);
+        }
+        if (V("BLANK"))
+        {
+            List<string>? fields = null;
+            if (AcceptKw("FIELDS"))
+            {
+                fields = [];
+                do fields.Add(Ident()); while (AcceptOp(","));
+            }
+            return new BlankStmt(fields, ParseScope());
+        }
         if (V("PACK")) { AcceptKw("MEMO"); AcceptKw("DBF"); return new PackStmt(AcceptKw("IN") ? AliasArg() : null); }
         if (V("ZAP")) return new ZapStmt(AcceptKw("IN") ? AliasArg() : null);
         if (V("INDEX")) return Index();
@@ -140,7 +163,16 @@ public sealed partial class Parser
             }
             return new BrowseStmt(fields, scope);
         }
-        if (V("COPY")) return Copy();
+        if (V("COPY"))
+        {
+            if (AcceptKw("FILE"))
+            {
+                var src = NameArg("TO");
+                ExpectKw("TO");
+                return new CopyFileStmt(src, NameArg());
+            }
+            return Copy();
+        }
         if (V("IMPORT"))
         {
             bool db = AcceptKw("DATABASE");
@@ -150,7 +182,12 @@ public sealed partial class Parser
             if (AcceptKw("TYPE")) Ident();
             return new ImportStmt(src, to, db);
         }
-        if (V("INSERT")) return SqlInsert();
+        if (V("INSERT"))
+        {
+            // xBase INSERT [BLANK] [BEFORE]: Joe Pro appends the new record (records are never renumbered).
+            if (AtEnd || Kw("BLANK") || Kw("BEFORE")) { _p = _t.Count; return new AppendBlankStmt(null) { FromInsert = true }; }
+            return SqlInsert();
+        }
         if (V("UPDATE")) return SqlUpdate();
         if (V("DEFINE")) { _p = _t.Count; return new NoOpStmt("DEFINE"); }
         if (V("CD") || V("CHDIR")) return new ChdirStmt(NameArg());
@@ -167,7 +204,7 @@ public sealed partial class Parser
         if (V("MODIFY") || V("MODI") || V("BUILD") || V("REPORT") || V("LABEL") || V("KEYBOARD") || V("ACTIVATE") || V("DEACTIVATE")
             || V("HIDE") || V("SHOW") || V("MOVE") || V("PUSH") || V("POP") || V("RESTORE") || V("SAVE") || V("RUN") || V("FLUSH")
             || V("UNLOCK") || V("DOEVENTS") || V("RETRY") || V("EXTERNAL") || V("SLEEP") || V("LOCK") || V("VALIDATE") || V("ASSERT")
-            || V("DEBUGOUT") || V("ERASE") || V("RENAME") || V("MD") || V("MKDIR") || V("RD") || V("RMDIR"))
+            || V("DEBUGOUT") || V("ERASE") || V("RENAME") || V("MD") || V("MKDIR") || V("RD") || V("RMDIR") || V("MOUSE") || V("HELP") || V("ZOOM") || V("SIZE") || V("SCROLL") || V("PLAY") || V("CALL") || V("LOAD"))
         {
             var rawVerb = verb.Text.ToUpperInvariant();
             var rest = RawText(_p, _t.Count);
@@ -227,7 +264,8 @@ public sealed partial class Parser
             var value = Expression();
             bool additive = AcceptKw("ADDITIVE");
             items.Add((field, value, additive));
-        } while (AcceptOp(","));
+            // VFP also accepts a missing comma between assignments: REPLACE a WITH 1 b WITH 2
+        } while (AcceptOp(",") || (Peek()?.Kind == TokenKind.Ident && !ScopeWords.Any(Kw) && Kw(1, "WITH")));
         return new ReplaceStmt(items, MergeScope(leading, ParseScope()));
     }
 
@@ -478,9 +516,47 @@ public sealed partial class Parser
         ("GENERAL", 'G'), ("BLOB", 'W'), ("VARBINARY", 'Q'),
     ];
 
+    /// <summary>A field type name (C, Character, Varchar, Integer…) with optional (width[, decimals]).</summary>
+    private (char Type, int Width, int Decimals) TypeSpec()
+    {
+        var typeTok = Ident();
+        char type;
+        if (typeTok.Length == 1) type = char.ToUpperInvariant(typeTok[0]);
+        else
+        {
+            var up = typeTok.ToUpperInvariant();
+            type = TypeNames.FirstOrDefault(t => t.Name == up || (up.Length >= 4 && t.Name.StartsWith(up))).Type;
+            if (type == '\0') throw Error($"Unknown field type '{typeTok}'.");
+        }
+        int width = 0, dec = 0;
+        if (AcceptOp("("))
+        {
+            width = (int)Next().Number;
+            if (AcceptOp(",")) dec = (int)Next().Number;
+            ExpectOp(")");
+        }
+        return (type, width, dec);
+    }
+
+    private Expr CastCall()
+    {
+        ExpectOp("(");
+        var value = Expression();
+        ExpectKw("AS");
+        var (type, width, dec) = TypeSpec();
+        bool? nullable = null;
+        if (AcceptKw("NULL")) nullable = true;
+        else if (Kw("NOT") && Kw(1, "NULL")) { _p += 2; nullable = false; }
+        ExpectOp(")");
+        return new CastExpr(value, type, width, dec, nullable);
+    }
+
     private FieldSpec FieldSpecification()
     {
-        var name = Ident();
+        Expr? nameExpr = null;
+        string name;
+        if (IsOp("(")) { _p++; nameExpr = Expression(); ExpectOp(")"); name = ""; } // ADD COLUMN (cName) M
+        else name = Ident();
         var typeTok = Ident();
         char type;
         if (typeTok.Length == 1) type = char.ToUpperInvariant(typeTok[0]);
@@ -502,7 +578,7 @@ public sealed partial class Parser
         string? error = null;
         long next = 1;
         int step = 1;
-        while (!AtEnd && !IsOp(",") && !IsOp(")"))
+        while (!AtEnd && !IsOp(",") && !IsOp(")") && !Kw("ADD") && !(Kw("DROP") && !Kw(1, "DEFAULT")) && !(Kw("ALTER") && Kw(1, "COLUMN")) && !Kw("RENAME"))
         {
             if (Kw("NOT") && (Peek(1)?.Kind == TokenKind.Null || KwMatch(Peek(1), "NULL"))) { _p += 2; notNull = true; }
             else if (Peek()!.Kind == TokenKind.Null || Kw("NULL")) { _p++; isNull = true; }
@@ -520,33 +596,55 @@ public sealed partial class Parser
             else if (AcceptKw("NOCPTRANS") || AcceptKw("NOVALIDATE")) { }
             else throw Error($"Unrecognized field clause '{Peek()}'.");
         }
-        return new FieldSpec(name, type, width, dec, isNull, notNull, pk, unique, def, check, error, autoInc, next, step);
+        return (new FieldSpec(name, type, width, dec, isNull, notNull, pk, unique, def, check, error, autoInc, next, step)) with { NameExpr = nameExpr };
+    }
+
+    /// <summary>A column name, or (expression) evaluated when the command runs.</summary>
+    private (string Name, Expr? Expr) ColumnName()
+    {
+        if (!IsOp("(")) return (Ident(), null);
+        _p++;
+        var e = Expression();
+        ExpectOp(")");
+        return ("", e);
     }
 
     private Stmt AlterTable()
     {
         ExpectKw("TABLE");
         var name = NameArg("ADD", "DROP", "ALTER", "RENAME");
-        if (AcceptKw("ADD"))
+        // Several clauses may follow: ALTER TABLE t ADD COLUMN a I ADD COLUMN b C(10)
+        var clauses = new List<Stmt>();
+        while (!AtEnd)
         {
-            AcceptKw("COLUMN");
-            return new AlterTableStmt(name, "ADD", FieldSpecification(), null, null, null);
+            if (AcceptKw("ADD"))
+            {
+                AcceptKw("COLUMN");
+                clauses.Add(new AlterTableStmt(name, "ADD", FieldSpecification(), null, null, null));
+            }
+            else if (AcceptKw("DROP"))
+            {
+                AcceptKw("COLUMN");
+                var (dn, de) = ColumnName();
+                clauses.Add(new AlterTableStmt(name, "DROP", null, dn, null, null) { DropExpr = de });
+            }
+            else if (AcceptKw("ALTER"))
+            {
+                AcceptKw("COLUMN");
+                clauses.Add(new AlterTableStmt(name, "ALTER", FieldSpecification(), null, null, null));
+            }
+            else
+            {
+                ExpectKw("RENAME");
+                AcceptKw("COLUMN");
+                var (from, fromExpr) = ColumnName();
+                ExpectKw("TO");
+                var (to, toExpr) = ColumnName();
+                clauses.Add(new AlterTableStmt(name, "RENAME", null, null, from, to) { RenameFromExpr = fromExpr, RenameToExpr = toExpr });
+            }
         }
-        if (AcceptKw("DROP"))
-        {
-            AcceptKw("COLUMN");
-            return new AlterTableStmt(name, "DROP", null, Ident(), null, null);
-        }
-        if (AcceptKw("ALTER"))
-        {
-            AcceptKw("COLUMN");
-            return new AlterTableStmt(name, "ALTER", FieldSpecification(), null, null, null);
-        }
-        ExpectKw("RENAME");
-        AcceptKw("COLUMN");
-        var from = Ident();
-        ExpectKw("TO");
-        return new AlterTableStmt(name, "RENAME", null, null, from, Ident());
+        if (clauses.Count == 0) throw Error("ALTER TABLE needs ADD, DROP, ALTER or RENAME.");
+        return clauses.Count == 1 ? clauses[0] : new BlockStmt(clauses);
     }
 
     // ---- Aggregates, SCATTER/GATHER, COPY ------------------------------------------------
@@ -576,7 +674,7 @@ public sealed partial class Parser
         while (!AtEnd)
         {
             if (AcceptKw("MEMVAR")) memvar = true;
-            else if (AcceptKw("NAME")) { name = Ident(); if (AcceptKw("ADDITIVE")) additive = true; }
+            else if (AcceptKw("NAME")) { name = VarName(); if (AcceptKw("ADDITIVE")) additive = true; }
             else if (AcceptKw("FIELDS"))
             {
                 if (AcceptKw("LIKE") || AcceptKw("EXCEPT")) { NameArg("MEMO", "BLANK", "MEMVAR", "NAME", "TO"); continue; }
@@ -612,6 +710,13 @@ public sealed partial class Parser
     {
         if (AcceptKw("STRUCTURE"))
         {
+            if (AcceptKw("EXTENDED"))
+            {
+                ExpectKw("TO");
+                var xt = NameArg("DATABASE", "NAME", "FIELDS");
+                while (!AtEnd) _p++;
+                return new CopyToStmt(xt, null, null, Scope.Default, true, false) { Extended = true };
+            }
             ExpectKw("TO");
             var t = NameArg("FIELDS", "WITH", "DATABASE", "NAME");
             List<string>? f = null;
@@ -754,6 +859,9 @@ public sealed partial class Parser
             if (AcceptKw("NOFILTER")) { noFilter = true; continue; }
             if (AcceptKw("NOCONSOLE") || AcceptKw("PLAIN") || AcceptKw("NOWAIT") || AcceptKw("ADDITIVE")) continue;
             if (AcceptKw("WHERE") && where == null) { where = Expression(); continue; }
+            // VFP accepts GROUP BY / HAVING after INTO or ORDER BY too.
+            if (groupBy.Count == 0 && Kw("GROUP") && Kw(1, "BY")) { _p += 2; groupBy = ExprList(); continue; }
+            if (having == null && AcceptKw("HAVING")) { having = Expression(); continue; }
             break;
         }
         return new SqlSelect(distinct, top, percent, cols, from, joins, where, groupBy, having, unions, order, intoKind, intoName, readWrite, noFilter);
@@ -798,7 +906,16 @@ public sealed partial class Parser
         }
         Expr table;
         var t = Next();
-        if (t.Kind == TokenKind.Ident)
+        if (t.Kind == TokenKind.Ident && (IsOp("(") || IsOp("+")))
+        {
+            // FROM HOME() + "samples\data\customer" or FROM lcDir + "orders": a name expression
+            _p--;
+            var saved = _sql;
+            _sql = false;
+            try { table = Additive(); }
+            finally { _sql = saved; }
+        }
+        else if (t.Kind == TokenKind.Ident)
         {
             var name = t.Text;
             if (IsOp("!") && Peek(1)?.Kind == TokenKind.Ident) { _p++; name += "!" + Ident(); }
@@ -823,7 +940,7 @@ public sealed partial class Parser
         if (AcceptOp("("))
         {
             cols = [];
-            do cols.Add(Ident()); while (AcceptOp(","));
+            do cols.Add(Peek()?.Kind == TokenKind.String ? Next().Text : Ident()); while (AcceptOp(","));
             ExpectOp(")");
         }
         if (AcceptKw("VALUES"))

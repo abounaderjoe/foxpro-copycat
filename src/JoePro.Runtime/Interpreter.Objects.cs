@@ -23,7 +23,11 @@ public sealed partial class Interpreter
             if (!u.Classes.TryGetValue(name, out var def)) continue;
             if (string.Equals(def.Parent, def.Name, StringComparison.OrdinalIgnoreCase))
                 throw new VfpException(1733, $"Class definition {name.ToUpperInvariant()} is recursive.");
-            var parent = ResolveClass(def.Parent, def.ParentLib != null && ResolveProgramFile(def.ParentLib) is { } lib ? LoadProgram(lib) : module);
+            var parentModule = module;
+            if (def.ParentLib != null)
+                parentModule = LoadClassFile(ResolveClassFile(def.ParentLib, ".jpclass", ".vcx", u.File)
+                    ?? throw VfpException.FileNotFound(def.ParentLib));
+            var parent = ResolveClass(def.Parent, parentModule);
             var info = new ClassInfo(def.Name, parent.BaseClass, parent, def, u) { Library = u.File };
             _classes[name] = info;
             return info;
@@ -77,6 +81,7 @@ public sealed partial class Interpreter
         try
         {
             var levels = cls.Hierarchy().Reverse().Where(l => l.Definition != null).ToList();
+            var prebuilt = new HashSet<AddObjectDef>(ReferenceEqualityComparer.Instance);
             // Pass 1: property values.
             foreach (var level in levels)
             {
@@ -105,6 +110,26 @@ public sealed partial class Interpreter
                     Session = session;
                 }
                 else o.Set("DataSessionId", Value.Number(Session.Id));
+                // The data environment (and its cursors) exists and opens its tables before Load, as in VFP.
+                var deName = levels.SelectMany(l => l.Definition!.Objects.Select(ao => (ao, l)))
+                    .Where(x => !x.ao.Name.Contains('.') && MemberClass(x.ao, x.l).BaseClass.Equals("DataEnvironment", StringComparison.OrdinalIgnoreCase))
+                    .Select(x => x.ao.Name).LastOrDefault();
+                if (deName != null)
+                {
+                    foreach (var level in levels)
+                        foreach (var ao in level.Definition!.Objects.Where(ao => IsUnder(ao.Name, deName)))
+                        {
+                            BuildMember(o, ao, level);
+                            prebuilt.Add(ao);
+                        }
+                    var de = o.FindProperty(deName)!.Value.AsObject as VfpObject;
+                    if (de != null)
+                    {
+                        RaiseEvent(de, "BeforeOpenTables", []);
+                        if (de.FindProperty("AutoOpenTables")?.Value is not { Kind: ValueKind.Logical } auto || auto.AsBool)
+                            InvokeMethod(de, "OpenTables", []);
+                    }
+                }
                 var loaded = RaiseEvent(o, "Load", []);
                 if (loaded.Kind == ValueKind.Logical && !loaded.AsBool) o.Set("__LoadFailed", Value.True);
             }
@@ -113,21 +138,7 @@ public sealed partial class Interpreter
             foreach (var level in levels)
             {
                 foreach (var ao in level.Definition!.Objects)
-                {
-                    var path = ao.Name.Split('.');
-                    var container = o;
-                    for (int i = 0; i < path.Length - 1; i++)
-                        container = container.FindProperty(path[i])?.Value is { Kind: ValueKind.Object } cv ? (VfpObject)cv.AsObject : throw VfpObject.PropertyNotFound(path[i]);
-                    var childClass = ResolveClass(ao.Class, level.Unit);
-                    var existing = container.FindProperty(path[^1])?.Value is { Kind: ValueKind.Object } ev ? (VfpObject)ev.AsObject : null;
-                    if (existing != null) container.Members.Remove(existing);
-                    var child = Build(childClass, container, path[^1]);
-                    child.SkipInit = ao.NoInit;
-                    foreach (var (prop, expr) in ao.Properties) SetPath(child, prop, Eval(expr));
-                    SyncAutoChildren(child);
-                    container.Members.Add(child);
-                    container.Set(path[^1], Value.Object(child));
-                }
+                    if (!prebuilt.Contains(ao)) BuildMember(o, ao, level);
                 foreach (var m in level.Definition.Members.Where(m => m.Name.Contains('.'))) SetPath(o, m.Name, Eval(m.Value!));
             }
         }
@@ -137,6 +148,41 @@ public sealed partial class Interpreter
             Session = savedSession;
         }
         return o;
+    }
+
+    private static bool IsUnder(string path, string root) =>
+        path.Equals(root, StringComparison.OrdinalIgnoreCase) || path.StartsWith(root + ".", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The class of an ADD OBJECT member: from its OF library when given, else from the defining unit.</summary>
+    private ClassInfo MemberClass(AddObjectDef ao, ClassInfo level)
+    {
+        if (ao.ClassLib == null) return ResolveClass(ao.Class, level.Unit);
+        var lib = ResolveClassFile(ao.ClassLib, ".jpclass", ".vcx", level.Unit?.File) ?? throw VfpException.FileNotFound(ao.ClassLib);
+        return ResolveClass(ao.Class, LoadClassFile(lib));
+    }
+
+    /// <summary>
+    /// Builds one ADD OBJECT member. A member that replaces an existing (automatic) child keeps its position.
+    /// Plain properties are set first, then automatic children are created (PageCount, ColumnCount…), then
+    /// properties of those children (Page1.Caption).
+    /// </summary>
+    private void BuildMember(VfpObject o, AddObjectDef ao, ClassInfo level)
+    {
+        var path = ao.Name.Split('.');
+        var container = o;
+        for (int i = 0; i < path.Length - 1; i++)
+            container = container.FindProperty(path[i])?.Value is { Kind: ValueKind.Object } cv ? (VfpObject)cv.AsObject : throw VfpObject.PropertyNotFound(path[i]);
+        var childClass = MemberClass(ao, level);
+        var existing = container.FindProperty(path[^1])?.Value is { Kind: ValueKind.Object } ev ? (VfpObject)ev.AsObject : null;
+        int position = existing != null ? container.Members.IndexOf(existing) : -1;
+        if (existing != null) container.Members.Remove(existing);
+        var child = Build(childClass, container, path[^1]);
+        child.SkipInit = ao.NoInit;
+        foreach (var (prop, expr) in ao.Properties.Where(p => !p.Prop.Contains('.'))) SetPath(child, prop, Eval(expr));
+        SyncAutoChildren(child);
+        foreach (var (prop, expr) in ao.Properties.Where(p => p.Prop.Contains('.'))) SetPath(child, prop, Eval(expr));
+        if (position >= 0) container.Members.Insert(position, child); else container.Members.Add(child);
+        container.Set(path[^1], Value.Object(child));
     }
 
     /// <summary>Fires Init for member objects (innermost first), then for the object. A member whose Init returns .F. is removed.</summary>
@@ -349,8 +395,17 @@ public sealed partial class Interpreter
         InObjectContext(form, () =>
         {
             RaiseEvent(form, "Destroy", []);
-            foreach (var m in form.Members.ToList()) ReleaseObject(m);
+            var de = DataEnvironmentOf(form);
+            foreach (var m in form.Members.ToList()) if (m != de) ReleaseObject(m);
             UnloadResults[form] = RaiseEvent(form, "Unload", []);
+            if (de != null)
+            {
+                // The data environment closes its tables after Unload, then is destroyed.
+                if (de.FindProperty("AutoCloseTables")?.Value is not { Kind: ValueKind.Logical } auto || auto.AsBool)
+                    InvokeMethod(de, "CloseTables", []);
+                RaiseEvent(de, "AfterCloseTables", []);
+                ReleaseObject(de);
+            }
             return true;
         });
         Ui?.Release(form);
@@ -609,6 +664,12 @@ public sealed partial class Interpreter
         Value A(int i) => i < args.Count ? args[i].Value : Value.False;
         switch (name.ToUpperInvariant())
         {
+            case "OPENTABLES" when o.Class.BaseClass == "DataEnvironment":
+                OpenDataEnvironmentTables(o);
+                return Value.True;
+            case "CLOSETABLES" when o.Class.BaseClass == "DataEnvironment":
+                CloseDataEnvironmentTables(o);
+                return Value.True;
             case "INIT" or "DESTROY" or "ERROR" or "LOAD" or "UNLOAD" or "ACTIVATE" or "DEACTIVATE" or "CLICK" or "DBLCLICK"
                 or "GOTFOCUS" or "LOSTFOCUS" or "VALID" or "WHEN" or "INTERACTIVECHANGE" or "PROGRAMMATICCHANGE" or "QUERYUNLOAD"
                 or "RESIZE" or "TIMER" or "KEYPRESS" or "MOUSEDOWN" or "MOUSEUP" or "MOUSEMOVE" or "DRAW" or "MOVED"

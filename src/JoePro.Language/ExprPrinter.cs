@@ -105,6 +105,14 @@ public static class ExprPrinter
                 sb.Append(lk.Not ? " NOT LIKE " : " LIKE ");
                 Write(sb, lk.Pattern, 5);
                 break;
+            case CastExpr ce:
+                sb.Append("CAST(");
+                Write(sb, ce.Value, 0);
+                sb.Append(" AS ").Append(ce.Type);
+                if (ce.Width > 0) sb.Append('(').Append(ce.Width).Append(ce.Decimals > 0 ? "," + ce.Decimals : "").Append(')');
+                if (ce.Nullable == true) sb.Append(" NULL"); else if (ce.Nullable == false) sb.Append(" NOT NULL");
+                sb.Append(')');
+                break;
             case ViewParamExpr vp:
                 sb.Append('?');
                 if (vp.Inner is NameExpr or MemVarExpr or MemberExpr) Write(sb, vp.Inner, 9);

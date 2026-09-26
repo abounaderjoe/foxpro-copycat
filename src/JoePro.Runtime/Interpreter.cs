@@ -97,6 +97,11 @@ public sealed partial class Interpreter : IExpressionHost
     public string LastErrorProgram { get; private set; } = "";
     /// <summary>AERROR() elements 3–7 when the last error carries extra detail (ODBC errors).</summary>
     public Value[]? LastErrorDetail { get; private set; }
+    /// <summary>SET TEXTMERGE ON: \ lines and TEXT … TEXTMERGE expand &lt;&lt;expressions&gt;&gt;.</summary>
+    public bool TextMergeOn { get; private set; }
+    private bool _textMergeShow = true;
+    private string? _textMergeFile;
+
     /// <summary>SQL pass-through connections.</summary>
     public SqlPassThrough Remote => _remote ??= new SqlPassThrough(this);
     private SqlPassThrough? _remote;
@@ -342,6 +347,7 @@ public sealed partial class Interpreter : IExpressionHost
         for (var f = _frame; f != null; f = f.Parent)
             if (f.Unit != null && seen.Add(f.Unit)) yield return f.Unit;
         foreach (var u in _procedureFiles) if (seen.Add(u)) yield return u;
+        foreach (var u in _classLibraries) if (seen.Add(u)) yield return u;
         foreach (var u in StoredProcedureUnits()) if (seen.Add(u)) yield return u;
         foreach (var u in _loadedUnits.AsEnumerable().Reverse()) if (seen.Add(u)) yield return u;
     }
@@ -625,8 +631,20 @@ public sealed partial class Interpreter : IExpressionHost
                 Print(p);
                 return Flow.Normal;
             case DeclareStmt d:
-                foreach (var v in d.Vars)
+                foreach (var v0 in d.Vars)
                 {
+                    var v = v0.NameExpr != null ? v0 with { Name = Eval(v0.NameExpr).AsString.Trim() } : v0;
+                    if (v.Target != null)
+                    {
+                        if (Eval(v.Target.Target) is not { Kind: ValueKind.Object } owner) throw VfpException.TypeMismatch();
+                        var obj = (VfpObject)owner.AsObject;
+                        var prop = obj.FindProperty(v.Name);
+                        if (prop == null) { obj.Set(v.Name, Value.False); prop = obj.FindProperty(v.Name)!; }
+                        var pd = v.Dims!.Select(x => (int)Eval(x).AsNumber).ToList();
+                        if (prop.Array != null) prop.Array.Redimension(pd[0], pd.Count > 1 ? pd[1] : 0);
+                        else prop.Array = new VfpArray(pd[0], pd.Count > 1 ? pd[1] : 0);
+                        continue;
+                    }
                     var variable = Declare(d.Scope, v.Name);
                     if (v.Dims != null)
                     {
@@ -698,6 +716,17 @@ public sealed partial class Interpreter : IExpressionHost
             case TextStmt tx:
                 ExecText(tx);
                 return Flow.Normal;
+            case TextOutStmt tout:
+            {
+                var text = TextMergeOn ? TextMerge(tout.Text) : tout.Text;
+                if (_textMergeFile != null) File.AppendAllText(_textMergeFile, (tout.NewLine ? "\r\n" : "") + text);
+                if (_textMergeShow)
+                {
+                    if (tout.NewLine) Output.NewLine();
+                    Output.Write(text);
+                }
+                return Flow.Normal;
+            }
             case ReleaseStmt rl:
                 ExecRelease(rl);
                 return Flow.Normal;
@@ -844,8 +873,11 @@ public sealed partial class Interpreter : IExpressionHost
         }
         catch (Exception ex) when (t.Catch != null && ex is not QuitException and not ReturnToMasterException and not InternalFlowException and not CancelProgramException and not GotoException)
         {
-            if (!CatchMatches(t, ex)) throw;
-            result = Exec(t.Catch);
+            List<Stmt>? handler = null;
+            if (CatchMatches(t.CatchVar, t.When, ex)) handler = t.Catch;
+            else foreach (var c in t.MoreCatches) if (CatchMatches(c.Var, c.When, ex)) { handler = c.Body; break; }
+            if (handler == null) throw;
+            result = Exec(handler);
         }
         finally
         {
@@ -858,7 +890,7 @@ public sealed partial class Interpreter : IExpressionHost
         return result;
     }
 
-    private bool CatchMatches(TryStmt t, Exception ex)
+    private bool CatchMatches(string? catchVar, Expr? when, Exception ex)
     {
         Value exValue;
         if (ex is UserThrowException ut && ut.Payload.Kind == ValueKind.Object && ut.Payload.AsObject is VfpObject thrownObj && thrownObj.Class.IsA("Exception"))
@@ -880,8 +912,8 @@ public sealed partial class Interpreter : IExpressionHost
             if (ex is UserThrowException u2) o.Set("UserValue", u2.Payload);
             exValue = Value.Object(o);
         }
-        if (t.CatchVar != null) Assign(new NameExpr(t.CatchVar), exValue);
-        if (t.When != null && !Truthy(Eval(t.When))) return false;
+        if (catchVar != null) Assign(new NameExpr(catchVar), exValue);
+        if (when != null && !Truthy(Eval(when))) return false;
         return true;
     }
 
@@ -899,6 +931,12 @@ public sealed partial class Interpreter : IExpressionHost
     {
         var lines = t.Lines.Select(l => t.Merge ? TextMerge(l) : l).ToList();
         var text = string.Join("\r\n", lines);
+        if (t.ToTarget != null)
+        {
+            if (t.Additive && Eval(t.ToTarget) is { Kind: ValueKind.Character } old) text = old.AsString + "\r\n" + text;
+            Assign(t.ToTarget, Value.String(text));
+            return;
+        }
         if (t.ToVar != null)
         {
             if (t.Additive && FindVariable(t.ToVar) is { } v && v.Value.Kind == ValueKind.Character)
@@ -920,6 +958,7 @@ public sealed partial class Interpreter : IExpressionHost
 
     private void ExecRelease(ReleaseStmt r)
     {
+        foreach (var m in r.Members) Assign(m, Value.Null);
         if (r.All)
         {
             var names = _frame.Locals.Keys.Concat(_frame.Privates.Keys).ToList();
@@ -986,20 +1025,15 @@ public sealed partial class Interpreter : IExpressionHost
     }
 
     /// <summary>
-    /// DO FORM name: loads name.jpform (a form stored as DEFINE CLASS text), instantiates its form
-    /// class and shows it. Legacy .SCX forms need the form converter (Phase 3).
+    /// DO FORM name: loads name.jpform (a form stored as DEFINE CLASS text) or a legacy name.scx (converted in
+    /// memory), instantiates its form class and shows it.
     /// </summary>
     private void ExecDoForm(DoFormStmt df)
     {
         var name = NameValue(df.Form);
-        var path = ResolveProgramFile(name, ".jpform");
-        if (path == null || !path.EndsWith(".jpform", StringComparison.OrdinalIgnoreCase))
-        {
-            if (ResolveProgramFile(name, ".scx") is { } scx && scx.EndsWith(".scx", StringComparison.OrdinalIgnoreCase))
-                throw VfpException.NotSupported($"DO FORM {Path.GetFileName(scx)}: .SCX forms must be converted to .jpform first (form converter, Phase 3)");
-            throw VfpException.FileNotFound(Path.HasExtension(name) ? name : name + ".jpform");
-        }
-        var unit = LoadProgram(path);
+        var path = ResolveClassFile(name, ".jpform", ".scx", _frame.Unit?.File)
+            ?? throw VfpException.FileNotFound(Path.HasExtension(name) ? name : name + ".jpform");
+        var unit = LoadClassFile(path);
         var def = unit.Classes.Values.FirstOrDefault(c => ResolveClass(c.Name, unit).BaseClass is "Form" or "FormSet")
                   ?? throw new VfpException(1733, $"{Path.GetFileName(path)} does not define a Form class.");
         var args = EvalArgs(df.Args, byRefVariables: false);

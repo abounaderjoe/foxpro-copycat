@@ -16,6 +16,32 @@ public sealed class ProgramAnalyzer
 
     public ProgramAnalyzer(MigrationReport report) => _report = report;
 
+    /// <summary>Folders searched for #INCLUDE files after the program's own folder (the migration source root).</summary>
+    public List<string> IncludeRoots { get; } = new();
+
+    private string? _currentPath;
+
+    /// <summary>
+    /// Finds an #INCLUDE file the way VFP would: next to the program, then in the include roots (and, as a last
+    /// resort, anywhere below them), ignoring case.
+    /// </summary>
+    private string? ResolveInclude(string name)
+    {
+        name = name.Trim().Trim('"', '\'', '[', ']').Replace('\\', Path.DirectorySeparatorChar);
+        var dirs = new List<string>();
+        if (_currentPath != null) dirs.Add(Path.GetDirectoryName(_currentPath)!);
+        dirs.AddRange(IncludeRoots);
+        foreach (var d in dirs)
+            if (JoePro.Data.DataSession.FindIgnoringCase(Path.Combine(d, name)) is { } hit) return File.ReadAllText(hit, System.Text.Encoding.Latin1);
+        foreach (var root in IncludeRoots.Where(Directory.Exists))
+        {
+            var match = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                .FirstOrDefault(f => Path.GetFileName(f).Equals(Path.GetFileName(name), StringComparison.OrdinalIgnoreCase));
+            if (match != null) return File.ReadAllText(match, System.Text.Encoding.Latin1);
+        }
+        return null;
+    }
+
     public void AnalyzeFile(string path, string displayName)
     {
         string text;
@@ -30,7 +56,9 @@ public sealed class ProgramAnalyzer
             _report.Add(FindingStatus.Converted, "CODE.HEADER", "code", new SourceLocation(displayName), "Header file is used as-is by #INCLUDE.");
             return;
         }
-        AnalyzeSource(text, displayName, null);
+        _currentPath = path;
+        try { AnalyzeSource(text, displayName, null); }
+        finally { _currentPath = null; }
     }
 
     public void AnalyzeSource(string source, string file, string? objectName)
@@ -40,7 +68,7 @@ public sealed class ProgramAnalyzer
         ProgramUnit unit;
         try
         {
-            unit = Parser.ParseProgram(source, Path.GetFileNameWithoutExtension(file));
+            unit = Parser.ParseProgram(source, Path.GetFileNameWithoutExtension(file), null, ResolveInclude);
         }
         catch (CompileException ex)
         {
@@ -129,18 +157,9 @@ public sealed class ProgramAnalyzer
                 Add(FindingStatus.NeedsReview, "CODE.ON.EVENT", file, obj, member, line, lines,
                     "ON KEY LABEL / ON SHUTDOWN / ON ESCAPE handlers are ignored until the UI runtime ships (Phase 3).");
                 break;
-            case DoFormStmt:
-                Add(FindingStatus.NeedsReview, "CODE.UI.FORM", file, obj, member, line, lines,
-                    "DO FORM runs forms stored as .jpform; legacy .SCX forms need the form converter (Phase 3).",
-                    "Convert the .SCX when the form converter ships, or rewrite the form as a .jpform class.");
-                break;
             case SetStmt { Option: "__REPORT" or "__LABEL" }:
                 Add(FindingStatus.NeedsReview, "CODE.UI.REPORT", file, obj, member, line, lines,
                     "REPORT FORM / LABEL FORM needs the report engine (Phase 4).");
-                break;
-            case SetStmt { Option: "CLASSLIB" }:
-                Add(FindingStatus.NeedsReview, "CODE.SET.CLASSLIB", file, obj, member, line, lines,
-                    "SET CLASSLIB loads a .VCX class library, which is converted in Phase 3.", "Define the classes in a PRG (DEFINE CLASS) in the meantime.");
                 break;
             case SetStmt st when st.Option.StartsWith("__") && st.Option is "__MODIFY" or "__MODI" or "__BUILD" or "__KEYBOARD":
                 Add(FindingStatus.NeedsReview, "CODE.IDE.COMMAND", file, obj, member, line, lines,

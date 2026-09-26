@@ -58,6 +58,11 @@ public sealed partial class Parser
                 unit.Classes[cls.Name] = cls;
                 continue;
             }
+            if (LineStartsWith("ENDPROC", "ENDFUNC"))
+            {
+                _li++; // a stray ENDPROC closing the main program is accepted, as in VFP
+                continue;
+            }
             if (unit.Procedures.Count > 0 || unit.Classes.Count > 0)
             {
                 // Code after the first PROCEDURE belongs to procedures; stray lines between blocks are skipped like VFP.
@@ -202,13 +207,13 @@ public sealed partial class Parser
             while (!IsOp(")"))
             {
                 if (AcceptOp("@")) { }
-                parms.Add(Ident());
-                if (AcceptKw("AS")) { Ident(); if (AcceptKw("OF")) Ident(); }
+                parms.Add(VarName());
+                SkipAsClause();
                 if (!AcceptOp(",")) break;
             }
             ExpectOp(")");
         }
-        if (AcceptKw("AS")) { Ident(); if (AcceptKw("OF")) Ident(); }
+        SkipAsClause();
         AcceptKw("HELPSTRING");
         int line = _lineNo;
         _li++;
@@ -262,10 +267,17 @@ public sealed partial class Parser
             {
                 _p += 2;
                 bool prot = AcceptKw("PROTECTED");
-                var objName = Ident();
-                while (AcceptOp(".")) objName += "." + Ident();
+                string objName;
+                if (Peek()?.Kind == TokenKind.String) objName = Next().Text; // ADD OBJECT 'Pageframe1.Page1.Text1' AS …
+                else
+                {
+                    objName = Ident();
+                    while (AcceptOp(".")) objName += "." + Ident();
+                }
                 ExpectKw("AS");
                 var objClass = Ident();
+                string? objLib = null;
+                if (AcceptKw("OF")) objLib = NameArg("NOINIT", "WITH") is LiteralExpr { Value.Kind: ValueKind.Character } ol ? ol.Value.AsString : null;
                 bool noInit = AcceptKw("NOINIT");
                 var props = new List<(string, Expr)>();
                 if (AcceptKw("WITH"))
@@ -278,7 +290,7 @@ public sealed partial class Parser
                         props.Add((pn, Expression()));
                     } while (AcceptOp(","));
                 }
-                cls.Objects.Add(new AddObjectDef(objName, objClass, props, noInit, prot));
+                cls.Objects.Add(new AddObjectDef(objName, objClass, props, noInit, prot) { ClassLib = objLib });
                 _li++;
                 continue;
             }
@@ -337,7 +349,10 @@ public sealed partial class Parser
         // lvalue '=' : name, name.member..., name(…), name[…], m.name, .member (inside WITH)
         int i = 0;
         if (IsOp(".", 0)) i = 1;
-        if (Peek(i)?.Kind != TokenKind.Ident) return false;
+        if (i == 1 && Peek(1)?.Kind == TokenKind.Macro) i = 2 - 1; // .&cName = value
+        if (Peek(i)?.Kind is not (TokenKind.Ident or TokenKind.Macro)) return false;
+        // IF .x = 1, CASE .x = 1, WHILE .x = 1 … inside WITH: a control statement, not an assignment to "If.x".
+        if (i == 0 && IsOp(".", 1) && BlockKeywords.Contains(Peek(0)!.Text)) return false;
         i++;
         while (true)
         {
@@ -361,6 +376,15 @@ public sealed partial class Parser
 
     private Stmt? StatementCore()
     {
+        if (IsOp("\\") || IsOp("\\\\"))
+        {
+            // \text and \\text: textmerge output lines
+            var raw = _lines[_li].Text.TrimStart();
+            bool newLine = !raw.StartsWith("\\\\");
+            var outText = raw[(newLine ? 1 : 2)..];
+            _li++;
+            return new TextOutStmt(outText, newLine);
+        }
         if (IsOp("?") || IsOp("??"))
         {
             bool nl = Next().Text == "?";
@@ -398,7 +422,7 @@ public sealed partial class Parser
             _li++;
             return new NoOpStmt("@ SAY/GET");
         }
-        if (IsOp(".") && Peek(1)?.Kind == TokenKind.Ident)
+        if (IsOp(".") && Peek(1)?.Kind is TokenKind.Ident or TokenKind.Macro)
         {
             // .Method() inside WITH … ENDWITH
             var e = Postfix(Primary());
@@ -411,7 +435,7 @@ public sealed partial class Parser
         if (verb == null || verb.Kind != TokenKind.Ident) throw Error($"Unrecognized command verb '{verb}'.");
 
         // Bare function or method call as a statement: MyFunc(1), obj.Method()
-        if ((IsOp("(", 1) && !IsCommandWord(verb)) || (IsOp(".", 1) && !Kw("SET") && !Kw("USE")))
+        if ((IsOp("(", 1) && !IsCommandWord(verb)) || (IsOp(".", 1) && !Kw("SET") && !Kw("USE") && !BlockKeywords.Contains(verb.Text)))
         {
             var e = Postfix(Primary());
             if (AtEnd)
@@ -432,6 +456,12 @@ public sealed partial class Parser
     ];
 
     private static bool IsCommandWord(Token t) => CommandWords.Any(w => KwMatch(t, w));
+
+    /// <summary>Keywords that may be followed directly by a WITH-relative ".member".</summary>
+    private static readonly HashSet<string> BlockKeywords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "IF", "CASE", "WHILE", "WITH", "RETURN", "ELSE", "UNTIL", "DO", "FOR", "STORE", "WAIT", "ERROR", "THROW",
+    };
 
     private Stmt? Command()
     {
@@ -492,10 +522,11 @@ public sealed partial class Parser
             var names = new List<string>();
             while (!AtEnd)
             {
-                names.Add(Ident());
-                if (AcceptKw("AS")) { Ident(); if (AcceptKw("OF")) Ident(); }
+                names.Add(VarName());
+                SkipAsClause();
                 if (!AcceptOp(",")) break;
             }
+            _p = _t.Count; // VFP ignores anything after the parameter list (even a stray ')')
             s = new ParametersStmt(names, KwMatch(verb, "LPARAMETERS"));
         }
         else if (KwMatch(verb, "DO")) s = Do();
@@ -537,17 +568,40 @@ public sealed partial class Parser
         var vars = new List<VarDecl>();
         do
         {
-            var name = Ident();
+            if (Peek()?.Kind == TokenKind.Ident && IsOp(".", 1) && Peek(2)?.Kind == TokenKind.Ident && !Kw("M"))
+            {
+                // DIMENSION This.aItems[3, 2]: an array property of an object
+                var target = Postfix(Primary());
+                var (member, subs) = target switch
+                {
+                    IndexExpr { Target: MemberExpr me } ix => (me, ix.Args),
+                    MethodCallExpr mc => (new MemberExpr(mc.Target, mc.Name), mc.Args),
+                    _ => throw Error("DIMENSION of an object property needs subscripts."),
+                };
+                SkipAsClause();
+                vars.Add(new VarDecl(member.Name, subs, null) { Target = member });
+                continue;
+            }
+            if (IsOp("("))
+            {
+                // PUBLIC (cName): the variable's name comes from an expression
+                _p++;
+                var nameExpr = Expression();
+                ExpectOp(")");
+                vars.Add(new VarDecl("", null, null) { NameExpr = nameExpr });
+                continue;
+            }
+            var name = VarName();
             List<Expr>? dims = null;
             if (IsOp("(") || IsOp("[")) dims = SubscriptList();
             string? type = null;
-            if (AcceptKw("AS"))
+            if (Kw("AS"))
             {
-                type = Ident();
-                if (AcceptKw("OF")) NameArg();
+                type = Peek(1)?.Kind is TokenKind.Ident or TokenKind.String ? Peek(1)!.Text : null;
+                SkipAsClause();
             }
             vars.Add(new VarDecl(name, dims, type));
-        } while (AcceptOp(","));
+        } while (AcceptOp(",") && !AtEnd); // a trailing comma is tolerated, as in VFP
         return new DeclareStmt(scope, vars);
     }
 
@@ -630,17 +684,50 @@ public sealed partial class Parser
         return new DoWhileStmt(cond, body);
     }
 
+    /// <summary>A variable name in a declaration or loop, allowing the m. prefix (FOR m.i = …, LPARAMETERS m.x).</summary>
+    private string VarName()
+    {
+        var n = Ident();
+        if (n.Equals("m", StringComparison.OrdinalIgnoreCase) && IsOp(".") && Peek(1)?.Kind == TokenKind.Ident) { _p++; n = Ident(); }
+        return n;
+    }
+
+    /// <summary>Skips "AS type [OF library]" (type and library may be quoted or dotted file names).</summary>
+    private void SkipAsClause()
+    {
+        if (!AcceptKw("AS")) return;
+        if (IsOp("(")) SkipBalanced();                                  // AS (HOME(2) + 'classes\registry.prg')
+        else if (Peek()?.Kind is TokenKind.Ident or TokenKind.String) _p++;
+        while (IsOp(".") && Peek(1)?.Kind == TokenKind.Ident) _p += 2; // AS VisualFoxPro.Application
+        AcceptOp("@");                                                  // AS ARRAY@ (by reference)
+        if (!AcceptKw("OF")) return;
+        // The library is a file name that may contain paths: OF Tests\TestHelper.prg, OF O:\DEV\FXU.VCX
+        if (IsOp("(")) { SkipBalanced(); return; }
+        while (!AtEnd && !IsOp(",") && !IsOp(")")) _p++;
+    }
+
+    private void SkipBalanced()
+    {
+        int depth = 0;
+        do
+        {
+            if (IsOp("(") || IsOp("[")) depth++;
+            else if (IsOp(")") || IsOp("]")) depth--;
+            _p++;
+        } while (!AtEnd && depth > 0);
+    }
+
     private Stmt For()
     {
         _p++;
-        var v = Ident();
+        var v = VarName();
         ExpectOp("=");
         var from = Expression();
         ExpectKw("TO");
         var to = Expression();
         Expr? step = null;
         if (AcceptKw("STEP")) step = Expression();
-        EndOfStatement();
+        _p = _t.Count; // like VFP, ignore anything after the loop header
         _li++;
         var body = Block("ENDFOR", "NEXT");
         _li++;
@@ -650,8 +737,8 @@ public sealed partial class Parser
     private Stmt ForEach()
     {
         _p += 2;
-        var v = Ident();
-        if (AcceptKw("AS")) { Ident(); if (AcceptKw("OF")) NameArg(); }
+        var v = VarName();
+        SkipAsClause();
         ExpectKw("IN");
         var coll = Expression();
         AcceptKw("FOXOBJECT");
@@ -680,15 +767,20 @@ public sealed partial class Parser
         string? catchVar = null;
         Expr? when = null;
         List<Stmt>? catchBody = null, finallyBody = null;
-        if (LineStartsWith("CATCH"))
+        var more = new List<CatchClause>();
+        while (LineStartsWith("CATCH"))
         {
             BeginLine();
             _p = 1;
-            if (AcceptKw("TO")) catchVar = Ident();
-            if (AcceptKw("WHEN")) when = Expression();
+            string? v = null;
+            Expr? w = null;
+            if (AcceptKw("TO")) v = VarName();
+            if (AcceptKw("WHEN")) w = Expression();
             EndOfStatement();
             _li++;
-            catchBody = Block("FINALLY", "ENDTRY");
+            var b = Block("CATCH", "FINALLY", "ENDTRY");
+            if (catchBody == null) { catchVar = v; when = w; catchBody = b; }
+            else more.Add(new CatchClause(v, w, b));
         }
         if (LineStartsWith("FINALLY"))
         {
@@ -696,7 +788,7 @@ public sealed partial class Parser
             finallyBody = Block("ENDTRY");
         }
         _li++;
-        return new TryStmt(body, catchVar, when, catchBody, finallyBody);
+        return new TryStmt(body, catchVar, when, catchBody, finallyBody) { MoreCatches = more };
     }
 
     private Stmt With()
@@ -717,10 +809,16 @@ public sealed partial class Parser
         var line = _lines[_li];
         _p++;
         string? toVar = null;
+        Expr? toTarget = null;
         bool additive = false, noShow = false, merge = false, pretext = false;
         while (!AtEnd)
         {
-            if (AcceptKw("TO")) toVar = Ident();
+            if (AcceptKw("TO"))
+            {
+                // TEXT TO name, m.name, obj.Property or .Property (inside WITH)
+                if (Peek()?.Kind == TokenKind.Ident && !(IsOp(".", 1) && Peek(2)?.Kind == TokenKind.Ident)) toVar = Ident();
+                else { toTarget = Postfix(Primary()); if (toTarget is MemVarExpr mv) { toVar = mv.Name; toTarget = null; } }
+            }
             else if (AcceptKw("ADDITIVE")) additive = true;
             else if (AcceptKw("TEXTMERGE")) merge = true;
             else if (AcceptKw("NOSHOW")) noShow = true;
@@ -729,7 +827,7 @@ public sealed partial class Parser
             else throw Error($"Unrecognized TEXT clause '{Peek()}'.");
         }
         _li++;
-        return new TextStmt(toVar, additive, noShow, merge, pretext, line.TextBlock ?? []);
+        return new TextStmt(toVar, additive, noShow, merge, pretext, line.TextBlock ?? []) { ToTarget = toTarget };
     }
 
     private Stmt Do()
@@ -747,7 +845,7 @@ public sealed partial class Parser
                 else if (AcceptKw("LINKED")) linked = true;
                 else if (AcceptKw("NOSHOW")) noShow = true;
                 else if (AcceptKw("NOREAD")) { }
-                else if (AcceptKw("TO")) toVar = Ident();
+                else if (AcceptKw("TO")) toVar = VarName();
                 else throw Error($"Unrecognized DO FORM clause '{Peek()}'.");
             }
             return new DoFormStmt(form, args, nameVar, linked, noShow, toVar);
@@ -765,7 +863,7 @@ public sealed partial class Parser
         var list = new List<Expr>();
         do
         {
-            if (IsOp(",") || AtEnd) list.Add(new EmptyArgExpr());
+            if (IsOp(",") || IsOp(")") || AtEnd) list.Add(new EmptyArgExpr());
             else list.Add(Expression());
         } while (AcceptOp(","));
         return list;
@@ -782,14 +880,25 @@ public sealed partial class Parser
             _p = _t.Count;
             return new ReleaseStmt([], true, like, except);
         }
-        if (AcceptKw("WINDOWS") || AcceptKw("POPUPS") || AcceptKw("MENUS") || AcceptKw("PADS") || AcceptKw("BAR") || AcceptKw("CLASSLIB") || AcceptKw("LIBRARY") || AcceptKw("PROCEDURE"))
+        if (AcceptKw("WINDOWS") || AcceptKw("POPUPS") || AcceptKw("MENUS") || AcceptKw("PADS") || AcceptKw("BAR") || AcceptKw("CLASSLIB") || AcceptKw("LIBRARY") || AcceptKw("PROCEDURE")
+            || AcceptKw("PAD") || AcceptKw("POPUP") || AcceptKw("MENU") || AcceptKw("WINDOW") || AcceptKw("BARS"))
         {
             _p = _t.Count;
             return new NoOpStmt("RELEASE");
         }
         var names = new List<string>();
-        do names.Add(Ident()); while (AcceptOp(","));
-        return new ReleaseStmt(names, false, null, false);
+        var members = new List<MemberExpr>();
+        do
+        {
+            if (Peek()?.Kind == TokenKind.Ident && IsOp(".", 1) && Peek(2)?.Kind == TokenKind.Ident && !Kw("M"))
+            {
+                // RELEASE _Screen.oTool: drops the object reference held in a property
+                if (Postfix(Primary()) is MemberExpr me) members.Add(me);
+                else throw Error("RELEASE expects a variable or an object property.");
+            }
+            else names.Add(VarName());
+        } while (AcceptOp(","));
+        return new ReleaseStmt(names, false, null, false) { Members = members };
     }
 
     private Stmt On()
@@ -825,7 +934,8 @@ public sealed partial class Parser
                 window = true;
                 if (AcceptKw("AT")) { Expression(); ExpectOp(","); Expression(); }
             }
-            else if (AcceptKw("TO")) toVar = Ident();
+            else if (AcceptKw("AT")) { Expression(); ExpectOp(","); Expression(); }
+            else if (AcceptKw("TO")) toVar = VarName();
             else if (AcceptKw("NOWAIT")) noWait = true;
             else if (AcceptKw("NOCLEAR")) { }
             else if (AcceptKw("CLEAR")) clear = true;
@@ -864,6 +974,8 @@ public sealed partial class Parser
     {
         var t = Peek() ?? throw Error("Missing alias.");
         if (t.Kind == TokenKind.Number) { _p++; return new LiteralExpr(Value.Number(t.Number)); }
+        if (t.Kind == TokenKind.Ident && t.Text.Equals("m", StringComparison.OrdinalIgnoreCase) && IsOp(".", 1) && Peek(2)?.Kind == TokenKind.Ident)
+            return Primary(); // IN m.lcAlias: the alias is in a variable
         if (t.Kind == TokenKind.Ident && !IsOp("(", 1)) { _p++; return new LiteralExpr(Value.String(t.Text)); }
         if (t.Kind == TokenKind.Macro) { _p++; return new MacroExpr(t.Text); }
         return Primary();
@@ -1044,12 +1156,16 @@ public sealed partial class Parser
         {
             case TokenKind.Number:
                 return new LiteralExpr(t.IsCurrency ? Value.Currency((decimal)t.Number) : Value.Number(t.Number, t.Decimals));
+            case TokenKind.String when t.IsBinary:
+                return new LiteralExpr(Value.Binary(Convert.FromHexString(t.Text.Length % 2 == 1 ? "0" + t.Text : t.Text)));
             case TokenKind.String:
                 return new LiteralExpr(Value.String(t.Text));
             case TokenKind.Logical:
                 return new LiteralExpr(Value.Logical(t.Text == ".T."));
             case TokenKind.Null:
                 return new LiteralExpr(Value.Null);
+            case TokenKind.Date when t.Text.Contains('&'):
+                return new DateMacroExpr(t.Text); // {^&lcYear-01-01}: expanded when evaluated
             case TokenKind.Date:
                 return new LiteralExpr(ParseDateLiteral(t.Text));
             case TokenKind.Macro:
@@ -1084,8 +1200,18 @@ public sealed partial class Parser
                 return new ViewParamExpr(target);
             }
             case TokenKind.Op when t.Text == ".":
-                // .Member inside WITH … ENDWITH
-                return new MemberExpr(new SpecialObjectExpr("WITH"), Ident());
+            {
+                // .Member or .Method() inside WITH … ENDWITH (or .&cName)
+                var member = Peek()?.Kind == TokenKind.Macro ? "&" + Next().Text : Ident();
+                if (IsOp("("))
+                {
+                    _p++;
+                    var args = IsOp(")") ? new List<Expr>() : ArgList();
+                    ExpectOp(")");
+                    return new MethodCallExpr(new SpecialObjectExpr("WITH"), member, args);
+                }
+                return new MemberExpr(new SpecialObjectExpr("WITH"), member);
+            }
             case TokenKind.Op when t.Text == "!" || t.Text == "NOT":
                 return new UnaryExpr("NOT", Unary());
             case TokenKind.Ident:
@@ -1100,6 +1226,7 @@ public sealed partial class Parser
                 if (upper is "THIS" or "THISFORM" or "THISFORMSET" or "_SCREEN" or "_VFP" or "_JOEPRO")
                     return new SpecialObjectExpr(upper);
                 if (_sql && upper == "NULL") return new LiteralExpr(Value.Null);
+                if (upper == "CAST" && IsOp("(")) return CastCall();
                 if (IsOp("("))
                 {
                     _p++;
@@ -1136,10 +1263,11 @@ public sealed partial class Parser
     {
         while (true)
         {
-            if (IsOp(".") && Peek(1)?.Kind == TokenKind.Ident)
+            if (IsOp(".") && Peek(1)?.Kind is TokenKind.Ident or TokenKind.Macro)
             {
                 _p++;
-                var name = Ident();
+                // obj.&cName: the member name comes from a variable when the statement runs.
+                var name = Peek()!.Kind == TokenKind.Macro ? "&" + Next().Text : Ident();
                 if (IsOp("("))
                 {
                     _p++;
@@ -1150,7 +1278,7 @@ public sealed partial class Parser
                 else e = new MemberExpr(e, name);
                 continue;
             }
-            if (IsOp("[") && e is MemberExpr)
+            if ((IsOp("[") && e is MemberExpr or MemVarExpr) || (IsOp("(") && e is MemVarExpr))
             {
                 e = new IndexExpr(e, SubscriptList());
                 continue;
@@ -1164,6 +1292,10 @@ public sealed partial class Parser
         var s = text.Trim();
         if (s.Length == 0 || s == "/" || s == "//" || s == "-" || s == ".") return Value.EmptyDate;
         if (s is ":" or "/:" or "//:" or "^:") return Value.EmptyDateTime;
+        // {// :: AM}, {  /  /    :  :  }: separators only mean an empty date or datetime
+        var core = System.Text.RegularExpressions.Regex.Replace(s, @"(?i)\s|AM|PM|[AP]", "");
+        if (core.Length > 0 && core.All(ch => ch is '/' or '-' or '.' or ':' or '^' or ','))
+            return core.Contains(':') ? Value.EmptyDateTime : Value.EmptyDate;
         bool strict = s.StartsWith('^');
         if (strict) s = s[1..].Trim();
         string datePart = s, timePart = "";

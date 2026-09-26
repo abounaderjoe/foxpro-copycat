@@ -179,6 +179,13 @@ public static partial class Library
 
     public static bool IsAggregate(string name) => Aggregates.Contains(name);
 
+    /// <summary>Calls a built-in function with already-evaluated arguments.</summary>
+    internal static Value CallByName(Interpreter rt, string name, params Value[] args)
+    {
+        if (!TryGet(name, out var fn)) throw new VfpException(1, $"Function {name} is not implemented.");
+        return fn(new CallContext(rt, args.Select(a => (Expr)new LiteralExpr(a)).ToList(), name));
+    }
+
     public static bool TryGet(string name, out BuiltinFunction fn)
     {
         lock (Resolved)

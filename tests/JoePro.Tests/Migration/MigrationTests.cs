@@ -93,12 +93,12 @@ public class MigrationTests
 
         Assert.Contains(report.Findings, f => f.Rule == "CODE.DLL.DECLARE" && f.Status == FindingStatus.Unsupported);
         Assert.Contains(report.Findings, f => f.Rule == "CODE.COM.AUTOMATION");
-        Assert.Contains(report.Findings, f => f.Rule == "CODE.UI.FORM");
         Assert.Contains(report.Findings, f => f.Rule == "CODE.SCREEN.SAYGET");
         Assert.Contains(report.Findings, f => f.Rule == "CODE.SYS.FUNCTION");
         Assert.Contains(report.Findings, f => f.Rule == "CODE.COMPILES" && f.Source.File == "clean.prg");
         Assert.Contains(report.Findings, f => f.Rule == "CODE.COMPILE" && f.Status == FindingStatus.Failed && f.Source.File == "broken.prg");
-        Assert.Contains(report.Findings, f => f.Rule == "ARTIFACT.NOT_YET_CONVERTED" && f.Source.File == "customer.scx");
+        // An unreadable form is reported as failed and its original is kept.
+        Assert.Contains(report.Findings, f => f.Rule == "FORM.READ" && f.Status == FindingStatus.Failed && f.Source.File == "customer.scx");
         Assert.True(File.Exists(Path.Combine(_dir, "out", "legacy-originals", "customer.scx")));
 
         report.Save(Path.Combine(_dir, "out"));
@@ -123,5 +123,36 @@ public class MigrationTests
         Assert.Equal("MEMOTEST          3          3", output.ToString());
         Assert.True(File.Exists(Path.Combine(_dir, "converted", "migration-report.html")));
         rt.Session.Dispose();
+    }
+
+    [Fact]
+    public void Class_libraries_convert_to_jpclass_files_with_report_findings()
+    {
+        var legacy = Path.Combine(_dir, "legacy2");
+        Directory.CreateDirectory(Path.Combine(legacy, "libs"));
+        foreach (var f in new[] { "cprogres.vcx", "cprogres.VCT" })
+            File.Copy(TestPaths.Corpus("foxunit", f), Path.Combine(legacy, "libs", f));
+        File.WriteAllText(Path.Combine(legacy, "main.prg"), "SET CLASSLIB TO libs\\cprogres\noBar = CREATEOBJECT(\"cprogressbar\")\n? oBar.SetValue(25)");
+
+        var report = new MigrationReport();
+        var output = Path.Combine(_dir, "out2");
+        new LegacyImporter(report).ImportFolder(legacy, output);
+
+        var jpclass = Path.Combine(output, "libs", "cprogres.jpclass");
+        Assert.True(File.Exists(jpclass));
+        Assert.True(File.Exists(Path.Combine(output, "main.prg")));
+        Assert.Contains(report.Findings, f => f.Rule == "CLASSLIB.CONVERTED" && f.Source.File == Path.Combine("libs", "cprogres.vcx"));
+        var text = File.ReadAllText(jpclass);
+        Assert.StartsWith("*-- Joe Pro class library v1", text);
+        Assert.Contains("BackColor = RGB(64,0,128)", text); // designer colors become RGB() expressions
+
+        // The converted program runs against the converted library.
+        var rt = new JoePro.Runtime.Interpreter(new JoePro.Runtime.TextWriterOutput(new StringWriter()), output);
+        try
+        {
+            rt.ExecuteCommand("SET CLASSLIB TO libs/cprogres.jpclass");
+            Assert.Equal(".T.", JoePro.Core.Formatter.ToDisplay(rt.Evaluate("CREATEOBJECT('cprogressbar').SetValue(25)"), rt.Options));
+        }
+        finally { rt.Session.Dispose(); }
     }
 }

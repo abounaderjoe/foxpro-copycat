@@ -27,6 +27,7 @@
     <ProjectReference Include="..\..\src\JoePro.Migration\JoePro.Migration.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Tooling\JoePro.Tooling.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Cli\JoePro.Cli.csproj" />
+    <ProjectReference Include="..\..\src\JoePro.Documents\JoePro.Documents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

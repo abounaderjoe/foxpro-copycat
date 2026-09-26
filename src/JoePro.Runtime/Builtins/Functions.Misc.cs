@@ -9,6 +9,22 @@ public static partial class Library
     private static readonly Dictionary<int, FileStream> Handles = new();
     private static int _nextHandle = 10;
 
+    private static char? FieldTypeOf(Interpreter rt, Expr e)
+    {
+        JoePro.Data.WorkArea? wa = null;
+        string? field = null;
+        switch (e)
+        {
+            case NameExpr n when rt.Session.Current.InUse && rt.Session.Current.FieldIndex(n.Name) >= 0:
+                wa = rt.Session.Current; field = n.Name; break;
+            case MemberExpr { Target: NameExpr a } m when rt.Session.FindAlias(a.Name) is { } w && w.FieldIndex(m.Name) >= 0:
+                wa = w; field = m.Name; break;
+            case AliasFieldExpr af when rt.Session.FindAlias(af.Alias) is { } w2 && w2.FieldIndex(af.Field) >= 0:
+                wa = w2; field = af.Field; break;
+        }
+        return wa == null ? null : wa.Table.Fields[wa.FieldIndex(field!)].Type;
+    }
+
     private static void RegisterMisc()
     {
         // ---- Conditional and null handling ----
@@ -79,6 +95,8 @@ public static partial class Library
             try
             {
                 var e = Parser.ParseExpression(text);
+                // A field reference reports the field's type: memo, general, blob and varbinary fields are M, G, W and Q.
+                if (FieldTypeOf(c.Rt, e) is { } ft && ft is 'M' or 'G' or 'W' or 'Q') return S(ft.ToString());
                 var v = c.Rt.Eval(e);
                 return S(v.Kind == ValueKind.Null ? "X" : v.VarType.ToString());
             }
@@ -291,7 +309,7 @@ public static partial class Library
         Add("NEWOBJECT", c =>
         {
             var cls = c.Str(0);
-            ProgramUnit? module = c.Has(1) && c.Str(1).Length > 0 ? c.Rt.LoadProgram(c.Str(1)) : null;
+            ProgramUnit? module = c.Has(1) && c.Str(1).Length > 0 ? c.Rt.LoadLibrary(c.Str(1)) : null;
             var args = Enumerable.Range(3, Math.Max(0, c.Count - 3)).Select(i => new Interpreter.Arg(c[i], null)).ToList();
             var o = c.Rt.CreateObject(c.Rt.ResolveClass(cls, module), args);
             return o == null ? Value.Null : Value.Object(o);

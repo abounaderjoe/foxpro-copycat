@@ -30,6 +30,10 @@ public sealed partial class Interpreter
                 return GetVariable(m.Name);
             case AliasFieldExpr af:
                 return FieldOfAlias(af.Alias, af.Field);
+            case MemberExpr { Name: ['&', ..] } mm:
+                return Eval(ExpandMemberMacro(mm));
+            case MethodCallExpr { Name: ['&', ..] } mmc:
+                return Eval(ExpandMemberMacro(mmc));
             case MemberExpr m:
                 return EvalMember(m);
             case CallExpr c:
@@ -78,6 +82,10 @@ public sealed partial class Interpreter
                 return Value.Logical(Eval(isn.Value).IsNull != isn.Not);
             case ViewParamExpr vp:
                 return Eval(vp.Inner);
+            case CastExpr ce:
+                return Cast(Eval(ce.Value), ce);
+            case DateMacroExpr dm:
+                return Parser.ParseDateLiteral(ExpandMacros(dm.Text));
             case ExistsExpr ex:
                 return Value.Logical(SqlEngine.Execute(this, ex.Query, materialize: false).Rows.Count > 0);
             case SubqueryExpr sq:
@@ -191,8 +199,24 @@ public sealed partial class Interpreter
         return arr[ArrayIndex(arr, ix.Args)];
     }
 
+    /// <summary>obj.&amp;cName: substitutes the variable's text (which may itself be a dotted path).</summary>
+    internal Expr ExpandMemberMacro(Expr e)
+    {
+        (Expr target, string name, List<Expr>? args) = e switch
+        {
+            MemberExpr m => (m.Target, m.Name, (List<Expr>?)null),
+            MethodCallExpr mc => (mc.Target, mc.Name, mc.Args),
+            _ => throw new ArgumentException(nameof(e)),
+        };
+        var text = GetVariable(name[1..]) is { Kind: ValueKind.Character } v ? v.AsString.Trim() : throw VfpException.TypeMismatch();
+        var parts = text.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (int i = 0; i < parts.Length - 1; i++) target = new MemberExpr(target, parts[i]);
+        return args == null ? new MemberExpr(target, parts[^1]) : new MethodCallExpr(target, parts[^1], args);
+    }
+
     internal VfpArray? ResolveArray(Expr target)
     {
+        if (target is MemberExpr { Name: ['&', ..] } macro) target = ExpandMemberMacro(macro);
         switch (target)
         {
             case NameExpr n:
@@ -255,6 +279,7 @@ public sealed partial class Interpreter
 
     internal void Assign(Expr target, Value value)
     {
+        if (target is MemberExpr { Name: ['&', ..] } or MethodCallExpr { Name: ['&', ..] }) target = ExpandMemberMacro(target);
         switch (target)
         {
             case NameExpr n:

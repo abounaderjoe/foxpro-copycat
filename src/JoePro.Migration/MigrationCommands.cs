@@ -9,7 +9,7 @@ public static class MigrationCommands
     public static void Register() => Interpreter.ImportHandler = (rt, source, target, database) => ImportFiles(rt, source, target);
 
     /// <summary>
-    /// IMPORT FOXPRO path [TO folder]: imports a .DBF, a .DBC or a whole folder, writes the
+    /// IMPORT FOXPRO path [TO folder]: imports a .DBF, a .DBC, converts a .SCX form or .VCX class library, or a whole folder, writes the
     /// migration report next to the output and opens the result.
     /// </summary>
     public static MigrationReport ImportFiles(Interpreter rt, string source, string? target)
@@ -47,8 +47,12 @@ public static class MigrationCommands
                     rt.Session.Select(area);
                     break;
                 }
+                case ".scx" or ".vcx":
+                    report.Source = Path.GetDirectoryName(src)!;
+                    importer.ConvertClassFile(src, dst);
+                    break;
                 default:
-                    throw new VfpException(ErrorCodes.InvalidArgument, "IMPORT expects a .DBF, a .DBC or a folder.");
+                    throw new VfpException(ErrorCodes.InvalidArgument, "IMPORT expects a .DBF, .DBC, .SCX or .VCX file, or a folder.");
             }
         }
         report.Save(dst);

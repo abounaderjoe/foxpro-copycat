@@ -634,6 +634,12 @@ internal static class SqlEngine
         for (int i = 0; i < columns.Count; i++)
         {
             var c = columns[i];
+            if (c.Expr is CastExpr cast)
+            {
+                var width = cast.Width > 0 ? cast.Width : cast.Type switch { 'C' or 'V' => Math.Max(1, rows.Where(r => !r[i].IsNull).Select(r => r[i].AsString.Length).DefaultIfEmpty(1).Max()), 'N' or 'F' => 10, _ => 0 };
+                list.Add(new FieldDef(c.Name, cast.Type, width, cast.Decimals) { Nullable = cast.Nullable ?? rows.Any(r => r[i].IsNull) });
+                continue;
+            }
             if (c.Source != null)
             {
                 list.Add(c.Source with { Name = c.Name, AutoIncNext = null, DefaultExpr = null, RuleExpr = null, RuleText = null, Nullable = c.Source.Nullable || rows.Any(r => r[i].IsNull) });

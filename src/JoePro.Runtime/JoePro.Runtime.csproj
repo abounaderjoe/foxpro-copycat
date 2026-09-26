@@ -5,6 +5,7 @@
     <ProjectReference Include="..\JoePro.Language\JoePro.Language.csproj" />
     <ProjectReference Include="..\JoePro.Data\JoePro.Data.csproj" />
     <ProjectReference Include="..\JoePro.Legacy.Formats\JoePro.Legacy.Formats.csproj" />
+    <ProjectReference Include="..\JoePro.Documents\JoePro.Documents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

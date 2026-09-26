@@ -3,6 +3,7 @@
     <Project Path="src/JoePro.Cli/JoePro.Cli.csproj" />
     <Project Path="src/JoePro.Core/JoePro.Core.csproj" />
     <Project Path="src/JoePro.Data/JoePro.Data.csproj" />
+    <Project Path="src/JoePro.Documents/JoePro.Documents.csproj" />
     <Project Path="src/JoePro.Ide/JoePro.Ide.csproj" />
     <Project Path="src/JoePro.Language/JoePro.Language.csproj" />
     <Project Path="src/JoePro.Legacy.Formats/JoePro.Legacy.Formats.csproj" />

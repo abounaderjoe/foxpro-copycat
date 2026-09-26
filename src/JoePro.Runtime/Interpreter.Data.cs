@@ -45,6 +45,7 @@ public sealed partial class Interpreter
             case AppendBlankStmt ab:
             {
                 var wa = AreaOf(ab.In);
+                if (ab.FromInsert) Notify("INSERT BLANK: the new record is appended at the end (Joe Pro never renumbers records).");
                 AppendWithDefaults(wa, null);
                 return true;
             }
@@ -149,6 +150,21 @@ public sealed partial class Interpreter
                 SqlEngine.Execute(this, sq.Query, materialize: true);
                 return true;
             case CreateViewStmt cv: Views.Create(this, cv); return true;
+            case CopyFileStmt cf: ExecCopyFile(cf); return true;
+            case AddTableStmt adt: ExecAddTable(adt); return true;
+            case RemoveTableStmt rmt: ExecRemoveTable(rmt); return true;
+            case BlockStmt bs:
+                foreach (var inner in bs.Stmts) ExecStmt(inner);
+                return true;
+            case BlankStmt bl:
+            {
+                var wa = bl.Scope.In != null ? ResolveWorkArea(EvalAlias(bl.Scope.In)) : Session.Current;
+                if (!wa.InUse) throw VfpException.NoTableOpen();
+                var idx = bl.Fields == null ? Enumerable.Range(0, wa.Table.Fields.Count).ToList()
+                    : bl.Fields.Select(f => wa.FieldIndex(f) is var i and >= 0 ? i : throw VfpException.FieldNotFound(f)).ToList();
+                ForEachInScope(wa, bl.Scope, "NEXT1", () => wa.Replace(idx.Select(i => (i, wa.Table.Fields[i].BlankValue())).ToList()));
+                return true;
+            }
             case CreateConnectionStmt cc: ExecCreateConnection(cc); return true;
             case DeleteDbObjectStmt dd: ExecDeleteDbObject(dd); return true;
             case RenameDbObjectStmt rd: ExecRenameDbObject(rd); return true;
@@ -179,6 +195,91 @@ public sealed partial class Interpreter
     }
 
     // ---- USE -----------------------------------------------------------------------
+
+    /// <summary>ADD TABLE: moves a free table into the current database (a .dbf is imported with its index tags).</summary>
+    private void ExecAddTable(AddTableStmt adt)
+    {
+        var db = RequireDatabase();
+        var source = NameValue(adt.Name);
+        var longName = adt.LongName != null ? NameValue(adt.LongName) : null;
+        List<FieldDef> fields;
+        var rows = new List<(bool Deleted, Value[] Values)>();
+        var tags = new List<TagDef>();
+        string? moveFrom = null;
+        if (Path.GetExtension(source).Equals(".dbf", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = Session.ResolvePath(source, ".dbf");
+            if (!File.Exists(path)) throw VfpException.FileNotFound(Path.GetFileName(path));
+            using var dbf = DbfTable.Open(path);
+            fields = dbf.Fields.Select(f => f.ToFieldDef()).ToList();
+            foreach (var r in dbf.Records()) rows.Add((r.Deleted, r.Values));
+            var cdxPath = DataSession.FindIgnoringCase(Path.ChangeExtension(path, ".cdx"));
+            if (cdxPath != null)
+            {
+                using var cdx = CdxFile.Open(cdxPath, dbf.Encoding);
+                tags.AddRange(cdx.Tags.Select(t => new TagDef(t.Name, t.KeyExpression, t.ForExpression, t.Descending,
+                    t.Candidate ? TagKind.Candidate : t.Unique ? TagKind.Unique : TagKind.Regular)));
+            }
+            longName ??= Path.GetFileNameWithoutExtension(path);
+        }
+        else
+        {
+            var path = Session.ResolvePath(source, Store.FreeTableExtension);
+            if (!File.Exists(path)) throw VfpException.FileNotFound(Path.GetFileName(path));
+            if (Session.OpenWorkAreas().Any(w => string.Equals(w.Source, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase)))
+                throw new VfpException(ErrorCodes.FileInUse, "File is in use.", Path.GetFileName(path));
+            using (var other = new DataSession(Options.Clone(), this))
+            {
+                var t = other.Use(path).Table;
+                fields = t.Fields.ToList();
+                tags.AddRange(t.Schema.Tags.Select(g => g with { KeyColumn = "" }));
+                foreach (var r in t.Scan(null, forward: true)) rows.Add((r.Deleted, r.Values));
+            }
+            moveFrom = path;
+            longName ??= Path.GetFileNameWithoutExtension(path);
+        }
+        if (db.HasTable(longName)) throw new VfpException(1561, $"Table {longName.ToUpperInvariant()} is already in the database.");
+        var table = db.CreateTable(new TableSchema(longName, fields.Select(f => f with { AutoIncNext = f.AutoIncNext })), this);
+        table.Store.Batch(() => { foreach (var (del, vals) in rows) table.Append(vals, del); });
+        foreach (var tag in tags) table.CreateTag(tag);
+        if (moveFrom != null) File.Delete(moveFrom); // the table now lives in the database
+        Talk($"Table {longName.ToUpperInvariant()} added to database {db.Name} ({rows.Count} records).");
+    }
+
+    /// <summary>REMOVE TABLE: takes a table out of the database, keeping it as a free table unless DELETE is given.</summary>
+    private void ExecRemoveTable(RemoveTableStmt rmt)
+    {
+        var db = RequireDatabase();
+        var name = NameValue(rmt.Name);
+        if (!db.HasTable(name)) throw new VfpException(1562, $"Cannot find object {name.ToUpperInvariant()} in the database.");
+        var t = db.OpenTable(name, this);
+        foreach (var wa in Session.OpenWorkAreas().Where(w => w.TableOrNull == t).ToList()) wa.Close();
+        if (!rmt.Delete)
+        {
+            var path = Path.Combine(Path.GetDirectoryName(db.Path)!, name.ToLowerInvariant() + Store.FreeTableExtension);
+            using var other = new DataSession(Options.Clone(), this);
+            var free = other.CreateTable(new TableSchema(name, t.Fields), free: true, path);
+            free.Store.Batch(() => { foreach (var r in t.Scan(null, forward: true)) free.Append(r.Values, r.Deleted); });
+            foreach (var tag in t.Schema.Tags) free.CreateTag(tag with { KeyColumn = "" });
+        }
+        db.DropTable(name);
+    }
+
+    private void ExecCopyFile(CopyFileStmt cf)
+    {
+        var src = NameValue(cf.Source).Replace('\\', Path.DirectorySeparatorChar);
+        var dst = NameValue(cf.Destination).Replace('\\', Path.DirectorySeparatorChar);
+        if (!Path.IsPathRooted(src)) src = Path.Combine(Options.Default_, src);
+        if (!Path.IsPathRooted(dst)) dst = Path.Combine(Options.Default_, dst);
+        var dir = Path.GetDirectoryName(src)!;
+        var pattern = Path.GetFileName(src);
+        var files = pattern.IndexOfAny(['*', '?']) >= 0 ? Directory.GetFiles(dir, pattern) : [DataSession.FindIgnoringCase(src) ?? throw VfpException.FileNotFound(Path.GetFileName(src))];
+        foreach (var f in files)
+        {
+            var target = Directory.Exists(dst) ? Path.Combine(dst, Path.GetFileName(f)) : dst;
+            File.Copy(f, target, overwrite: true);
+        }
+    }
 
     private Store RequireDatabase() =>
         Session.CurrentDatabase ?? throw new VfpException(1520, "No database is open or set as the current database.");
@@ -745,6 +846,33 @@ public sealed partial class Interpreter
         var o = Options;
         switch (st.Option)
         {
+            case "CLASSLIB":
+                SetClassLib(st.Raw);
+                break;
+            case "TEXTMERGE":
+            {
+                // SET TEXTMERGE [ON | OFF] [TO [file] [ADDITIVE]] [NOSHOW | SHOW]
+                var words = st.Raw.Select(t => t.Text.ToUpperInvariant()).ToList();
+                if (words.Contains("ON")) TextMergeOn = true;
+                if (words.Contains("OFF")) TextMergeOn = false;
+                if (words.Contains("NOSHOW")) _textMergeShow = false;
+                if (words.Contains("SHOW")) _textMergeShow = true;
+                var toAt = words.IndexOf("TO");
+                if (toAt >= 0)
+                {
+                    var target = st.Raw.Skip(toAt + 1).TakeWhile(t => !t.Text.Equals("ADDITIVE", StringComparison.OrdinalIgnoreCase)
+                        && !t.Text.Equals("NOSHOW", StringComparison.OrdinalIgnoreCase) && !t.Text.Equals("SHOW", StringComparison.OrdinalIgnoreCase)).ToList();
+                    if (target.Count == 0) _textMergeFile = null;
+                    else
+                    {
+                        var name = target[0].Kind == TokenKind.String ? target[0].Text : string.Concat(target.Select(t => t.Text));
+                        if (target[0].IsOp("(")) name = Eval(Parser.ParseExpression(string.Join(" ", target.Select(t => t.Kind == TokenKind.String ? "\"" + t.Text + "\"" : t.Text)))).AsString;
+                        _textMergeFile = Session.ResolvePath(name.Trim(), ".txt");
+                        if (!words.Contains("ADDITIVE")) File.WriteAllText(_textMergeFile, "");
+                    }
+                }
+                break;
+            }
             case "EXACT": o.Exact = On(); break;
             case "ANSI": o.Ansi = On(); break;
             case "DELETED": o.Deleted = On(); break;
@@ -811,10 +939,10 @@ public sealed partial class Interpreter
                 break;
             }
             case "MULTILOCKS" or "REPROCESS" or "STATUS" or "ECHO" or "CONSOLE" or "ESCAPE" or "BELL" or "NOTIFY"
-                or "CPDIALOG" or "STRICTDATE" or "FIXED" or "UDFPARMS" or "COMPATIBLE" or "MEMOWIDTH" or "TEXTMERGE" or "HELP"
+                or "CPDIALOG" or "STRICTDATE" or "FIXED" or "UDFPARMS" or "COMPATIBLE" or "MEMOWIDTH" or "HELP"
                 or "RESOURCE" or "SYSMENU" or "CURSOR" or "TYPEAHEAD" or "CARRY" or "CONFIRM" or "FULLPATH" or "UNIQUE" or "LOCK"
                 or "REFRESH" or "CURRENCY" or "CLOCK" or "ROLLOVER" or "BLOCKSIZE" or "NULLDISPLAY" or "VARCHARMAPPING"
-                or "TABLEVALIDATE" or "LIBRARY" or "CLASSLIB" or "DATASESSION" or "ASSERTS"
+                or "TABLEVALIDATE" or "LIBRARY" or "DATASESSION" or "ASSERTS"
                 or "AUTOINCERROR" or "INDEX" or "KEY" or "SKIP" or "DEBUG" or "ALTERNATE" or "PRINTER" or "DEVICE" or "LOGERRORS"
                 or "MESSAGE" or "FDOW" or "FWEEK" or "SYSFORMATS" or "NOCPTRANS" or "OLEOBJECT" or "SQLBUFFERING" or "":
                 if (!UnsupportedSettings.Contains(st.Option)) UnsupportedSettings.Add(st.Option);
@@ -898,8 +1026,11 @@ public sealed partial class Interpreter
         };
     }
 
+    private FieldSpec ResolveFieldName(FieldSpec f) => f.NameExpr == null ? f : f with { Name = Eval(f.NameExpr).AsString.Trim(), NameExpr = null };
+
     private void ExecCreateTable(CreateTableStmt ct)
     {
+        if (ct.Fields.Any(f => f.NameExpr != null)) ct = ct with { Fields = ct.Fields.Select(ResolveFieldName).ToList() };
         var name = NameValue(ct.Name);
         List<FieldDef> fields;
         var tags = new List<TagDef>();
@@ -947,6 +1078,10 @@ public sealed partial class Interpreter
 
     private void ExecAlterTable(AlterTableStmt at)
     {
+        if (at.Field?.NameExpr != null) at = at with { Field = ResolveFieldName(at.Field) };
+        if (at.DropExpr != null) at = at with { DropField = Eval(at.DropExpr).AsString.Trim(), DropExpr = null };
+        if (at.RenameFromExpr != null) at = at with { RenameFrom = Eval(at.RenameFromExpr).AsString.Trim(), RenameFromExpr = null };
+        if (at.RenameToExpr != null) at = at with { RenameTo = Eval(at.RenameToExpr).AsString.Trim(), RenameToExpr = null };
         var name = NameValue(at.Name);
         var wa = Session.FindAlias(Path.GetFileNameWithoutExtension(name)) ?? Session.Use(name, Session.FreeArea());
         var table = wa.Table;
@@ -1233,6 +1368,33 @@ public sealed partial class Interpreter
         }
         var target = NameValue(cp.Target);
         var type = cp.Type;
+        if (cp.Extended)
+        {
+            // COPY STRUCTURE EXTENDED: one record per field, with VFP's column layout.
+            var extFields = new List<FieldDef>
+            {
+                new("FIELD_NAME", 'C', 128), new("FIELD_TYPE", 'C', 1), new("FIELD_LEN", 'N', 3), new("FIELD_DEC", 'N', 3),
+                new("FIELD_NULL", 'L'), new("FIELD_NOCP", 'L'), new("FIELD_DEFA", 'M'), new("FIELD_RULE", 'M'), new("FIELD_ERR", 'M'),
+                new("TABLE_RULE", 'M'), new("TABLE_ERR", 'M'), new("TABLE_NAME", 'C', 128), new("INS_TRIG", 'M'), new("UPD_TRIG", 'M'),
+                new("DEL_TRIG", 'M'), new("TABLE_CMT", 'M'), new("FIELD_NEXT", 'N', 10), new("FIELD_STEP", 'N', 10),
+            };
+            var sch = wa.Table.Schema;
+            var extRows = sch.Fields.Select((f, i) => new[]
+            {
+                Value.String(f.Name), Value.String(f.Type.ToString()), Value.Number(f.Width), Value.Number(f.Decimals),
+                Value.Logical(f.Nullable), Value.Logical(f.Binary), Value.String(f.DefaultExpr ?? ""), Value.String(f.RuleExpr ?? ""),
+                Value.String(f.RuleText ?? ""), Value.String(i == 0 ? sch.RuleExpr ?? "" : ""), Value.String(i == 0 ? sch.RuleText ?? "" : ""),
+                Value.String(i == 0 && sch.Name.Length > 0 ? sch.Name : ""), Value.String(i == 0 ? sch.InsertTrigger ?? "" : ""),
+                Value.String(i == 0 ? sch.UpdateTrigger ?? "" : ""), Value.String(i == 0 ? sch.DeleteTrigger ?? "" : ""),
+                Value.String(i == 0 ? sch.Comment ?? "" : ""), Value.Number(f.AutoIncNext ?? 0), Value.Number(f.AutoIncNext != null ? f.AutoIncStep : 0),
+            }).ToList();
+            var extPath = Session.ResolvePath(target, Store.FreeTableExtension);
+            if (File.Exists(extPath)) File.Delete(extPath);
+            using var extSession = new DataSession(Options.Clone(), this);
+            var extTable = extSession.CreateTable(new TableSchema(Path.GetFileNameWithoutExtension(extPath), extFields), free: true, extPath);
+            extTable.Store.Batch(() => { foreach (var r in extRows) extTable.Append(r); });
+            return;
+        }
         var ext = Path.GetExtension(target).ToLowerInvariant();
         var records = new List<(bool, Value[])>();
         if (!cp.Structure)

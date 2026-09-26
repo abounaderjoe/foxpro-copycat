@@ -1,5 +1,6 @@
 using System.Text;
 using JoePro.Core;
+using JoePro.Documents;
 using JoePro.Data;
 using JoePro.Legacy.Formats;
 using JoePro.Runtime;
@@ -36,9 +37,11 @@ public sealed class LegacyImporter
         Directory.CreateDirectory(targetDir);
         var files = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).ToList();
         var dbcTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // The target mirrors the source folder layout, so relative references (class libraries, databases,
+        // pictures) keep working after conversion.
         foreach (var dbc in files.Where(f => Ext(f) == ".dbc"))
         {
-            try { dbcTables.UnionWith(ImportDatabase(dbc, targetDir)); }
+            try { dbcTables.UnionWith(ImportDatabase(dbc, MirrorDir(dbc, targetDir))); }
             catch (Exception ex) { Fail("DATA.DBC.READ", "database", dbc, ex); }
         }
         foreach (var dbf in files.Where(f => Ext(f) == ".dbf" && !dbcTables.Contains(Path.GetFullPath(f))))
@@ -54,19 +57,29 @@ public sealed class LegacyImporter
                             "Include the .DBC (with .DCT/.DCX) in the migration folder to keep long names, rules and relations.");
                     }
                 }
-                ImportTable(dbf, targetDir);
+                ImportTable(dbf, MirrorDir(dbf, targetDir));
             }
             catch (Exception ex) { Fail("DATA.TABLE.READ", "data", dbf, ex); }
         }
         var analyzer = new ProgramAnalyzer(_report);
+        analyzer.IncludeRoots.Add(Path.GetFullPath(folder));
         foreach (var prg in files.Where(f => Ext(f) is ".prg" or ".h" or ".mpr" or ".qpr"))
             analyzer.AnalyzeFile(prg, Rel(prg));
-        foreach (var other in files.Where(f => Ext(f) is ".scx" or ".vcx" or ".frx" or ".lbx" or ".mnx" or ".pjx"))
+        // Programs, include files and pictures are copied as they are (compatibility mode runs them unchanged).
+        foreach (var f in files.Where(f => Ext(f) is ".prg" or ".h" or ".mpr" or ".qpr" or ".bmp" or ".gif" or ".jpg" or ".jpeg" or ".png" or ".ico" or ".cur" or ".msk" or ".txt" or ".xml"))
+        {
+            var dest = Path.Combine(MirrorDir(f, targetDir), Path.GetFileName(f));
+            if (!File.Exists(dest)) File.Copy(f, dest, overwrite: false);
+        }
+        foreach (var form in files.Where(f => Ext(f) is ".scx" or ".vcx"))
+        {
+            try { ConvertClassFile(form, targetDir); }
+            catch (Exception ex) { Fail(Ext(form) == ".scx" ? "FORM.READ" : "CLASSLIB.READ", Ext(form) == ".scx" ? "form" : "classlib", form, ex); CopyOriginal(form, targetDir); }
+        }
+        foreach (var other in files.Where(f => Ext(f) is ".frx" or ".lbx" or ".mnx" or ".pjx"))
         {
             var (kind, phase) = Ext(other) switch
             {
-                ".scx" => ("Form", "Phase 3 (Form Designer)"),
-                ".vcx" => ("Class library", "Phase 3 (Class Designer)"),
                 ".frx" => ("Report", "Phase 4 (Report Designer)"),
                 ".lbx" => ("Label", "Phase 4 (Label Designer)"),
                 ".mnx" => ("Menu", "Phase 5 (Menu Designer)"),
@@ -77,6 +90,55 @@ public sealed class LegacyImporter
                 "Re-run the migration after upgrading; the report will show what changed.");
             CopyOriginal(other, targetDir);
         }
+    }
+
+    private string MirrorDir(string file, string targetDir)
+    {
+        var sub = Path.GetDirectoryName(Rel(file)) ?? "";
+        var dir = sub.Length == 0 || sub.StartsWith("..") ? targetDir : Path.Combine(targetDir, sub);
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    /// <summary>
+    /// Converts a form (.SCX) to .jpform or a class library (.VCX) to .jpclass, reports every change the
+    /// converter made, and analyzes the method code like program files.
+    /// </summary>
+    public string ConvertClassFile(string path, string targetDir)
+    {
+        if (string.IsNullOrEmpty(_report.Source)) _report.Source = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        if (string.IsNullOrEmpty(_report.Target)) _report.Target = Path.GetFullPath(targetDir);
+        var isForm = Ext(path) == ".scx";
+        var category = isForm ? "form" : "classlib";
+        var prefix = isForm ? "FORM" : "CLASSLIB";
+        var result = LegacyFormConverter.Convert(path);
+        var dest = Path.Combine(MirrorDir(path, targetDir), Path.GetFileNameWithoutExtension(path).ToLowerInvariant() + (isForm ? ".jpform" : ".jpclass"));
+        ClassFileWriter.Save(result.File, dest);
+        var src = new SourceLocation(Rel(path));
+        var target = new TargetLocation(dest);
+        foreach (var f in result.Findings)
+        {
+            var (status, rule) = f.Status switch
+            {
+                JoePro.Documents.FindingStatus.Changed => (FindingStatus.ConvertedWithChanges, prefix + ".VALUE.CHANGED"),
+                JoePro.Documents.FindingStatus.NeedsReview => (FindingStatus.NeedsReview, prefix + ".REVIEW"),
+                JoePro.Documents.FindingStatus.Unsupported => (FindingStatus.Unsupported, prefix + ".UNSUPPORTED"),
+                _ => (FindingStatus.Converted, prefix + ".INFO"),
+            };
+            _report.Add(status, rule, category, src with { Object = f.Object }, f.Message, target: target);
+        }
+        var members = result.File.Classes.Sum(c => c.Members.Count);
+        var methods = result.File.Classes.Sum(c => c.Methods.Count);
+        _report.Add(result.Findings.Any(f => f.Status == JoePro.Documents.FindingStatus.Changed) ? FindingStatus.ConvertedWithChanges : FindingStatus.Converted,
+            prefix + ".CONVERTED", category, src,
+            $"{(isForm ? "Form" : "Class library")} converted: {result.File.Classes.Count} class(es), {members} object(s), {methods} method(s).", target: target);
+        var analyzer = new ProgramAnalyzer(_report);
+        analyzer.IncludeRoots.Add(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        if (Directory.Exists(_report.Source)) analyzer.IncludeRoots.Add(_report.Source);
+        foreach (var cls in result.File.Classes)
+            foreach (var m in cls.Methods.Where(m => m.Body.Count > 0))
+                analyzer.AnalyzeSource(m.Code, Rel(path), cls.Name + "." + m.Name);
+        return dest;
     }
 
     private static string Ext(string f) => Path.GetExtension(f).ToLowerInvariant();
