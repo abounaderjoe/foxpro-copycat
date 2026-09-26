@@ -86,6 +86,29 @@ public sealed partial class Interpreter
         static string Join(List<Token> tokens) => tokens.Count == 1 && tokens[0].Kind == TokenKind.String ? tokens[0].Text : string.Concat(tokens.Select(t => t.Text));
     }
 
+    /// <summary>
+    /// A class library changed on disk (CREATE/ADD/RENAME/REMOVE CLASS or a designer save): drops the cached copy and
+    /// reloads it where SET CLASSLIB uses it, so the next CREATEOBJECT sees the change.
+    /// </summary>
+    public void InvalidateClassLibrary(string path)
+    {
+        var full = Path.GetFullPath(path);
+        _programCache.Remove(full);
+        _legacyCache.Remove(full);
+        _classes.Clear();
+        for (int i = 0; i < _classLibraries.Count; i++)
+        {
+            if (_classLibraries[i].File is not { } f || !Path.GetFullPath(f).Equals(full, StringComparison.OrdinalIgnoreCase)) continue;
+            _loadedUnits.Remove(_classLibraries[i]);
+            if (File.Exists(full)) _classLibraries[i] = LoadClassFile(full);
+            else _classLibraries.RemoveAt(i--);
+        }
+    }
+
+    /// <summary>The library that defines a class among the SET CLASSLIB libraries, or null.</summary>
+    internal string? ClassLibraryOf(string className) =>
+        _classLibraries.FirstOrDefault(u => u.Classes.ContainsKey(className))?.File;
+
     // ---- Data environment -----------------------------------------------------------------------------
 
     private static bool IsDataEnvironment(VfpObject o) => o.Class.BaseClass.Equals("DataEnvironment", StringComparison.OrdinalIgnoreCase);

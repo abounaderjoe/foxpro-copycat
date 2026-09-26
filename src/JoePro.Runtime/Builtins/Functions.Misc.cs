@@ -9,6 +9,25 @@ public static partial class Library
     private static readonly Dictionary<int, FileStream> Handles = new();
     private static int _nextHandle = 10;
 
+    /// <summary>The native base class a library class derives from (following parents in this and other libraries).</summary>
+    internal static string BaseClassOf(Interpreter rt, JoePro.Documents.ClassFile lib, JoePro.Documents.ClassDocument cls, string libPath, int depth = 0)
+    {
+        if (depth > 50) return "";
+        if (cls.ParentLibrary == null)
+        {
+            if (lib.Find(cls.ParentClass) is { } parent && !ReferenceEquals(parent, cls)) return BaseClassOf(rt, lib, parent, libPath, depth + 1);
+            return BaseClasses.Exists(cls.ParentClass) ? BaseClasses.Canonical(cls.ParentClass) : "";
+        }
+        var parentPath = rt.ResolveClassFile(cls.ParentLibrary, ".jpclass", ".vcx", libPath);
+        if (parentPath == null) return "";
+        try
+        {
+            var parentLib = JoePro.Documents.ClassLibrary.Load(parentPath);
+            return parentLib.Find(cls.ParentClass) is { } p ? BaseClassOf(rt, parentLib, p, parentPath, depth + 1) : "";
+        }
+        catch (Exception ex) when (ex is FormatException or IOException) { return ""; }
+    }
+
     private static char? FieldTypeOf(Interpreter rt, Expr e)
     {
         JoePro.Data.WorkArea? wa = null;
@@ -27,6 +46,33 @@ public static partial class Library
 
     private static void RegisterMisc()
     {
+        // AVCXCLASSES(aInfo, cLibrary): one row per class — name, parent, parent library, base class, toolbar icon,
+        // container icon, scale mode, description, #INCLUDE file, user info, OLE public.
+        Add("AVCXCLASSES", c =>
+        {
+            var path = c.Rt.ResolveClassFile(c.Str(1), ".jpclass", ".vcx") ?? throw VfpException.FileNotFound(c.Str(1));
+            var lib = JoePro.Documents.ClassLibrary.Load(path);
+            var arr = c.NewArray(0, lib.Classes.Count, 11);
+            var classes = lib.Classes.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            for (int i = 0; i < classes.Count; i++)
+            {
+                var cls = classes[i];
+                int r = i + 1;
+                arr[r, 1] = S(cls.Name.ToLowerInvariant());
+                arr[r, 2] = S(cls.ParentClass.ToLowerInvariant());
+                arr[r, 3] = S(cls.ParentLibrary ?? "");
+                arr[r, 4] = S(BaseClassOf(c.Rt, lib, cls, path).ToLowerInvariant());
+                arr[r, 5] = S(cls.Icon ?? "");
+                arr[r, 6] = S(cls.ContainerIcon ?? "");
+                arr[r, 7] = S("Pixels");
+                arr[r, 8] = S(cls.Description ?? "");
+                arr[r, 9] = S(lib.Includes.FirstOrDefault() ?? "");
+                arr[r, 10] = S("");
+                arr[r, 11] = L(cls.OlePublic);
+            }
+            return N(classes.Count);
+        });
+
         // ---- Conditional and null handling ----
         Add("IIF", c =>
         {

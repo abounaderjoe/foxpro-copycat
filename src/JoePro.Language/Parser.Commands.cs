@@ -77,6 +77,13 @@ public sealed partial class Parser
             return new DeleteStmt(ParseScope(), false);
         }
         if (V("RECALL")) return new DeleteStmt(ParseScope(), true);
+        if ((V("ADD") || V("REMOVE")) && Kw("CLASS"))
+        {
+            var classVerb = verb.Text.ToUpperInvariant();
+            var classRest = RawText(_p, _t.Count);
+            _p = _t.Count;
+            return new SetStmt("__" + classVerb, classRest, null, []);
+        }
         if (V("ADD") && AcceptKw("TABLE"))
         {
             var tn = NameArg("NAME");

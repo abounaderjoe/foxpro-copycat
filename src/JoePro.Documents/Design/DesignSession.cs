@@ -262,17 +262,79 @@ public sealed class DesignSession
 
     // ---- Class-level members (Class Designer "New Property/Method") ----------------------------------
 
-    public void AddProperty(string name, string initialValue = ".F.", string? visibility = null) =>
-        Transaction($"New property {name}", () =>
+    /// <summary>
+    /// New Property: a property (or an array, "aItems[3]") of the class, with optional Access and Assign methods
+    /// generated the way VFP generates them.
+    /// </summary>
+    public void AddProperty(string name, string initialValue = ".F.", string? visibility = null, string? description = null, bool access = false, bool assign = false)
+    {
+        var array = System.Text.RegularExpressions.Regex.Match(name.Trim(), @"^(\w+)\s*[\[(]\s*([\d\s,]+)[\])]$");
+        var bare = array.Success ? array.Groups[1].Value : name.Trim();
+        if (!System.Text.RegularExpressions.Regex.IsMatch(bare, @"^[A-Za-z_]\w*$")) throw new ArgumentException($"'{name}' is not a valid property name.");
+        if (MemberExists(bare)) throw new ArgumentException($"{bare} is already a member of {ClassName}.");
+        Transaction($"New property {bare}", () =>
         {
-            Class.Properties[name] = initialValue;
-            SetVisibility(name, visibility);
+            if (array.Success) Class.Arrays.Add((bare, System.Text.RegularExpressions.Regex.Replace(array.Groups[2].Value, @"\s+", "")));
+            else Class.Properties[bare] = initialValue;
+            SetVisibility(bare, visibility);
+            SetDescription(bare, description);
+            if (access && Class.FindMethod(bare + "_Access") == null)
+                Class.Methods.Add(new MethodDocument { Name = bare + "_Access", Code = $"*To do: Modify this routine for the Access method\nRETURN THIS.{bare}" });
+            if (assign && Class.FindMethod(bare + "_Assign") == null)
+                Class.Methods.Add(new MethodDocument { Name = bare + "_Assign", Code = $"LPARAMETERS vNewVal\n*To do: Modify this routine for the Assign method\nTHIS.{bare} = m.vNewVal" });
         });
+    }
 
-    public void AddMethod(string name, string? visibility = null) =>
+    /// <summary>New Method: a custom method of the class (empty until code is written).</summary>
+    public void AddMethod(string name, string? visibility = null, string? description = null)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(name, @"^[A-Za-z_]\w*$")) throw new ArgumentException($"'{name}' is not a valid method name.");
+        if (MemberExists(name)) throw new ArgumentException($"{name} is already a member of {ClassName}.");
         Transaction($"New method {name}", () =>
         {
-            if (Class.FindMethod(name) == null) Class.Methods.Add(new MethodDocument { Name = name, Visibility = visibility });
+            Class.Methods.Add(new MethodDocument { Name = name, Visibility = visibility });
+            SetDescription(name, description);
+        });
+    }
+
+    /// <summary>True if the class itself declares a property, array, method or object with this name.</summary>
+    public bool MemberExists(string name) =>
+        Class.Properties.Contains(name) || Class.Arrays.Any(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+        || Class.FindMethod(name) != null || Class.FindMember(name) != null;
+
+    /// <summary>Edit Property/Method → Remove: the property or array, its method code, visibility and description.</summary>
+    public void RemoveMember(string name) =>
+        Transaction($"Remove {name}", () =>
+        {
+            Class.Properties.Remove(name);
+            Class.Arrays.RemoveAll(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            Class.Methods.RemoveAll(m => m.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            Class.Protected.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
+            Class.Hidden.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
+            Class.MemberDescriptions.Remove(name);
+        });
+
+    public void SetDescription(string memberName, string? description) =>
+        Transaction("Description", () =>
+        {
+            if (string.IsNullOrWhiteSpace(description)) Class.MemberDescriptions.Remove(memberName);
+            else Class.MemberDescriptions[memberName] = description.Trim();
+        });
+
+    /// <summary>The visibility of a class member: "PROTECTED", "HIDDEN" or null (public).</summary>
+    public string? VisibilityOf(string memberName) =>
+        Class.FindMethod(memberName) is { } m ? m.Visibility
+        : Class.Protected.Contains(memberName, StringComparer.OrdinalIgnoreCase) ? "PROTECTED"
+        : Class.Hidden.Contains(memberName, StringComparer.OrdinalIgnoreCase) ? "HIDDEN" : null;
+
+    /// <summary>Class Info: description, icons and OLEPUBLIC.</summary>
+    public void SetClassInfo(string? description, string? icon, string? containerIcon, bool olePublic) =>
+        Transaction("Class info", () =>
+        {
+            Class.Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+            Class.Icon = string.IsNullOrWhiteSpace(icon) ? null : icon.Trim();
+            Class.ContainerIcon = string.IsNullOrWhiteSpace(containerIcon) ? null : containerIcon.Trim();
+            Class.OlePublic = olePublic;
         });
 
     public void SetVisibility(string memberName, string? visibility) =>

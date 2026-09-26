@@ -108,6 +108,67 @@ public class DesignSessionTests
         Assert.False(s.IsDirty);
     }
 
+    [Fact]
+    public void New_property_with_access_and_assign_arrays_descriptions_and_removal()
+    {
+        var file = ClassLibrary.Empty();
+        ClassLibrary.NewClass(file, "cntCounter", "Container");
+        var s = new DesignSession(file);
+        s.AddProperty("nValue", "0", description: "The current value", access: true, assign: true);
+        s.AddProperty("aHistory[10]", description: "Last values\nnewest first");
+        s.AddMethod("Increment", "PROTECTED", "Adds one");
+        Assert.Throws<ArgumentException>(() => s.AddProperty("nValue"));
+        Assert.Throws<ArgumentException>(() => s.AddMethod("bad name"));
+        Assert.Equal("PROTECTED", s.VisibilityOf("Increment"));
+        Assert.Contains("RETURN THIS.nValue", s.GetMethod("", "nValue_Access"));
+        Assert.Contains("THIS.nValue = m.vNewVal", s.GetMethod("", "nValue_Assign"));
+        s.SetClassInfo("Counts things", "icons/counter.bmp", null, olePublic: false);
+
+        var text = s.Text;
+        Assert.Contains("    *-- Description: Counts things\n", text);
+        Assert.Contains("    *-- Member aHistory: Last values\\nnewest first\n", text);
+        Assert.Contains("    DIMENSION aHistory[10]\n", text);
+        var reread = ClassFileReader.Parse(text, ClassFileKind.ClassLibrary);
+        Assert.Equal(text, ClassFileWriter.Write(reread));
+        Assert.Equal("Last values\nnewest first", reread.Classes[0].MemberDescriptions["aHistory"]);
+        Assert.Equal("icons/counter.bmp", reread.Classes[0].Icon);
+
+        s.RemoveMember("nValue");
+        Assert.False(s.Class.Properties.Contains("nValue"));
+        Assert.DoesNotContain("nValue", s.Class.MemberDescriptions.Keys);
+        s.RemoveMember("aHistory");
+        Assert.Empty(s.Class.Arrays);
+    }
+
+    [Fact]
+    public void Class_library_hierarchy_and_saving_one_class_keeps_the_others()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "joepro-classlib-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "controls.jpclass");
+        var lib = ClassLibrary.Empty();
+        ClassLibrary.NewClass(lib, "txtBase", "TextBox");
+        ClassLibrary.NewClass(lib, "txtDate", "txtBase");
+        ClassLibrary.NewClass(lib, "cmdBase", "CommandButton");
+        ClassLibrary.NewClass(lib, "txtShortDate", "txtDate");
+        ClassFileWriter.Save(lib, path);
+        Assert.Equal(["cmdBase:0", "txtBase:0", "txtDate:1", "txtShortDate:2"], ClassLibrary.Hierarchy(lib).Select(x => $"{x.Class.Name}:{x.Depth}"));
+
+        // Two designers: each saves only its class.
+        var a = new DesignSession(ClassLibrary.Load(path), "txtBase");
+        var b = new DesignSession(ClassLibrary.Load(path), "cmdBase");
+        a.SetProperty("", "Width", "80");
+        b.SetProperty("", "Caption", "\"OK\"");
+        ClassLibrary.SaveClass(path, a.Class);
+        ClassLibrary.SaveClass(path, b.Class);
+        var saved = ClassLibrary.Load(path);
+        Assert.Equal("80", saved.Find("txtBase")!.Properties["Width"]);
+        Assert.Equal("\"OK\"", saved.Find("cmdBase")!.Properties["Caption"]);
+        Assert.Equal(4, saved.Classes.Count);
+        Assert.StartsWith("DEFINE CLASS cmdBase AS CommandButton\n", ClassLibrary.ClassCode(saved.Find("cmdBase")!));
+        Directory.Delete(dir, true);
+    }
+
     [Theory]
     [InlineData("Customers", "C", "\"Customers\"")]
     [InlineData("say \"hi\"", "C", "'say \"hi\"'")]

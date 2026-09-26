@@ -55,6 +55,20 @@ public static partial class ClassFileReader
         {
             if (i >= lines.Length) throw new FormatException($"Line {classLine}: missing ENDDEFINE for class {cls.Name}.");
             var raw = lines[i];
+            var meta = MetaRx().Match(raw);
+            if (meta.Success)
+            {
+                i++;
+                var text = ClassFileWriter.UnescapeMeta(meta.Groups["text"].Value.TrimEnd());
+                switch (meta.Groups["key"].Value.ToUpperInvariant())
+                {
+                    case "DESCRIPTION": cls.Description = text; break;
+                    case "ICON": cls.Icon = text; break;
+                    case "CONTAINERICON": cls.ContainerIcon = text; break;
+                    default: cls.MemberDescriptions[meta.Groups["member"].Value] = text; break;
+                }
+                continue;
+            }
             var proc = ProcRx().Match(raw);
             if (proc.Success)
             {
@@ -232,6 +246,9 @@ public static partial class ClassFileReader
 
     [GeneratedRegex(@"^\s*DEFINE\s+CLASS\s+(?<name>\w+)\s+AS\s+(?<parent>\w+)(?:\s+OF\s+(?<lib>(?:""[^""]*""|'[^']*'|\S+)))?(?<ole>\s+OLEPUBLIC)?\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex DefineClassRx();
+
+    [GeneratedRegex(@"^\s*\*--\s(?<key>Description|Icon|ContainerIcon|Member\s+(?<member>\w+)):\s?(?<text>.*)$", RegexOptions.IgnoreCase)]
+    private static partial Regex MetaRx();
 
     [GeneratedRegex(@"^\s*ENDD(?:E|EF|EFI|EFIN|EFINE)?\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex EndDefineRx();

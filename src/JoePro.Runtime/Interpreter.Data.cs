@@ -965,6 +965,13 @@ public sealed partial class Interpreter
                 if (File.Exists(p)) File.Delete(p);
                 break;
             }
+            case "RENAME" when rest.TrimStart().StartsWith("CLASS ", StringComparison.OrdinalIgnoreCase):
+                RenameClassCommand(rest.TrimStart()[6..]);
+                break;
+            case "ADD" or "REMOVE":
+                if (verb == "ADD") AddClassCommand(rest.TrimStart()[5..]);
+                else RemoveClassCommand(rest.TrimStart()[5..]);
+                break;
             case "RENAME":
             {
                 var parts = rest.Split(" TO ", 2, StringSplitOptions.TrimEntries);
@@ -1032,7 +1039,17 @@ public sealed partial class Interpreter
         var m = System.Text.RegularExpressions.Regex.Match(rest.Trim(),
             @"^(?<kind>FORM|CLASSLIB|CLASS|REPO\w*|LABE?L?|MENU|QUER\w*|PROJ\w*|DATA\w*|SCREEN)\b\s*(?<rest>.*)$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
-        if (!m.Success || Ui == null) return false;
+        if (!m.Success) return false;
+        var kindWord = m.Groups["kind"].Value.ToUpperInvariant();
+        // Class libraries are files the runtime can create without a user interface.
+        if (create && kindWord == "CLASSLIB") { CreateClassLibrary(m.Groups["rest"].Value); return true; }
+        if (create && kindWord == "CLASS")
+        {
+            var created = CreateClassCommand(m.Groups["rest"].Value);
+            if (Ui != null) Ui.OpenDesigner(created);
+            return true;
+        }
+        if (Ui == null) return false;
         var kind = m.Groups["kind"].Value.ToUpperInvariant() switch
         {
             "SCREEN" => "FORM",
@@ -1071,6 +1088,128 @@ public sealed partial class Interpreter
         }
         else request = new DesignerRequest(kind, Resolve(name, exts), create, BaseClass: Clause("AS"), BaseLibrary: Clause("FROM") is { } f ? Resolve(f, DesignerExtensions["CLASS"]) : null);
         return Ui.OpenDesigner(request);
+    }
+
+    // ---- Class libraries: CREATE CLASSLIB, CREATE CLASS, ADD/RENAME/REMOVE CLASS -------------------------
+
+    /// <summary>Resolves a class library name for writing: .jpclass (a legacy .vcx cannot be written; import it first).</summary>
+    private string WritableLibrary(string name)
+    {
+        name = name.Trim().Trim('"', '\'');
+        if (name.Length == 0) throw VfpException.Syntax("A class library name is required.");
+        if (name.StartsWith('(') && name.EndsWith(')')) name = Eval(Parser.ParseExpression(name)).AsString.Trim();
+        var full = Path.IsPathRooted(name) ? name : Path.Combine(Options.Default_, name);
+        if (!Path.HasExtension(full)) full += ".jpclass";
+        full = DataSession.FindIgnoringCase(full) ?? full;
+        if (Path.GetExtension(full).Equals(".vcx", StringComparison.OrdinalIgnoreCase))
+            throw new VfpException(1102, $"{Path.GetFileName(full)} is a legacy class library and is read-only. IMPORT FOXPRO it (or open it and save it) to get a .jpclass library.", full);
+        return full;
+    }
+
+    /// <summary>Resolves a class library name for reading: .jpclass first, then a legacy .vcx.</summary>
+    private string ReadableLibrary(string name)
+    {
+        name = name.Trim().Trim('"', '\'');
+        if (name.StartsWith('(') && name.EndsWith(')')) name = Eval(Parser.ParseExpression(name)).AsString.Trim();
+        var full = Path.IsPathRooted(name) ? name : Path.Combine(Options.Default_, name);
+        if (Path.HasExtension(full)) return DataSession.FindIgnoringCase(full) ?? throw new VfpException(1, "File does not exist.", full);
+        return DataSession.FindIgnoringCase(full + ".jpclass") ?? DataSession.FindIgnoringCase(full + ".vcx") ?? throw new VfpException(1, "File does not exist.", full + ".jpclass");
+    }
+
+    private void CreateClassLibrary(string rest)
+    {
+        var path = WritableLibrary(TokenizeDesignerArgs(rest).FirstOrDefault() ?? "");
+        if (File.Exists(path))
+        {
+            if (Options.Safety) throw new VfpException(7, "File already exists.", path);
+        }
+        JoePro.Documents.ClassFileWriter.Save(JoePro.Documents.ClassLibrary.Empty(), path);
+        InvalidateClassLibrary(path);
+    }
+
+    /// <summary>CREATE CLASS name OF lib AS parent [FROM parentlib]: adds the class to the library (creating it if needed).</summary>
+    private DesignerRequest CreateClassCommand(string rest)
+    {
+        var words = TokenizeDesignerArgs(rest);
+        string? Clause(string kw)
+        {
+            var i = words.FindIndex(w => w.Equals(kw, StringComparison.OrdinalIgnoreCase));
+            return i >= 0 && i + 1 < words.Count ? words[i + 1] : null;
+        }
+        var name = words.Count > 0 && !IsDesignerClause(words[0]) ? words[0] : throw VfpException.Syntax("CREATE CLASS needs a class name.");
+        var lib = WritableLibrary(Clause("OF") ?? throw VfpException.Syntax("CREATE CLASS needs OF classlibrary."));
+        var parent = Clause("AS") ?? "Custom";
+        string? parentLib = null;
+        if (Clause("FROM") is { } from)
+        {
+            var fromPath = ReadableLibrary(from);
+            parentLib = Path.GetRelativePath(Path.GetDirectoryName(lib)!, fromPath).Replace('\\', '/');
+            if (Path.GetFullPath(fromPath).Equals(Path.GetFullPath(lib), StringComparison.OrdinalIgnoreCase)) parentLib = null;
+        }
+        else if (!BaseClasses.Exists(parent) && !(File.Exists(lib) && JoePro.Documents.ClassLibrary.Load(lib).Find(parent) != null))
+            throw new VfpException(1733, $"Class definition {parent.ToUpperInvariant()} is not found.", parent);
+        if (BaseClasses.Exists(parent) && parentLib == null) parent = BaseClasses.Canonical(parent);
+        var file = File.Exists(lib) ? JoePro.Documents.ClassLibrary.Load(lib) : JoePro.Documents.ClassLibrary.Empty();
+        try { JoePro.Documents.ClassLibrary.NewClass(file, name, parent, parentLib); }
+        catch (ArgumentException ex) { throw new VfpException(1, ex.Message, name); }
+        JoePro.Documents.ClassFileWriter.Save(file, lib);
+        InvalidateClassLibrary(lib);
+        return new DesignerRequest("CLASS", lib, false, name);
+    }
+
+    /// <summary>ADD CLASS name [OF source] TO target [OVERWRITE].</summary>
+    private void AddClassCommand(string rest)
+    {
+        var words = TokenizeDesignerArgs(rest);
+        string? Clause(string kw)
+        {
+            var i = words.FindIndex(w => w.Equals(kw, StringComparison.OrdinalIgnoreCase));
+            return i >= 0 && i + 1 < words.Count ? words[i + 1] : null;
+        }
+        var name = words.Count > 0 ? words[0] : throw VfpException.Syntax();
+        var target = WritableLibrary(Clause("TO") ?? throw VfpException.Syntax("ADD CLASS needs TO classlibrary."));
+        var sourcePath = Clause("OF") is { } of ? ReadableLibrary(of) : ClassLibraryOf(name) ?? throw new VfpException(1733, $"Class definition {name.ToUpperInvariant()} is not found.", name);
+        var source = JoePro.Documents.ClassLibrary.Load(sourcePath);
+        var targetFile = File.Exists(target) ? JoePro.Documents.ClassLibrary.Load(target) : JoePro.Documents.ClassLibrary.Empty();
+        var reference = Path.GetRelativePath(Path.GetDirectoryName(target)!, Path.ChangeExtension(sourcePath, ".jpclass")).Replace('\\', '/');
+        try { JoePro.Documents.ClassLibrary.CopyClass(source, name, targetFile, reference, words.Any(w => w.Equals("OVERWRITE", StringComparison.OrdinalIgnoreCase))); }
+        catch (ArgumentException ex) { throw new VfpException(1, ex.Message, name); }
+        JoePro.Documents.ClassFileWriter.Save(targetFile, target);
+        InvalidateClassLibrary(target);
+    }
+
+    /// <summary>RENAME CLASS old OF lib TO new.</summary>
+    private void RenameClassCommand(string rest)
+    {
+        var words = TokenizeDesignerArgs(rest);
+        string? Clause(string kw)
+        {
+            var i = words.FindIndex(w => w.Equals(kw, StringComparison.OrdinalIgnoreCase));
+            return i >= 0 && i + 1 < words.Count ? words[i + 1] : null;
+        }
+        if (words.Count == 0) throw VfpException.Syntax();
+        var lib = WritableLibrary(Clause("OF") ?? throw VfpException.Syntax("RENAME CLASS needs OF classlibrary."));
+        var file = JoePro.Documents.ClassLibrary.Load(lib);
+        try { JoePro.Documents.ClassLibrary.RenameClass(file, words[0], Clause("TO") ?? throw VfpException.Syntax()); }
+        catch (ArgumentException ex) { throw new VfpException(1733, ex.Message, words[0]); }
+        JoePro.Documents.ClassFileWriter.Save(file, lib);
+        InvalidateClassLibrary(lib);
+    }
+
+    /// <summary>REMOVE CLASS name OF lib.</summary>
+    private void RemoveClassCommand(string rest)
+    {
+        var words = TokenizeDesignerArgs(rest);
+        var of = words.FindIndex(w => w.Equals("OF", StringComparison.OrdinalIgnoreCase));
+        if (words.Count == 0 || of < 0 || of + 1 >= words.Count) throw VfpException.Syntax("REMOVE CLASS needs OF classlibrary.");
+        var lib = WritableLibrary(words[of + 1]);
+        var file = JoePro.Documents.ClassLibrary.Load(lib);
+        List<string> dependents;
+        try { dependents = JoePro.Documents.ClassLibrary.RemoveClass(file, words[0]); }
+        catch (ArgumentException ex) { throw new VfpException(1733, ex.Message, words[0]); }
+        JoePro.Documents.ClassFileWriter.Save(file, lib);
+        InvalidateClassLibrary(lib);
+        if (dependents.Count > 0) Notify($"REMOVE CLASS {words[0]}: {string.Join(", ", dependents)} still refer to it.");
     }
 
     private static bool IsDesignerClause(string word) =>

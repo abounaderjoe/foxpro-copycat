@@ -57,6 +57,9 @@ public static class LegacyFormConverter
         public string Reserved3 => this["RESERVED3"];
         public string Reserved6 => this["RESERVED6"].Trim();
         public string Reserved8 => this["RESERVED8"].Trim();
+        public string Reserved4 => this["RESERVED4"].Trim();
+        public string Reserved5 => this["RESERVED5"].Trim();
+        public string Reserved7 => this["RESERVED7"].Trim();
         public string Ole2 => this["OLE2"];
     }
 
@@ -194,11 +197,20 @@ public static class LegacyFormConverter
         }
         if (isClassRow)
         {
+            if (row.Reserved7.Length > 0) cls.Description = row.Reserved7.Replace("\r\n", "\n").Replace('\r', '\n');
+            if (row.Reserved4.Length > 0) cls.Icon = row.Reserved4.Replace('\\', '/');
+            if (row.Reserved5.Length > 0) cls.ContainerIcon = row.Reserved5.Replace('\\', '/');
             foreach (var line in Lines(row.Reserved3))
             {
                 var text = line.Trim();
                 if (text.Length == 0) continue;
-                var token = text.Split((char[]?)null, 2)[0];
+                var parts = text.Split((char[]?)null, 2);
+                var token = parts[0];
+                if (parts.Length > 1 && parts[1].Trim().Length > 0)
+                {
+                    var described = System.Text.RegularExpressions.Regex.Match(token.TrimStart('*', '^'), @"^\w+").Value;
+                    if (described.Length > 0) cls.MemberDescriptions[described] = parts[1].Trim();
+                }
                 if (token.StartsWith('*'))
                 {
                     var m = token[1..];

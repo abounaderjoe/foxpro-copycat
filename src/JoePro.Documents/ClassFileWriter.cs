@@ -36,6 +36,15 @@ public static class ClassFileWriter
         if (!string.IsNullOrEmpty(cls.ParentLibrary)) sb.Append(" OF ").Append(Literal.QuoteIfNeeded(cls.ParentLibrary));
         if (cls.OlePublic) sb.Append(" OLEPUBLIC");
         sb.Append('\n');
+        // Class Info and member descriptions are comments, so the file stays plain DEFINE CLASS code.
+        void Meta(string key, string? text)
+        {
+            if (!string.IsNullOrEmpty(text)) sb.Append(Indent).Append("*-- ").Append(key).Append(": ").Append(EscapeMeta(text)).Append('\n');
+        }
+        Meta("Description", cls.Description);
+        Meta("Icon", cls.Icon);
+        Meta("ContainerIcon", cls.ContainerIcon);
+        foreach (var (name, text) in cls.MemberDescriptions.OrderBy(d => d.Key, StringComparer.OrdinalIgnoreCase)) Meta("Member " + name, text);
 
         foreach (var (name, value) in cls.Properties.Canonical())
         {
@@ -82,6 +91,24 @@ public static class ClassFileWriter
             sb.Append(Indent).Append(method.IsFunction ? "ENDFUNC" : "ENDPROC").Append('\n');
         }
         sb.Append("ENDDEFINE\n");
+    }
+
+    /// <summary>Metadata comments are one line: backslashes and line breaks are escaped.</summary>
+    internal static string EscapeMeta(string text) => text.Replace("\\", "\\\\").Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\\n");
+
+    internal static string UnescapeMeta(string text)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length)
+            {
+                i++;
+                sb.Append(text[i] == 'n' ? '\n' : text[i]);
+            }
+            else sb.Append(text[i]);
+        }
+        return sb.ToString();
     }
 
     /// <summary>Methods of the class itself first, then of each member in z-order; alphabetical within an object.</summary>

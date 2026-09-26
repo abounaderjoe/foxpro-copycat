@@ -23,6 +23,12 @@ public sealed class ClassDocument
     public string ParentClass { get; set; } = "Custom";
     public string? ParentLibrary { get; set; }
     public bool OlePublic { get; set; }
+    /// <summary>Class Info: a description of the class, its toolbar icon and its container icon.</summary>
+    public string? Description { get; set; }
+    public string? Icon { get; set; }
+    public string? ContainerIcon { get; set; }
+    /// <summary>Descriptions of the custom properties, arrays and methods the class defines (shown in the property sheet).</summary>
+    public Dictionary<string, string> MemberDescriptions { get; } = new(StringComparer.OrdinalIgnoreCase);
     public PropertyList Properties { get; } = new();
     /// <summary>DIMENSION name[rows[, cols]] members: name → subscript text ("1" or "3,2").</summary>
     public List<(string Name, string Dimensions)> Arrays { get; } = new();
