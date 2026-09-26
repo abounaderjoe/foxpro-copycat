@@ -15,6 +15,9 @@ public enum CompletionKind { Keyword, Function, Procedure, Class, Variable, Fiel
 public sealed record CompletionItem(string Label, CompletionKind Kind, string? Detail = null, string? InsertText = null);
 
 public sealed record SymbolLocation(string? File, int Line, int Column = 1);
+/// <summary>A span of source text: 1-based line and column.</summary>
+public sealed record TextSpan(string? File, int Line, int Column, int Length);
+public sealed record SignatureInfo(string Label, IReadOnlyList<string> Parameters, int ActiveParameter, string? Documentation);
 
 public enum SymbolKind { Procedure, Function, Class, Method, Property }
 
@@ -378,6 +381,156 @@ public sealed class LanguageService
                 if (s.Name.Equals(word, StringComparison.OrdinalIgnoreCase)) return new SymbolLocation(file, s.Line);
         }
         return null;
+    }
+
+    // ================================================================================
+    // References, rename, signature help
+    // ================================================================================
+
+    /// <summary>
+    /// Replaces string literals and comments with spaces, keeping columns, so that searches only see code.
+    /// A '[' is a string delimiter unless it follows a name or ')' (then it subscripts an array).
+    /// </summary>
+    public static string CodeOnly(string line)
+    {
+        var chars = line.ToCharArray();
+        var trimmed = line.TrimStart();
+        if (trimmed.StartsWith('*') || Regex.IsMatch(trimmed, @"^NOTE\b", RegexOptions.IgnoreCase)) return new string(' ', line.Length);
+        for (int i = 0; i < chars.Length; i++)
+        {
+            var c = chars[i];
+            if (c == '&' && i + 1 < chars.Length && chars[i + 1] == '&')
+            {
+                for (int j = i; j < chars.Length; j++) chars[j] = ' ';
+                break;
+            }
+            bool bracketString = c == '[' && !(i > 0 && (char.IsLetterOrDigit(line[i - 1]) || line[i - 1] is '_' or ')' or ']'));
+            if (c is '"' or '\'' || bracketString)
+            {
+                var close = c == '[' ? ']' : c;
+                int j = i + 1;
+                while (j < chars.Length && line[j] != close) j++;
+                for (int k = i; k <= Math.Min(j, chars.Length - 1); k++) chars[k] = ' ';
+                i = j;
+            }
+        }
+        return new string(chars);
+    }
+
+    /// <summary>Whole-word, case-insensitive occurrences of the name under the cursor in code (not strings or comments).</summary>
+    public IReadOnlyList<TextSpan> References(string text, int line, int column, string? currentFile, bool includeWorkspace = true)
+    {
+        var at = WordAt(text, line, column);
+        if (at == null) return [];
+        var word = at.Value.Word;
+        var result = new List<TextSpan>();
+        void Search(string source, string? file)
+        {
+            var lines = SplitLines(source);
+            var rx = new Regex($@"(?<![A-Za-z0-9_]){Regex.Escape(word)}(?![A-Za-z0-9_])", RegexOptions.IgnoreCase);
+            for (int i = 0; i < lines.Length; i++)
+                foreach (Match m in rx.Matches(CodeOnly(lines[i])))
+                    result.Add(new TextSpan(file, i + 1, m.Index + 1, m.Length));
+        }
+        Search(text, currentFile);
+        if (includeWorkspace)
+            foreach (var file in _workspaceFiles())
+            {
+                if (currentFile != null && string.Equals(Path.GetFullPath(file), Path.GetFullPath(currentFile), StringComparison.OrdinalIgnoreCase)) continue;
+                try { Search(File.ReadAllText(file), file); } catch (IOException) { }
+            }
+        return result;
+    }
+
+    /// <summary>
+    /// Rename: the edits that replace every reference to the user-defined name under the cursor. Returns null
+    /// for built-in functions, commands and keywords, and for invalid new names.
+    /// </summary>
+    public IReadOnlyList<TextSpan>? RenameTargets(string text, int line, int column, string newName, string? currentFile)
+    {
+        var at = WordAt(text, line, column);
+        if (at == null || !Regex.IsMatch(newName, @"^[A-Za-z_][A-Za-z0-9_]*$")) return null;
+        var word = at.Value.Word;
+        if (FunctionDocs.Functions.ContainsKey(word) || FunctionDocs.Commands.ContainsKey(word.ToUpperInvariant()) || Keywords.Contains(word)) return null;
+        return References(text, line, column, currentFile);
+    }
+
+    private static readonly HashSet<string> Keywords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "IF", "ELSE", "ENDIF", "DO", "WHILE", "ENDDO", "FOR", "ENDFOR", "NEXT", "EACH", "CASE", "OTHERWISE", "ENDCASE", "SCAN", "ENDSCAN",
+        "PROCEDURE", "FUNCTION", "ENDPROC", "ENDFUNC", "RETURN", "LOCAL", "PRIVATE", "PUBLIC", "PARAMETERS", "LPARAMETERS", "DEFINE", "CLASS",
+        "ENDDEFINE", "AS", "OF", "THIS", "THISFORM", "THISFORMSET", "TRY", "CATCH", "FINALLY", "ENDTRY", "WITH", "ENDWITH", "TEXT", "ENDTEXT",
+        "AND", "OR", "NOT", "NULL", "SELECT", "FROM", "WHERE", "INTO", "ORDER", "BY", "GROUP", "HAVING", "TO", "STEP", "EXIT", "LOOP",
+    };
+
+    /// <summary>Signature help for the call around the cursor: user procedures in the file, then built-in functions.</summary>
+    public SignatureInfo? SignatureHelp(string text, int line, int column)
+    {
+        var lines = SplitLines(text);
+        if (line < 1 || line > lines.Length) return null;
+        var code = CodeOnly(lines[line - 1]);
+        var upto = code[..Math.Min(Math.Max(column - 1, 0), code.Length)];
+        int depth = 0, commas = 0;
+        for (int i = upto.Length - 1; i >= 0; i--)
+        {
+            var ch = upto[i];
+            if (ch == ')') depth++;
+            else if (ch == '(')
+            {
+                if (depth > 0) { depth--; continue; }
+                var name = Regex.Match(upto[..i], @"([A-Za-z_][A-Za-z0-9_]*)\s*$");
+                if (!name.Success) return null;
+                var fn = name.Groups[1].Value;
+                var isMethod = name.Index > 0 && upto[name.Index - 1] == '.';
+                if (!isMethod)
+                {
+                    var proc = Symbols(text).SelectMany(Flatten).FirstOrDefault(sy => sy.Kind is SymbolKind.Function or SymbolKind.Procedure && sy.Name.Equals(fn, StringComparison.OrdinalIgnoreCase));
+                    if (proc != null)
+                    {
+                        var ps = ParametersOf(lines, proc);
+                        return new SignatureInfo($"{proc.Name}({string.Join(", ", ps)})", ps, Math.Min(commas, Math.Max(ps.Count - 1, 0)), null);
+                    }
+                    if (FunctionDocs.Functions.TryGetValue(fn, out var doc))
+                    {
+                        var open = doc.Signature.IndexOf('(');
+                        var inner = open >= 0 ? doc.Signature[(open + 1)..].TrimEnd(')') : "";
+                        var ps = SplitParameters(inner);
+                        return new SignatureInfo(doc.Signature, ps, Math.Min(commas, Math.Max(ps.Count - 1, 0)), doc.Summary);
+                    }
+                }
+                return null;
+            }
+            else if (ch == ',' && depth == 0) commas++;
+        }
+        return null;
+    }
+
+    private static List<string> ParametersOf(string[] lines, DocumentSymbol proc)
+    {
+        var detail = proc.Detail ?? "";
+        var m = Regex.Match(detail, @"^\(([^)]*)\)");
+        if (m.Success) return m.Groups[1].Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        for (int i = proc.Line; i < Math.Min(proc.EndLine, lines.Length); i++)
+        {
+            var lp = Regex.Match(lines[i], @"^\s*L?PARA(?:M|ME|MET|METE|METER|METERS)?\s+(.+)$", RegexOptions.IgnoreCase);
+            if (lp.Success) return lp.Groups[1].Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(x => x.Split(' ')[0]).ToList();
+            if (lines[i].Trim().Length > 0 && !lines[i].TrimStart().StartsWith('*')) break;
+        }
+        return [];
+    }
+
+    /// <summary>Splits "a, b [, c [, d]]" into the parameter names shown in signature help.</summary>
+    private static List<string> SplitParameters(string inner)
+    {
+        var parts = new List<string>();
+        var sb = new System.Text.StringBuilder();
+        foreach (var ch in inner)
+        {
+            if (ch == ',') { if (sb.ToString().Trim('[', ']', ' ', '…').Length > 0) parts.Add(sb.ToString().Trim('[', ']', ' ')); sb.Clear(); }
+            else sb.Append(ch);
+        }
+        if (sb.ToString().Trim('[', ']', ' ', '…').Length > 0) parts.Add(sb.ToString().Trim('[', ']', ' '));
+        return parts;
     }
 
     private static IEnumerable<DocumentSymbol> Flatten(DocumentSymbol s) => s.Children.SelectMany(Flatten).Prepend(s);

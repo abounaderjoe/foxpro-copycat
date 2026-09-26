@@ -16,6 +16,7 @@
     <Project Path="tests/JoePro.Ui.Tests/JoePro.Ui.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/JoePro.Benchmarks/JoePro.Benchmarks.csproj" />
     <Project Path="tools/JoePro.Screenshots/JoePro.Screenshots.csproj" />
   </Folder>
 </Solution>

@@ -27,3 +27,23 @@ execution loop.
 - Execution is slower than a VM would be. That is acceptable for Phase 1 workloads. A benchmark suite
   will decide when the VM is needed.
 - The VM is scheduled for Phase 2, together with the debugger.
+
+## Amendment (Phase 2): the debugger runs on the tree walker; the VM waits for evidence
+
+- Date: 2026-09-26
+
+The debugger shipped on the tree walker. `Interpreter.Exec` calls `Debugger.OnStatement` before
+each statement, which gives breakpoints, conditions, break-on-change, stepping, call stacks, locals
+and coverage without a compiler. The DAP server and the IDE use the same engine.
+
+The [benchmarks](../status/benchmarks.md) show where time actually goes in typical FoxPro work.
+Tight interpreter loops run at about 3.5 million statements per second. Data work is dominated
+by storage: SQLite commits, row decoding and index lookups. Record navigation and multi-row commands
+were made 10–60× faster by changes in the data layer ([ADR 0005](0005-storage-performance-model.md)).
+No interpreter change was needed for that.
+
+Decision: the bytecode VM is **deferred**. It is no longer tied to the debugger. It will be built
+when a benchmark or a corpus application shows interpreter overhead dominating real work. The
+likely first step is caching name resolution in the tree, not a new execution model. The parser,
+AST and function library stay shared, so a VM can still replace only the execution loop.
+

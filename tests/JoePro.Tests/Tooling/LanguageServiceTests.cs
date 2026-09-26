@@ -122,4 +122,34 @@ public class LanguageServiceTests
         Assert.Contains(cls.Children, c => c.Name == "GetTotal" && c.Kind == SymbolKind.Method);
         Assert.Contains(cls.Children, c => c.Name == "Total" && c.Kind == SymbolKind.Property);
     }
+
+    [Fact]
+    public void Finds_references_in_code_but_not_in_strings_or_comments()
+    {
+        var svc = new LanguageService();
+        const string text = "x = CalcTotal(1)\n* CalcTotal in a comment\n? \"CalcTotal\" && CalcTotal again\nFUNCTION CalcTotal(n)\n  RETURN n\n";
+        var refs = svc.References(text, 1, 6, null, includeWorkspace: false);
+        Assert.Equal([(1, 5), (4, 10)], refs.Select(r => (r.Line, r.Column)).ToArray());
+    }
+
+    [Fact]
+    public void Rename_refuses_built_ins_and_invalid_names()
+    {
+        var svc = new LanguageService();
+        Assert.Equal(2, svc.RenameTargets(Source, 2, 13, "ComputeTotal", null)!.Count);
+        Assert.Null(svc.RenameTargets(Source, 3, 9, "MakeObject", null)); // CREATEOBJECT
+        Assert.Null(svc.RenameTargets(Source, 2, 13, "1bad", null));
+    }
+
+    [Fact]
+    public void Signature_help_tracks_the_active_parameter()
+    {
+        var svc = new LanguageService();
+        var sig = svc.SignatureHelp("? SUBSTR(cName, 2, ", 1, 20)!;
+        Assert.StartsWith("SUBSTR(", sig.Label);
+        Assert.Equal(2, sig.ActiveParameter);
+        var user = svc.SignatureHelp(Source + "\nx = CalcTotal(", 15, 15)!;
+        Assert.Equal("CalcTotal(nQty)", user.Label);
+        Assert.Equal(0, user.ActiveParameter);
+    }
 }

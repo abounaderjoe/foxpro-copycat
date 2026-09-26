@@ -297,8 +297,6 @@ public sealed partial class Interpreter
         int count = 0;
         bool Passes() => scope.For == null || Truthy(Eval(scope.For));
         bool While() => scope.While == null || Truthy(Eval(scope.While));
-        var saved = Session.CurrentAreaNumber;
-        void Use() => Session.Select(wa.Number);
 
         switch (kind)
         {
@@ -310,6 +308,19 @@ public sealed partial class Interpreter
                 if (Passes()) { action(); count++; }
                 return count;
         }
+        if (wa.TableOrNull is { } table && wa.BufferMode == 1)
+        {
+            // Many rows: commit once for the whole command.
+            int batched = 0;
+            table.Store.Batch(() => batched = ScopeLoop(wa, scope, kind, action, snapshot, Passes, While));
+            return batched;
+        }
+        return ScopeLoop(wa, scope, kind, action, snapshot, Passes, While);
+    }
+
+    private int ScopeLoop(WorkArea wa, Scope scope, string kind, Action action, bool snapshot, Func<bool> Passes, Func<bool> While)
+    {
+        int count = 0;
         if (kind == "ALL") wa.GoTop();
         int limit = kind == "NEXT" ? (int)Eval(scope.Count!).AsNumber : int.MaxValue;
         if (snapshot)
@@ -336,14 +347,13 @@ public sealed partial class Interpreter
         int seen = 0;
         while (!wa.Eof && seen < limit)
         {
-            Use();
+            Session.Select(wa.Number);
             if (!While()) break;
             if (Passes()) { action(); count++; }
             seen++;
             if (seen >= limit) break;
             wa.Skip();
         }
-        _ = saved;
         return count;
     }
 
@@ -572,6 +582,12 @@ public sealed partial class Interpreter
     {
         var wa = Session.Current;
         if (!wa.InUse) throw VfpException.NoTableOpen();
+        if (wa.BufferMode == 1) wa.Table.Store.Batch(() => AppendFromCore(wa, af));
+        else AppendFromCore(wa, af);
+    }
+
+    private void AppendFromCore(WorkArea wa, AppendFromStmt af)
+    {
         if (af.Type == "ARRAY")
         {
             var arr = FindVariable(NameValue(af.Source))?.Array ?? throw VfpException.VariableNotFound(NameValue(af.Source));

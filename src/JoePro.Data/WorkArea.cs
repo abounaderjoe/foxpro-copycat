@@ -346,6 +346,11 @@ public sealed class WorkArea : IRecord
     private IEnumerable<RowData> Rows(bool forward, Position? from, bool inclusive)
     {
         var t = Table;
+        if (_buffer.Count == 0)
+        {
+            foreach (var row in t.Scan(Order, forward, from, inclusive, skipDeleted: Options.Deleted)) yield return row;
+            yield break;
+        }
         var appended = _buffer.Where(kv => kv.Key < 0).Select(kv => kv.Value.Current).OrderByDescending(r => r.RecNo).ToList();
         if (!forward)
         {

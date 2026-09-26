@@ -26,8 +26,8 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | SELECT-SQL v1: joins, grouping, aggregates, HAVING, DISTINCT, UNION, TOP, subqueries, INTO | ✅ Done ([ADR 0003](../adr/0003-in-memory-sql-executor-first.md)) |
 | INSERT / UPDATE / DELETE SQL, CREATE/ALTER TABLE, CREATE CURSOR | ✅ Done |
 | Language: procedures, scoping, arrays, TRY/CATCH, ON ERROR, macros, TEXT/TEXTMERGE, preprocessor | ✅ Done ([ADR 0002](../adr/0002-tree-walking-interpreter-first.md)) |
-| OOP: DEFINE CLASS, inheritance, ADD OBJECT, DODEFAULT, access/assign, Collection | ✅ Done (in Phase 1 scope; Phase 2 finishes BINDEVENT and visibility enforcement) |
-| Built-in functions | 🟡 [263 implemented](functions.md), prioritized by frequency in typical code |
+| OOP: DEFINE CLASS, inheritance, ADD OBJECT, DODEFAULT, access/assign, Collection | ✅ Done |
+| Built-in functions | 🟡 [282 implemented](functions.md), prioritized by frequency in typical code |
 | Command Window | ✅ In the IDE (Enter runs the line or selection; blocks collect until complete; earlier lines can be re-run), plus the console `joepro` |
 | Browse window | ✅ Editable grid in the IDE: edits write back with REPLACE (rules and triggers apply), append, Ctrl+T toggles deleted. Loads up to 100,000 rows; paging is a later milestone |
 | Basic form runtime | ✅ Forms from code (`DEFINE CLASS … AS Form`) or `.jpform` files (`DO FORM`) render with Avalonia: Label, TextBox, EditBox, CommandButton, CheckBox, OptionGroup, CommandGroup, ComboBox/ListBox, Spinner, Shape, Line, Image, Container, PageFrame, Grid, Timer; ControlSource binding; VFP event order; private data sessions |
@@ -35,7 +35,26 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Data import: DBF/FPT/CDX/DBC → Joe Pro, migration report (JSON + HTML) | ✅ Done. DBC property decoding (captions, rules, triggers, relations) is still pending (judgment call J2) |
 | PRG analyzer (macros, DLL declarations, COM, @SAY/GET, DO FORM, FLLs, unsupported SYS()) | ✅ Started (Phase 2 item, brought forward) |
 | Cross-process locking | ⛔ In-process locks only; cross-process locks arrive with the Data Server (Phase 6) |
-| Performance benchmarks | ⛔ Not started |
+| Performance benchmarks | ✅ [Benchmark suite and results](benchmarks.md) ([ADR 0005](../adr/0005-storage-performance-model.md)) |
+| Crash safety | ✅ Tests kill a real `joepro` process mid-write: uncommitted transactions vanish, committed rows and indexes stay intact |
+
+## Phase 2 — Full language, OOP, modern editor, debugger
+
+| Item | Status |
+|---|---|
+| OOP: PROTECTED/HIDDEN enforced (error 1734), BINDEVENT/UNBINDEVENTS/AEVENTS (before/after, method-call flag) | ✅ Done |
+| COM/.NET bridge | 🟡 `CREATEOBJECT("net:Type")` for any .NET type everywhere; COM ProgIDs on Windows through late binding (untested here: no Windows machine). `GETOBJECT` not supported |
+| SQL v2: hash joins, filter pushdown, `UPDATE … FROM`, `DELETE … FROM` | ✅ Done. `ENGINEBEHAVIOR` result typing still needs the oracle |
+| Local views: `CREATE SQL VIEW`, parameters (`?name`, `?(expr)`), `USE … NODATA`, `REQUERY()`, `DBSETPROP`/`CURSORSETPROP`, updates to base tables with WhereType conflict detection | ✅ Done |
+| SQL pass-through: `SQLSTRINGCONNECT`/`SQLCONNECT`/`SQLEXEC`/`SQLPREPARE`/`SQLMORERESULTS`/`SQLCOMMIT`/`SQLROLLBACK`/`SQLTABLES`/`SQLCOLUMNS`/`SQLGETPROP`/`SQLSETPROP`, named connections | ✅ Done over ADO.NET: built-in SQLite provider, ODBC for `Driver=`/`DSN=` strings, and a provider registry for others |
+| Remote views (`CREATE SQL VIEW … REMOTE CONNECTION`) with updates | ✅ Done |
+| CursorAdapter | ⛔ Not started |
+| Language server: diagnostics, completion, hover, go to definition, symbols, **find references, rename, signature help** | ✅ Done (LSP + IDE). Semantic highlighting: not yet |
+| Debugger (engine, IDE, DAP): breakpoints (conditional, break-when-true, break-on-change), stepping, call stack, locals, watch, debug output, event tracking, coverage, `SET STEP ON`/`SUSPEND` | ✅ Done. Set next statement: not yet |
+| VS Code extension (LSP + DAP client, grammar) | 🟡 Written; not yet tried in VS Code |
+| Migration slice 2: PRG analyzer findings in the report | 🟡 Analyzer and report section done; automatic fixes not yet |
+| Performance: record navigation, batching, prepared statements | ✅ 10–60× faster navigation and bulk commands ([benchmarks](benchmarks.md)) |
+| Bytecode VM | ⏸ Deferred until benchmarks show interpreter overhead dominating ([ADR 0002 amendment](../adr/0002-tree-walking-interpreter-first.md)) |
 
 ## Screenshots
 

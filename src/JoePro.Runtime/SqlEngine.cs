@@ -114,11 +114,11 @@ internal static class SqlEngine
         return result;
     }
 
-    private static SqlResult ExecuteCore(Interpreter rt, SqlSelect q)
+    private static SqlResult ExecuteCore(Interpreter rt, SqlSelect q, string? recnoAlias = null)
     {
         var sources = new List<SqlSourceBinding>();
-        foreach (var src in q.From) sources.Add(LoadSource(rt, src));
-        foreach (var j in q.Joins) sources.Add(LoadSource(rt, j.Source));
+        foreach (var src in q.From) sources.Add(LoadSource(rt, src, recnoAlias));
+        foreach (var j in q.Joins) sources.Add(LoadSource(rt, j.Source, recnoAlias));
 
         var outer = rt.SqlContext;
         var ctx = new SqlRowContext(sources, outer);
@@ -287,7 +287,18 @@ internal static class SqlEngine
 
     // ---- Sources -----------------------------------------------------------------------------
 
-    private static SqlSourceBinding LoadSource(Interpreter rt, SqlSource src)
+    /// <summary>The hidden column holding record numbers for UPDATE/DELETE … FROM targets.</summary>
+    private const string RecnoColumn = "__RECNO";
+
+    private static string SourceAlias(Interpreter rt, SqlSource src)
+    {
+        if (src.Alias != null) return src.Alias;
+        var name = rt.NameValue(src.Table!);
+        var bang = name.IndexOf('!');
+        return Path.GetFileNameWithoutExtension(bang >= 0 ? name[(bang + 1)..] : name);
+    }
+
+    private static SqlSourceBinding LoadSource(Interpreter rt, SqlSource src, string? recnoAlias = null)
     {
         if (src.Derived != null)
         {
@@ -300,9 +311,10 @@ internal static class SqlEngine
         var bang = name.IndexOf('!');
         var aliasName = src.Alias ?? Path.GetFileNameWithoutExtension(bang >= 0 ? name[(bang + 1)..] : name);
         var table = SourceArea(rt, name).Table;
-        var binding = new SqlSourceBinding { Alias = aliasName, Fields = table.Fields.ToList() };
+        var withRecno = recnoAlias != null && aliasName.Equals(recnoAlias, StringComparison.OrdinalIgnoreCase);
+        var binding = new SqlSourceBinding { Alias = aliasName, Fields = withRecno ? [.. table.Fields, new FieldDef(RecnoColumn, 'I')] : table.Fields.ToList() };
         foreach (var row in table.Scan(null, forward: true, skipDeleted: rt.Options.Deleted))
-            binding.Rows.Add(row.Values);
+            binding.Rows.Add(withRecno ? [.. row.Values, Value.Number(row.RecNo)] : row.Values);
         binding.BuildIndex();
         return binding;
     }
@@ -785,7 +797,7 @@ internal static class SqlEngine
                 if (File.Exists(path)) File.Delete(path);
                 var schema = new TableSchema(Path.GetFileNameWithoutExtension(path), result.Fields.Select(f => f with { Nullable = true }));
                 var t = session.CreateTable(schema, free: true, path);
-                foreach (var r in result.Rows) t.Append(r);
+                t.Store.Batch(() => { foreach (var r in result.Rows) t.Append(r); });
                 var area = existing?.Number ?? (session.Current.InUse ? session.FreeArea() : session.CurrentAreaNumber);
                 session.Use(path, area);
                 session.Select(area);
@@ -852,7 +864,7 @@ internal static class SqlEngine
             var target = TargetArea(rt, s.Table);
             var r = ExecuteCore(rt, s.Select);
             var cols = s.Columns ?? target.Table.Fields.Take(r.Fields.Count).Select(f => f.Name).ToList();
-            foreach (var row in r.Rows) InsertRow(rt, target, cols, row);
+            target.Table.Store.Batch(() => { foreach (var row in r.Rows) InsertRow(rt, target, cols, row); });
             rt.SetPublic("_TALLY", Value.Number(r.Rows.Count, 0));
             return;
         }
@@ -915,8 +927,64 @@ internal static class SqlEngine
         }
     }
 
+    /// <summary>
+    /// UPDATE/DELETE … FROM: joins the target with the other sources and returns, for each target record that
+    /// matches, its record number and the values of <paramref name="columns"/>. The first match wins.
+    /// </summary>
+    private static (WorkArea Target, List<(int RecNo, Value[] Values)> Rows) TargetMatches(Interpreter rt, Expr targetExpr,
+        List<SqlSource> from, List<SqlJoin> joins, Expr? where, List<Expr> columns)
+    {
+        var targetName = rt.NameValue(targetExpr);
+        var bare = Path.GetFileNameWithoutExtension(targetName.Contains('!') ? targetName[(targetName.IndexOf('!') + 1)..] : targetName);
+        // The target may be one of the FROM sources (by alias or table name); otherwise it is joined in first.
+        var sources = new List<SqlSource>(from);
+        var targetSource = sources.Concat(joins.Select(j => j.Source))
+            .FirstOrDefault(src => src.Derived == null && (SourceAlias(rt, src).Equals(bare, StringComparison.OrdinalIgnoreCase)
+                || (src.Alias == null && rt.NameValue(src.Table!).Equals(targetName, StringComparison.OrdinalIgnoreCase))));
+        if (targetSource == null)
+        {
+            targetSource = new SqlSource(targetExpr, bare, null);
+            sources.Insert(0, targetSource);
+        }
+        var alias = SourceAlias(rt, targetSource);
+        var cols = new List<SqlColumn> { new(new MemberExpr(new NameExpr(alias), RecnoColumn), RecnoColumn, false, null) };
+        cols.AddRange(columns.Select((c, i) => new SqlColumn(c, $"V{i}", false, null)));
+        var q = new SqlSelect(false, null, false, cols, sources, joins, where, [], null, [], [], null, null, false, false);
+        var result = ExecuteCore(rt, q, alias);
+        var seen = new HashSet<int>();
+        var rows = new List<(int, Value[])>();
+        foreach (var r in result.Rows)
+        {
+            var recno = (int)r[0].AsNumber;
+            if (seen.Add(recno)) rows.Add((recno, r[1..])); // TODO(oracle): which match VFP uses when several rows join
+        }
+        var wa = TargetArea(rt, targetSource.Table!);
+        return (wa, rows);
+    }
+
     public static void Update(Interpreter rt, SqlUpdateStmt s)
     {
+        if (s.From != null)
+        {
+            var (target, matches) = TargetMatches(rt, s.Table, s.From, s.Joins ?? [], s.Where, s.Sets.Select(x => x.Value).ToList());
+            var indexes = s.Sets.Select(x => target.FieldIndex(x.Column) is var i and >= 0 ? i : throw VfpException.FieldNotFound(x.Column)).ToList();
+            var savedArea = rt.Session.CurrentAreaNumber;
+            rt.Session.Select(target.Number);
+            try
+            {
+                target.Table.Store.Batch(() =>
+                {
+                    foreach (var (recno, values) in matches)
+                    {
+                        target.Go(recno);
+                        rt.ReplaceWithRules(target, indexes.Select((fi, k) => (fi, values[k])).ToList());
+                    }
+                });
+            }
+            finally { rt.Session.Select(savedArea); }
+            rt.SetPublic("_TALLY", Value.Number(matches.Count, 0));
+            return;
+        }
         var wa = TargetArea(rt, s.Table);
         var saved = rt.Session.CurrentAreaNumber;
         rt.Session.Select(wa.Number);
@@ -932,13 +1000,16 @@ internal static class SqlEngine
                 if (s.Where == null || IsTrue(rt.Eval(s.Where))) recs.Add(wa.RecNo);
                 wa.Skip();
             }
-            foreach (var r in recs)
+            wa.Table.Store.Batch(() =>
             {
-                wa.Go(r);
-                var assignments = targets.Select(t => (t.Index, rt.Eval(t.Value))).ToList();
-                rt.ReplaceWithRules(wa, assignments);
-                count++;
-            }
+                foreach (var r in recs)
+                {
+                    wa.Go(r);
+                    var assignments = targets.Select(t => (t.Index, rt.Eval(t.Value))).ToList();
+                    rt.ReplaceWithRules(wa, assignments);
+                    count++;
+                }
+            });
         }
         finally
         {
@@ -949,6 +1020,27 @@ internal static class SqlEngine
 
     public static void Delete(Interpreter rt, SqlDeleteStmt s)
     {
+        if (s.From != null)
+        {
+            var (target, matches) = TargetMatches(rt, s.Table, s.From, s.Joins ?? [], s.Where, []);
+            var savedArea = rt.Session.CurrentAreaNumber;
+            rt.Session.Select(target.Number);
+            int deleted = 0;
+            try
+            {
+                target.Table.Store.Batch(() =>
+                {
+                    foreach (var (recno, _) in matches)
+                    {
+                        target.Go(recno);
+                        if (!target.Deleted) { target.Delete(); deleted++; }
+                    }
+                });
+            }
+            finally { rt.Session.Select(savedArea); }
+            rt.SetPublic("_TALLY", Value.Number(deleted, 0));
+            return;
+        }
         var wa = TargetArea(rt, s.Table);
         var saved = rt.Session.CurrentAreaNumber;
         rt.Session.Select(wa.Number);
@@ -962,12 +1054,15 @@ internal static class SqlEngine
                 if (!wa.Deleted && (s.Where == null || IsTrue(rt.Eval(s.Where)))) recs.Add(wa.RecNo);
                 wa.Skip();
             }
-            foreach (var r in recs)
+            wa.Table.Store.Batch(() =>
             {
-                wa.Go(r);
-                wa.Delete();
-                count++;
-            }
+                foreach (var r in recs)
+                {
+                    wa.Go(r);
+                    wa.Delete();
+                    count++;
+                }
+            });
         }
         finally
         {

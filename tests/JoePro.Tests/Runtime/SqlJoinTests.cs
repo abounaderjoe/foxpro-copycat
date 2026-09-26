@@ -75,4 +75,41 @@ public class SqlJoinTests : RuntimeHarness
         Assert.Equal("      2995", o);
         Assert.True(sw.ElapsedMilliseconds < 5000, $"join took {sw.ElapsedMilliseconds} ms");
     }
+
+    [Fact]
+    public void Update_from_uses_values_from_joined_tables()
+    {
+        var o = Run(Setup + """
+
+            CREATE CURSOR price (code C(4), factor N(4,1))
+            INSERT INTO price VALUES ("AB", 2)
+            INSERT INTO price VALUES ("ABC", 3)
+            SET ANSI ON
+            UPDATE ord SET amt = amt * p.factor FROM price p WHERE TRIM(p.code) == TRIM(ord.code)
+            ? _TALLY
+            SELECT ord
+            SCAN
+              ?? TRANSFORM(amt) + " "
+            ENDSCAN
+            """);
+        Assert.Equal("         310.00 14.00 27.00 1.00 ", o);
+    }
+
+    [Fact]
+    public void Delete_from_removes_target_rows_matched_by_a_join()
+    {
+        var o = Run(Setup + """
+
+            SET DELETED ON
+            DELETE o FROM ord o JOIN cust c ON o.custid = c.id WHERE c.name = "Alpha"
+            ? _TALLY
+            SELECT ord
+            COUNT TO n
+            ? n
+            DELETE FROM ord WHERE id = 13
+            COUNT TO n
+            ? n
+            """);
+        Assert.Equal("         2\n         2\n         1", o);
+    }
 }

@@ -68,6 +68,9 @@ public sealed class LspServer
                         ["hoverProvider"] = true,
                         ["definitionProvider"] = true,
                         ["documentSymbolProvider"] = true,
+                        ["referencesProvider"] = true,
+                        ["renameProvider"] = new JsonObject { ["prepareProvider"] = true },
+                        ["signatureHelpProvider"] = new JsonObject { ["triggerCharacters"] = new JsonArray("(", ",") },
                     },
                     ["serverInfo"] = new JsonObject { ["name"] = "joepro", ["version"] = "0.1" },
                 };
@@ -129,6 +132,52 @@ public sealed class LspServer
                 {
                     ["uri"] = loc.File != null ? new Uri(Path.GetFullPath(loc.File)).AbsoluteUri : uri,
                     ["range"] = Range(loc.Line, 1, loc.Line, 1),
+                };
+            }
+            case "textDocument/references":
+            {
+                var uri = (string)p!["textDocument"]!["uri"]!;
+                var (text, line, col) = Position(p);
+                var arr = new JsonArray();
+                foreach (var refSpan in _service.References(text, line, col, PathOf(uri)))
+                    arr.Add(new JsonObject { ["uri"] = refSpan.File != null ? new Uri(Path.GetFullPath(refSpan.File)).AbsoluteUri : uri, ["range"] = Range(refSpan.Line, refSpan.Column, refSpan.Line, refSpan.Column + refSpan.Length) });
+                return arr;
+            }
+            case "textDocument/prepareRename":
+            {
+                var (text, line, col) = Position(p!);
+                var at = LanguageService.WordAt(text, line, col);
+                if (at == null || _service.RenameTargets(text, line, col, "x", null) == null) return null;
+                return new JsonObject { ["range"] = Range(line, at.Value.StartColumn, line, at.Value.StartColumn + at.Value.Word.Length), ["placeholder"] = at.Value.Word };
+            }
+            case "textDocument/rename":
+            {
+                var uri = (string)p!["textDocument"]!["uri"]!;
+                var (text, line, col) = Position(p);
+                var newName = (string)p["newName"]!;
+                var targets = _service.RenameTargets(text, line, col, newName, PathOf(uri));
+                if (targets == null) return null;
+                var changes = new JsonObject();
+                foreach (var g in targets.GroupBy(t => t.File != null ? new Uri(Path.GetFullPath(t.File)).AbsoluteUri : uri))
+                {
+                    var edits = new JsonArray();
+                    foreach (var t in g) edits.Add(new JsonObject { ["range"] = Range(t.Line, t.Column, t.Line, t.Column + t.Length), ["newText"] = newName });
+                    changes[g.Key] = edits;
+                }
+                return new JsonObject { ["changes"] = changes };
+            }
+            case "textDocument/signatureHelp":
+            {
+                var (text, line, col) = Position(p!);
+                var sig = _service.SignatureHelp(text, line, col);
+                if (sig == null) return null;
+                var ps = new JsonArray();
+                foreach (var prm in sig.Parameters) ps.Add(new JsonObject { ["label"] = prm });
+                return new JsonObject
+                {
+                    ["signatures"] = new JsonArray(new JsonObject { ["label"] = sig.Label, ["documentation"] = sig.Documentation, ["parameters"] = ps }),
+                    ["activeSignature"] = 0,
+                    ["activeParameter"] = sig.ActiveParameter,
                 };
             }
             case "textDocument/documentSymbol":

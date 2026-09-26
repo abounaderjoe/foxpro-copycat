@@ -101,8 +101,81 @@ public sealed class Store : IDisposable
 
     internal void Exec(string sql, params (string, object?)[] args)
     {
+        BumpVersion();
         using var cmd = Command(sql, args);
         cmd.ExecuteNonQuery();
+    }
+
+    // ---- Prepared statements and change tracking ----------------------------------------
+
+    private readonly Dictionary<string, SqliteCommand> _prepared = new();
+    private SqliteCommand? _dataVersionCmd;
+    private long _lastDataVersion;
+    private long _dataVersionCheckedAt = long.MinValue;
+    private const long DataVersionIntervalMs = 250;
+
+    // One write counter per file, shared by every Store (data session) in this process that opens it,
+    // so cached rows are invalidated exactly by writes from any session.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, StrongBox> FileVersions = new(StringComparer.Ordinal);
+    private StrongBox? _version;
+    private StrongBox Version => _version ??= Kind == StoreKind.Cursors || Path == ":memory:"
+        ? new StrongBox()
+        : FileVersions.GetOrAdd(System.IO.Path.GetFullPath(Path), _ => new StrongBox());
+
+    private sealed class StrongBox { public long Value; }
+
+    /// <summary>Incremented by every write to this file from this process (and by rollbacks), so cached rows can be checked for staleness.</summary>
+    internal long WriteVersion
+    {
+        get => Interlocked.Read(ref Version.Value);
+        private set => Interlocked.Exchange(ref Version.Value, value);
+    }
+
+    private void BumpVersion() => Interlocked.Increment(ref Version.Value);
+
+    /// <summary>
+    /// A cached, prepared command for a hot statement (row reads, index scans, inserts). The caller must not
+    /// dispose it, and must finish with any reader before the same statement is used again.
+    /// </summary>
+    internal SqliteCommand Prepared(string sql, params (string Name, object? Value)[] args)
+    {
+        if (!_prepared.TryGetValue(sql, out var cmd))
+        {
+            cmd = Connection.CreateCommand();
+            cmd.CommandText = sql;
+            foreach (var (n, v) in args) cmd.Parameters.AddWithValue(n, v ?? DBNull.Value);
+            _prepared[sql] = cmd;
+            return cmd;
+        }
+        foreach (var (n, v) in args) cmd.Parameters[n].Value = v ?? DBNull.Value;
+        return cmd;
+    }
+
+    internal object? ScalarPrepared(string sql, params (string Name, object? Value)[] args)
+    {
+        BumpVersion();
+        return Prepared(sql, args).ExecuteScalar();
+    }
+
+    internal int ExecPrepared(string sql, params (string Name, object? Value)[] args)
+    {
+        BumpVersion();
+        return Prepared(sql, args).ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Changes when another process commits to this file. Checked at most every 250 ms (like SET REFRESH);
+    /// writes from this process are tracked exactly by <see cref="WriteVersion"/>.
+    /// </summary>
+    internal long DataVersion()
+    {
+        if (Kind == StoreKind.Cursors || Path == ":memory:") return 0;
+        var now = Environment.TickCount64;
+        if (now - _dataVersionCheckedAt < DataVersionIntervalMs) return _lastDataVersion;
+        _dataVersionCheckedAt = now;
+        _dataVersionCmd ??= Connection.CreateCommand();
+        _dataVersionCmd.CommandText = "PRAGMA data_version";
+        return _lastDataVersion = (long)_dataVersionCmd.ExecuteScalar()!;
     }
 
     internal string? ScalarString(string sql, params (string, object?)[] args)
@@ -288,6 +361,7 @@ public sealed class Store : IDisposable
 
     private int ExecCount(string sql, params (string, object?)[] args)
     {
+        BumpVersion();
         using var cmd = Command(sql, args);
         return cmd.ExecuteNonQuery();
     }
@@ -311,13 +385,13 @@ public sealed class Store : IDisposable
     public void BeginTransaction()
     {
         _savepointDepth++;
-        Exec($"SAVEPOINT jp{_savepointDepth}");
+        ExecPrepared($"SAVEPOINT jp{_savepointDepth}");
     }
 
     public void Commit()
     {
         if (_savepointDepth == 0) throw new VfpException(ErrorCodes.NoTransaction, "Command cannot be issued outside a transaction.");
-        Exec($"RELEASE jp{_savepointDepth}");
+        ExecPrepared($"RELEASE jp{_savepointDepth}");
         _savepointDepth--;
     }
 
@@ -327,6 +401,18 @@ public sealed class Store : IDisposable
         Exec($"ROLLBACK TO jp{_savepointDepth}; RELEASE jp{_savepointDepth}");
         _savepointDepth--;
         foreach (var t in _tables.Values) t.InvalidateCaches();
+    }
+
+    /// <summary>
+    /// Runs a multi-row command (REPLACE ALL, UPDATE-SQL, APPEND FROM…) with a single commit instead of one
+    /// per row. Rows written before an error are still committed, as in VFP.
+    /// </summary>
+    public void Batch(Action action)
+    {
+        BeginTransaction();
+        var depth = _savepointDepth;
+        try { action(); }
+        finally { if (_savepointDepth == depth) Commit(); }
     }
 
     /// <summary>Runs <paramref name="action"/> atomically (as a nested savepoint when a transaction is open).</summary>
@@ -348,6 +434,9 @@ public sealed class Store : IDisposable
     public void Dispose()
     {
         while (_savepointDepth > 0) Rollback();
+        foreach (var cmd in _prepared.Values) cmd.Dispose();
+        _prepared.Clear();
+        _dataVersionCmd?.Dispose();
         Connection.Dispose();
     }
 }

@@ -157,8 +157,18 @@ public sealed record DeleteDbObjectStmt(string Kind, Expr Name) : Stmt;
 /// <summary>RENAME VIEW / RENAME CONNECTION.</summary>
 public sealed record RenameDbObjectStmt(string Kind, Expr From, Expr To) : Stmt;
 public sealed record SqlInsertStmt(Expr Table, List<string>? Columns, List<Expr>? Values, SqlSelect? Select, string? FromMemvar, string? FromName, string? FromArray) : Stmt;
-public sealed record SqlUpdateStmt(Expr Table, List<(string Column, Expr Value)> Sets, Expr? Where) : Stmt;
-public sealed record SqlDeleteStmt(Expr Table, Expr? Where) : Stmt;
+public sealed record SqlUpdateStmt(Expr Table, List<(string Column, Expr Value)> Sets, Expr? Where) : Stmt
+{
+    /// <summary>VFP 9 UPDATE … FROM: extra sources joined to the target.</summary>
+    public List<SqlSource>? From { get; init; }
+    public List<SqlJoin>? Joins { get; init; }
+}
+public sealed record SqlDeleteStmt(Expr Table, Expr? Where) : Stmt
+{
+    /// <summary>VFP 9 DELETE … FROM with several sources (or an aliased source); Table names the target.</summary>
+    public List<SqlSource>? From { get; init; }
+    public List<SqlJoin>? Joins { get; init; }
+}
 
 // ======================================================================================
 // Program structure

@@ -701,28 +701,7 @@ public sealed partial class Parser
 
         var from = new List<SqlSource>();
         var joins = new List<SqlJoin>();
-        if (AcceptKw("FROM"))
-        {
-            AcceptKw("FORCE");
-            from.Add(SqlSourceRef());
-            while (true)
-            {
-                if (AcceptOp(",")) { from.Add(SqlSourceRef()); continue; }
-                string? kind = null;
-                if (AcceptKw("INNER")) kind = "INNER";
-                else if (AcceptKw("LEFT")) { AcceptKw("OUTER"); kind = "LEFT"; }
-                else if (AcceptKw("RIGHT")) { AcceptKw("OUTER"); kind = "RIGHT"; }
-                else if (AcceptKw("FULL")) { AcceptKw("OUTER"); kind = "FULL"; }
-                else if (AcceptKw("CROSS")) kind = "CROSS";
-                else if (Kw("JOIN")) kind = "INNER";
-                if (kind == null) break;
-                ExpectKw("JOIN");
-                var src = SqlSourceRef();
-                Expr? on = null;
-                if (AcceptKw("ON")) on = Expression();
-                joins.Add(new SqlJoin(kind, src, on));
-            }
-        }
+        if (AcceptKw("FROM")) (from, joins) = FromClause();
         Expr? where = AcceptKw("WHERE") ? Expression() : null;
         var groupBy = new List<Expr>();
         if (AcceptKw("GROUP")) { ExpectKw("BY"); groupBy = ExprList(); }
@@ -778,6 +757,33 @@ public sealed partial class Parser
             break;
         }
         return new SqlSelect(distinct, top, percent, cols, from, joins, where, groupBy, having, unions, order, intoKind, intoName, readWrite, noFilter);
+    }
+
+    /// <summary>The sources after FROM: tables, derived tables, comma lists and JOINs.</summary>
+    private (List<SqlSource> From, List<SqlJoin> Joins) FromClause()
+    {
+        var from = new List<SqlSource>();
+        var joins = new List<SqlJoin>();
+        AcceptKw("FORCE");
+        from.Add(SqlSourceRef());
+        while (true)
+        {
+            if (AcceptOp(",")) { from.Add(SqlSourceRef()); continue; }
+            string? kind = null;
+            if (AcceptKw("INNER")) kind = "INNER";
+            else if (AcceptKw("LEFT")) { AcceptKw("OUTER"); kind = "LEFT"; }
+            else if (AcceptKw("RIGHT")) { AcceptKw("OUTER"); kind = "RIGHT"; }
+            else if (AcceptKw("FULL")) { AcceptKw("OUTER"); kind = "FULL"; }
+            else if (AcceptKw("CROSS")) kind = "CROSS";
+            else if (Kw("JOIN")) kind = "INNER";
+            if (kind == null) break;
+            ExpectKw("JOIN");
+            var src = SqlSourceRef();
+            Expr? on = null;
+            if (AcceptKw("ON")) on = Expression();
+            joins.Add(new SqlJoin(kind, src, on));
+        }
+        return (from, joins);
     }
 
     private SqlSource SqlSourceRef()
@@ -872,8 +878,10 @@ public sealed partial class Parser
                 ExpectOp("=");
                 sets.Add((col, Expression()));
             } while (AcceptOp(","));
+            // VFP 9: UPDATE target SET … FROM sources [JOIN …] WHERE …
+            (List<SqlSource> From, List<SqlJoin> Joins)? from = AcceptKw("FROM") ? FromClause() : null;
             Expr? where = AcceptKw("WHERE") ? Expression() : null;
-            return new SqlUpdateStmt(table, sets, where);
+            return new SqlUpdateStmt(table, sets, where) { From = from?.From, Joins = from?.Joins };
         }
         finally { _sql = saved; }
     }
@@ -884,11 +892,15 @@ public sealed partial class Parser
         _sql = true;
         try
         {
-            if (!Kw("FROM")) SqlTableName(); // DELETE target FROM …
+            Expr? target = Kw("FROM") ? null : SqlTableName(); // DELETE target FROM …
             ExpectKw("FROM");
-            var table = SqlTableName();
+            var (from, joins) = FromClause();
             Expr? where = AcceptKw("WHERE") ? Expression() : null;
-            return new SqlDeleteStmt(table, where);
+            if (target == null && from.Count == 1 && joins.Count == 0 && from[0].Derived == null)
+                return new SqlDeleteStmt(from[0].Alias != null ? new LiteralExpr(Value.String(from[0].Alias!)) : from[0].Table!, where) { From = from[0].Alias != null ? from : null, Joins = from[0].Alias != null ? joins : null };
+            // VFP 9: DELETE [target] FROM sources [JOIN …] WHERE … (the target defaults to the first source)
+            target ??= from[0].Alias != null ? new LiteralExpr(Value.String(from[0].Alias!)) : from[0].Table!;
+            return new SqlDeleteStmt(target, where) { From = from, Joins = joins };
         }
         finally { _sql = saved; }
     }
