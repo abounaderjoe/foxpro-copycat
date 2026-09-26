@@ -66,7 +66,10 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Form DataEnvironment: cursors and relations open before Load, close after Unload (AutoOpenTables/AutoCloseTables, BeforeOpenTables/AfterCloseTables, BufferModeOverride, Order, Filter, NoDataOnLoad) | ✅ Done |
 | `IMPORT FOXPRO` converts forms and class libraries, mirrors the folder layout, copies programs/headers/pictures, analyzes method code | ✅ Done. A whole real application (GoFish) imports with no failures |
 | Compatibility: every one of 299 real programs in the corpus compiles (about 40 parser gaps fixed: leading-dot calls, `obj.&macro`, `m.` in declarations, multiple CATCH, `CAST()`, comment continuation, textmerge lines, …) | ✅ Done |
-| Form Designer (design surface, toolbox, property sheet, code editor, data environment, undo) | ⛔ Not started |
+| Form Designer: the surface is the real form built in design mode (property values apply, no event code runs) and drawn by the same controls as at run time; toolbox (click or drag to size), snap to grid, select/band-select/Shift-click, move and 8-handle resize with the mouse or arrow keys, align/same size/center, z-order, cut/copy/paste, drop into containers and the active page | ✅ Done |
+| Property sheet: categories and search, stored values in bold, VFP typing rules (text is a value of the property's type, `=expr` is an expression, colors as `r,g,b`), reset to default, rename; Methods tab with the events of the base class and the methods with code | ✅ Done |
+| Code pane for method code, data environment (add table → drag fields as label + bound control, check box for logical, edit box for memo; table → grid), unlimited undo/redo as one step per gesture, save to canonical `.jpform`, Run | ✅ Done |
+| `CREATE FORM`, `MODIFY FORM` (legacy `.scx` opens converted; saving writes `.jpform`), `CREATE FORM … AS class FROM lib`, File → New Form, Form menu | ✅ Done |
 | Class Designer, Class Browser | ⛔ Not started |
 | Remaining controls: grid dynamic properties, InputMask/Format, Toolbar, FormSet, Hyperlink, OLE hosting | ⛔ Not started |
 
@@ -81,6 +84,10 @@ Rendered headlessly by `tools/JoePro.Screenshots` (`dotnet run --project tools/J
 | Code editor | A form from a .jpform file |
 |---|---|
 | ![Editor](../images/ide-editor.png) | ![Form](../images/form-customer.png) |
+
+| Form Designer |
+|---|
+| ![Form Designer](../images/form-designer.png) |
 
 ## Known gaps in the UI (Phase 1)
 

@@ -97,6 +97,21 @@ public sealed partial class Interpreter : IExpressionHost
     public string LastErrorProgram { get; private set; } = "";
     /// <summary>AERROR() elements 3–7 when the last error carries extra detail (ODBC errors).</summary>
     public Value[]? LastErrorDetail { get; private set; }
+    /// <summary>
+    /// Form Designer mode: objects are built with their property values, but Load, Init and data environments
+    /// do not run, so a form can be shown for editing without executing its code.
+    /// </summary>
+    public bool DesignMode { get; set; }
+
+    /// <summary>Builds a class's object tree without running event code (for designers).</summary>
+    public VfpObject BuildForDesign(ClassInfo cls)
+    {
+        var saved = DesignMode;
+        DesignMode = true;
+        try { return CreateObject(cls, [], noInit: true)!; }
+        finally { DesignMode = saved; }
+    }
+
     /// <summary>SET TEXTMERGE ON: \ lines and TEXT … TEXTMERGE expand &lt;&lt;expressions&gt;&gt;.</summary>
     public bool TextMergeOn { get; private set; }
     private bool _textMergeShow = true;
@@ -330,7 +345,7 @@ public sealed partial class Interpreter : IExpressionHost
     }
 
     /// <summary>#INCLUDE: next to the file being compiled first, then along SET DEFAULT/PATH.</summary>
-    internal string? ResolveInclude(string name, string? includingFile)
+    public string? ResolveInclude(string name, string? includingFile)
     {
         name = name.Trim().Replace('\\', Path.DirectorySeparatorChar);
         if (includingFile != null && !Path.IsPathRooted(name)

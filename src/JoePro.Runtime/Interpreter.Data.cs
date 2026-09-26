@@ -981,6 +981,10 @@ public sealed partial class Interpreter
             case "FLUSH" or "UNLOCK" or "DOEVENTS" or "EXTERNAL" or "SLEEP" or "LOCK" or "VALIDATE" or "ASSERT":
                 if (verb == "UNLOCK") foreach (var w in Session.OpenWorkAreas()) w.Unlock();
                 break;
+            case "CREATE" or "CREA" when TryOpenDesigner(true, rest):
+                break;
+            case "MODIFY" or "MODI" when TryOpenDesigner(false, rest):
+                break;
             case "MODIFY" or "MODI":
             {
                 var m = System.Text.RegularExpressions.Regex.Match(rest, @"^(COMM\w*|FILE)\s+(.+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -1006,6 +1010,105 @@ public sealed partial class Interpreter
                 Notify($"{verb} {rest}: this designer/command is not available in this build (see roadmap).");
                 break;
         }
+    }
+
+    /// <summary>Designer file extensions by kind (the first is the native format, later ones are legacy formats read by conversion).</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> DesignerExtensions = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["FORM"] = [".jpform", ".scx"],
+        ["CLASS"] = [".jpclass", ".vcx"],
+        ["CLASSLIB"] = [".jpclass", ".vcx"],
+        ["REPORT"] = [".jpreport", ".frx"],
+        ["LABEL"] = [".jplabel", ".lbx"],
+        ["MENU"] = [".jpmenu", ".mnx"],
+        ["QUERY"] = [".jpquery", ".qpr"],
+        ["PROJECT"] = [".jpproject", ".pjx"],
+        ["DATABASE"] = [".jpdb", ".dbc"],
+    };
+
+    /// <summary>CREATE/MODIFY FORM|CLASS|REPORT|… name: hands the request to the UI host's designer.</summary>
+    private bool TryOpenDesigner(bool create, string rest)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(rest.Trim(),
+            @"^(?<kind>FORM|CLASSLIB|CLASS|REPO\w*|LABE?L?|MENU|QUER\w*|PROJ\w*|DATA\w*|SCREEN)\b\s*(?<rest>.*)$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        if (!m.Success || Ui == null) return false;
+        var kind = m.Groups["kind"].Value.ToUpperInvariant() switch
+        {
+            "SCREEN" => "FORM",
+            var k when k.StartsWith("REPO") => "REPORT",
+            var k when k.StartsWith("LAB") => "LABEL",
+            var k when k.StartsWith("QUER") => "QUERY",
+            var k when k.StartsWith("PROJ") => "PROJECT",
+            var k when k.StartsWith("DATA") => "DATABASE",
+            var k => k,
+        };
+        var words = TokenizeDesignerArgs(m.Groups["rest"].Value);
+        string? Clause(string kw)
+        {
+            var i = words.FindIndex(w => w.Equals(kw, StringComparison.OrdinalIgnoreCase));
+            return i >= 0 && i + 1 < words.Count ? words[i + 1] : null;
+        }
+        var name = words.Count > 0 && !IsDesignerClause(words[0]) ? words[0] : "";
+        if (name == "?") name = "";
+        if (name.StartsWith('(') && name.EndsWith(')')) name = Eval(Parser.ParseExpression(name)).AsString.Trim();
+        var exts = DesignerExtensions[kind];
+        string Resolve(string file, string[] extensions)
+        {
+            if (file.Length == 0) return "";
+            var full = Path.IsPathRooted(file) ? file : Path.Combine(Options.Default_, file);
+            if (Path.HasExtension(file)) return DataSession.FindIgnoringCase(full) ?? full;
+            foreach (var ext in extensions)
+                if (DataSession.FindIgnoringCase(full + ext) is { } found) return found;
+            return full + extensions[0];
+        }
+        DesignerRequest request;
+        if (kind == "CLASS")
+        {
+            var lib = Clause("OF") ?? "";
+            if (lib.Length == 0) throw VfpException.Syntax($"{(create ? "CREATE" : "MODIFY")} CLASS needs OF classlibrary.");
+            request = new DesignerRequest(kind, Resolve(lib, exts), create, name, Clause("AS"), Clause("FROM") is { } from ? Resolve(from, exts) : null);
+        }
+        else request = new DesignerRequest(kind, Resolve(name, exts), create, BaseClass: Clause("AS"), BaseLibrary: Clause("FROM") is { } f ? Resolve(f, DesignerExtensions["CLASS"]) : null);
+        return Ui.OpenDesigner(request);
+    }
+
+    private static bool IsDesignerClause(string word) =>
+        word.ToUpperInvariant() is "OF" or "AS" or "FROM" or "NOWAIT" or "SAVE" or "WINDOW" or "IN" or "METHOD" or "NOENVIRONMENT";
+
+    /// <summary>Splits designer command arguments on blanks, keeping quoted names and parenthesized expressions whole.</summary>
+    private static List<string> TokenizeDesignerArgs(string text)
+    {
+        var words = new List<string>();
+        var i = 0;
+        while (i < text.Length)
+        {
+            if (char.IsWhiteSpace(text[i])) { i++; continue; }
+            var start = i;
+            if (text[i] is '"' or '\'' or '[')
+            {
+                var close = text[i] == '[' ? ']' : text[i];
+                var end = text.IndexOf(close, i + 1);
+                if (end < 0) end = text.Length - 1;
+                words.Add(text[(i + 1)..end]);
+                i = end + 1;
+                continue;
+            }
+            if (text[i] == '(')
+            {
+                var depth = 0;
+                for (; i < text.Length; i++)
+                {
+                    if (text[i] == '(') depth++;
+                    else if (text[i] == ')' && --depth == 0) { i++; break; }
+                }
+                words.Add(text[start..i]);
+                continue;
+            }
+            while (i < text.Length && !char.IsWhiteSpace(text[i])) i++;
+            words.Add(text[start..i]);
+        }
+        return words;
     }
 
     // ---- CREATE / ALTER TABLE ---------------------------------------------------------------

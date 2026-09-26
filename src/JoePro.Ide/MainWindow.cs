@@ -43,7 +43,8 @@ public sealed class MainWindow : Window
 
         session.Host.Owner = this;
         session.Host.BrowseHandler = model => { OpenDocument(new BrowseTab(model, session.Host, AfterCommand)); return true; };
-        session.Host.ModifyHandler = path => { OpenFile(path); return true; };
+        session.Host.ModifyHandler = path => { OpenAny(path); return true; };
+        session.Host.DesignerHandler = OpenDesigner;
         session.CommandCompleted += AfterCommand;
         session.StatusMessage += m => _status.Text = m;
         session.ErrorRaised += ex => _status.Text = $"Error {ex.Number}: {ex.Message}";
@@ -108,6 +109,7 @@ public sealed class MainWindow : Window
         {
             var dirty = Documents.Items.OfType<CodeEditorTab>().Where(t => t.IsDirty).ToList();
             foreach (var t in dirty.Where(t => t.FilePath != null)) t.Save();
+            foreach (var d in Documents.Items.OfType<FormDesignerTab>().Where(d => d.Designer.Session.IsDirty && d.Designer.FilePath != null).ToList()) d.Designer.Save();
         };
         session.Screen.Write($"{Interpreter.VersionString}. Type commands in the Command window below; Ctrl+Shift+P opens the command palette.");
         session.Screen.NewLine();
@@ -166,6 +168,7 @@ public sealed class MainWindow : Window
     {
         CommandWindow.SetDark(IsDark);
         foreach (var t in Documents.Items.OfType<CodeEditorTab>()) t.SetDark(IsDark);
+        foreach (var d in Documents.Items.OfType<FormDesignerTab>()) d.Designer.SetDark(IsDark);
     }
 
     public void Run(string command)
@@ -194,6 +197,7 @@ public sealed class MainWindow : Window
     public void CloseDocument(DocumentTab tab)
     {
         if (tab is CodeEditorTab { IsDirty: true, FilePath: not null } code) code.Save();
+        if (tab is FormDesignerTab { Designer: { FilePath: not null, Session.IsDirty: true } designer }) designer.Save();
         Documents.Items.Remove(tab);
     }
 
@@ -213,6 +217,63 @@ public sealed class MainWindow : Window
     }
 
     private CodeEditorTab? ActiveEditor => Documents.SelectedItem as CodeEditorTab;
+    private FormDesigner? ActiveDesigner => (Documents.SelectedItem as FormDesignerTab)?.Designer;
+
+    /// <summary>CREATE/MODIFY FORM (and the other designers as they arrive). Returns false for designers this build lacks.</summary>
+    public bool OpenDesigner(DesignerRequest request)
+    {
+        switch (request.Kind)
+        {
+            case "FORM":
+                OpenForm(request.Path.Length == 0 ? null : request.Path, request.Create, request.BaseClass, request.BaseLibrary);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>Opens a form in the Form Designer: a .jpform as is, a legacy .scx converted in memory, or a new form.</summary>
+    public FormDesignerTab OpenForm(string? path, bool create = false, string? baseClass = null, string? baseLibrary = null)
+    {
+        var target = path != null && Path.GetExtension(path).Equals(".scx", StringComparison.OrdinalIgnoreCase) ? Path.ChangeExtension(path, ".jpform") : path;
+        var existing = Documents.Items.OfType<FormDesignerTab>().FirstOrDefault(t => t.Designer.FilePath != null && target != null
+            && string.Equals(Path.GetFullPath(t.Designer.FilePath), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+        {
+            Documents.SelectedItem = existing;
+            return existing;
+        }
+        JoePro.Documents.ClassFile file;
+        string? note = null;
+        if (path != null && File.Exists(path) && !(create && target == path && baseClass != null))
+        {
+            if (target != path)
+            {
+                var converted = JoePro.Documents.LegacyFormConverter.ConvertForm(path);
+                file = converted.File;
+                var review = converted.Findings.Count(f => f.Status is JoePro.Documents.FindingStatus.NeedsReview or JoePro.Documents.FindingStatus.Unsupported);
+                note = $"{Path.GetFileName(path)} was converted; saving writes {Path.GetFileName(target)}" + (review > 0 ? $" ({review} item(s) need review)." : ".");
+            }
+            else file = JoePro.Documents.ClassFileReader.Load(path);
+        }
+        else
+        {
+            var name = path != null ? Path.GetFileNameWithoutExtension(path) : "Form1";
+            file = JoePro.Documents.Design.DesignSession.NewForm(name);
+            if (baseClass != null)
+            {
+                file.Classes[0].ParentClass = baseClass;
+                if (baseLibrary != null)
+                    file.Classes[0].ParentLibrary = target != null ? Path.GetRelativePath(Path.GetDirectoryName(Path.GetFullPath(target))!, baseLibrary).Replace('\\', '/') : baseLibrary;
+            }
+        }
+        var tab = new FormDesignerTab(target, file, _session.Runtime.Options.Default_, IsDark);
+        tab.Designer.Status += SetStatus;
+        tab.Designer.RunRequested += p => Run($"DO FORM \"{p}\"");
+        OpenDocument(tab);
+        if (note != null) SetStatus(note);
+        return tab;
+    }
 
     private void SetNextStatement()
     {
@@ -224,6 +285,12 @@ public sealed class MainWindow : Window
     /// <summary>Saves the active program and runs it (DO for .prg, DO FORM for .jpform).</summary>
     public void RunActive()
     {
+        if (ActiveDesigner is { } designer)
+        {
+            if (designer.FilePath == null) _ = SaveDesignerAs(designer, run: true);
+            else designer.Run();
+            return;
+        }
         if (ActiveEditor is not { } tab) return;
         if (tab.FilePath == null) { _ = SaveAs(tab); return; }
         tab.Save();
@@ -243,6 +310,34 @@ public sealed class MainWindow : Window
         if (file?.TryGetLocalPath() is { } path) tab.Save(path);
     }
 
+    private async Task SaveDesignerAs(FormDesigner designer, bool run = false)
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save form",
+            SuggestedFileName = designer.Session.ClassName.ToLowerInvariant() + ".jpform",
+            DefaultExtension = "jpform",
+            FileTypeChoices = [new FilePickerFileType("Joe Pro form") { Patterns = ["*.jpform"] }],
+        });
+        if (file?.TryGetLocalPath() is not { } path) return;
+        designer.Save(path);
+        if (run) designer.Run();
+    }
+
+    private void SaveActive()
+    {
+        if (ActiveDesigner is { } designer)
+        {
+            if (designer.FilePath == null) _ = SaveDesignerAs(designer);
+            else designer.Save();
+        }
+        else if (ActiveEditor is { } t)
+        {
+            if (t.FilePath == null) _ = SaveAs(t);
+            else t.Save();
+        }
+    }
+
     private async Task OpenWithPicker()
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -251,7 +346,7 @@ public sealed class MainWindow : Window
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
+                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.scx", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
                 new FilePickerFileType("All files") { Patterns = ["*"] },
             ],
         });
@@ -269,10 +364,24 @@ public sealed class MainWindow : Window
             case ".jpdb":
                 Run($"OPEN DATABASE \"{path}\"");
                 break;
+            case ".jpform" or ".scx":
+                OpenForm(path);
+                break;
             default:
                 OpenFile(path);
                 break;
         }
+    }
+
+    private async Task AddTableToDataEnvironment()
+    {
+        if (ActiveDesigner is not { } designer) return;
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Add table to the data environment",
+            FileTypeFilter = [new FilePickerFileType("Tables") { Patterns = ["*.jpt", "*.dbf"] }],
+        });
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) designer.AddTable(path);
     }
 
     private async Task ImportFolder()
@@ -291,10 +400,26 @@ public sealed class MainWindow : Window
     {
         void A(string title, string shortcut, Action run) => _actions.Add(new PaletteAction(title, shortcut, run));
         A("New program", "Ctrl+N", () => OpenDocument(new CodeEditorTab(null, IsDark, Debugger.Engine, Language)));
+        A("New form", "", () => OpenForm(null, create: true));
+        A("Edit form as code", "", () => { if (ActiveDesigner is { FilePath: { } p } d) { if (d.Session.IsDirty) d.Save(); OpenFile(p); } });
+        A("Form: undo", "Ctrl+Z", () => ActiveDesigner?.Undo());
+        A("Form: redo", "Ctrl+Y", () => ActiveDesigner?.Redo());
+        A("Form: align left", "", () => ActiveDesigner?.Align("Left"));
+        A("Form: align right", "", () => ActiveDesigner?.Align("Right"));
+        A("Form: align top", "", () => ActiveDesigner?.Align("Top"));
+        A("Form: align bottom", "", () => ActiveDesigner?.Align("Bottom"));
+        A("Form: same width", "", () => ActiveDesigner?.Align("SameWidth"));
+        A("Form: same height", "", () => ActiveDesigner?.Align("SameHeight"));
+        A("Form: center horizontally", "", () => ActiveDesigner?.Align("CenterHorizontally"));
+        A("Form: center vertically", "", () => ActiveDesigner?.Align("CenterVertically"));
+        A("Form: bring to front", "", () => ActiveDesigner?.ZOrder(true));
+        A("Form: send to back", "", () => ActiveDesigner?.ZOrder(false));
+        A("Form: snap to grid", "", () => { if (ActiveDesigner is { } d) { d.SnapToGrid = !d.SnapToGrid; SetStatus($"Snap to grid: {(d.SnapToGrid ? "on" : "off")}"); } });
+        A("Form: add table to data environment…", "", () => _ = AddTableToDataEnvironment());
         A("Go to definition", "F12", () => ActiveEditor?.Intelligence?.GoToDefinition());
         A("Show completions", "Ctrl+Space", () => ActiveEditor?.Intelligence?.ShowCompletion());
         A("Open…", "Ctrl+O", () => _ = OpenWithPicker());
-        A("Save", "Ctrl+S", () => { if (ActiveEditor is { } t) { if (t.FilePath == null) _ = SaveAs(t); else t.Save(); } });
+        A("Save", "Ctrl+S", SaveActive);
         A("Run program", "Ctrl+E", RunActive);
         A("Import FoxPro application…", "", () => _ = ImportFolder());
         A("Command window", "Ctrl+F2", () => CommandWindow.Editor.Focus());
@@ -342,6 +467,7 @@ public sealed class MainWindow : Window
                 new MenuItem { Header = "_File", Items =
                 {
                     Item("_New Program", "New program", "Ctrl+N"),
+                    Item("New _Form", "New form"),
                     Item("_Open…", "Open…", "Ctrl+O"),
                     Item("_Save", "Save", "Ctrl+S"),
                     new Separator(),
@@ -363,6 +489,27 @@ public sealed class MainWindow : Window
                     Item("_Browse", "Browse current table"),
                     Item("Display _Structure", "Display structure"),
                     Item("_Close All Tables", "Close all tables"),
+                } },
+                new MenuItem { Header = "F_orm", Items =
+                {
+                    Item("_Undo", "Form: undo"),
+                    Item("_Redo", "Form: redo"),
+                    new Separator(),
+                    Item("Align _Left", "Form: align left"),
+                    Item("Align _Right", "Form: align right"),
+                    Item("Align _Top", "Form: align top"),
+                    Item("Align _Bottom", "Form: align bottom"),
+                    Item("Same _Width", "Form: same width"),
+                    Item("Same _Height", "Form: same height"),
+                    Item("Center _Horizontally", "Form: center horizontally"),
+                    Item("Center _Vertically", "Form: center vertically"),
+                    new Separator(),
+                    Item("Bring to _Front", "Form: bring to front"),
+                    Item("Send to Bac_k", "Form: send to back"),
+                    Item("_Snap to Grid", "Form: snap to grid"),
+                    new Separator(),
+                    Item("Add Table to _Data Environment…", "Form: add table to data environment…"),
+                    Item("Edit as _Code", "Edit form as code"),
                 } },
                 new MenuItem { Header = "_Program", Items =
                 {

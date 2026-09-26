@@ -100,6 +100,14 @@ foreach (var (variant, file) in new[] { (ThemeVariant.Light, "ide-light.png"), (
         var fw = session.Host.WindowOf(form)!;
         Pump();
         Save(fw, Path.Combine(output, "form-customer.png"));
+        session.Runtime.Release(form);
+
+        window.Run("MODIFY FORM customer");
+        var designer = ((FormDesignerTab)window.Documents.SelectedItem!).Designer;
+        designer.OpenMethod("cmdNext", "Click");
+        designer.Select(["txtName"]);
+        Pump();
+        Save(window, Path.Combine(output, "form-designer.png"));
     }
     window.Close();
 }

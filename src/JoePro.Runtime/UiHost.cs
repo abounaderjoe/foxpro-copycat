@@ -36,4 +36,13 @@ public interface IUiHost
 
     /// <summary>MODIFY COMMAND / MODIFY FILE: opens a file in the code editor. Returns false if unavailable.</summary>
     bool ModifyFile(string path);
+
+    /// <summary>CREATE/MODIFY FORM, CLASS, REPORT, LABEL, MENU, QUERY, PROJECT…: opens a designer. Returns false if unavailable.</summary>
+    bool OpenDesigner(DesignerRequest request);
 }
+
+/// <summary>
+/// A request to open a designer. <see cref="Path"/> is resolved against SET DEFAULT (empty for an untitled document);
+/// for CLASS it is the class library and <see cref="ClassName"/> names the class.
+/// </summary>
+public sealed record DesignerRequest(string Kind, string Path, bool Create, string? ClassName = null, string? BaseClass = null, string? BaseLibrary = null);

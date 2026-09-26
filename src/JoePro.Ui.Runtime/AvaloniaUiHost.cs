@@ -27,6 +27,7 @@ public sealed class AvaloniaUiHost : IUiHost
     private readonly HashSet<VfpObject> _closing = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<VfpObject, DispatcherFrame> _modalFrames = new(ReferenceEqualityComparer.Instance);
     private CancellationTokenSource? _readEvents;
+    private bool _designMode;
     private int _updating;
     private int _groupSeq;
 
@@ -152,6 +153,71 @@ public sealed class AvaloniaUiHost : IUiHost
 
     public bool ModifyFile(string path) => ModifyHandler?.Invoke(path) ?? false;
 
+    /// <summary>Set by the IDE to open designers (CREATE/MODIFY FORM, CLASS…).</summary>
+    public Func<DesignerRequest, bool>? DesignerHandler { get; set; }
+
+    public bool OpenDesigner(DesignerRequest request) => DesignerHandler?.Invoke(request) ?? false;
+
+    // ================================================================================
+    // Design surface (Form Designer)
+    // ================================================================================
+
+    /// <summary>
+    /// Renders a form's controls into a panel for the Form Designer: the same controls as at run time, but no
+    /// event code is wired, timers do not run, and grids show their columns without data.
+    /// </summary>
+    public Canvas BuildDesignSurface(VfpObject form)
+    {
+        _designMode = true;
+        var canvas = new Canvas
+        {
+            Width = Math.Max(20, Prop(form, "Width").AsNumber),
+            Height = Math.Max(20, Prop(form, "Height").AsNumber),
+            Tag = form,
+        };
+        if (IsCustomColor(Prop(form, "BackColor"))) canvas.Background = new SolidColorBrush(ValueText.ToColor(Prop(form, "BackColor")));
+        AddMembers(form, canvas);
+        form.Native = canvas;
+        return canvas;
+    }
+
+    private Control CreateDesignPlaceholder(VfpObject o)
+    {
+        var c = new Border
+        {
+            BorderBrush = Brushes.Gray,
+            BorderThickness = new Thickness(1),
+            Background = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
+            Width = 70,
+            Height = 24,
+            Child = new TextBlock { Text = (o.Class.BaseClass == "Timer" ? "⏱ " : "◆ ") + o.Name, FontSize = 11, Margin = new Thickness(3, 2), TextTrimming = TextTrimming.CharacterEllipsis },
+        };
+        Canvas.SetLeft(c, Prop(o, "Left") is { Kind: ValueKind.Number } l ? l.AsNumber : 0);
+        Canvas.SetTop(c, Prop(o, "Top") is { Kind: ValueKind.Number } t ? t.AsNumber : 0);
+        return c;
+    }
+
+    private Control CreateDesignGrid(VfpObject o)
+    {
+        var header = new StackPanel { Orientation = Orientation.Horizontal };
+        var columns = o.Members.Where(m => m.Class.BaseClass == "Column").ToList();
+        foreach (var col in columns)
+        {
+            var h = col.Members.FirstOrDefault(m => m.Class.BaseClass == "Header");
+            var caption = h != null && Prop(h, "Caption") is { Kind: ValueKind.Character } cap ? cap.AsString : col.Name;
+            header.Children.Add(new Border
+            {
+                Width = Prop(col, "Width") is { Kind: ValueKind.Number } w ? w.AsNumber : 75,
+                BorderBrush = Brushes.Gray,
+                BorderThickness = new Thickness(0, 0, 1, 1),
+                Child = new TextBlock { Text = caption, Margin = new Thickness(4, 2), FontSize = 12 },
+            });
+        }
+        if (columns.Count == 0)
+            header.Children.Add(new TextBlock { Text = Prop(o, "RecordSource") is { Kind: ValueKind.Character } rs && rs.AsString.Trim().Length > 0 ? $"Grid ({rs.AsString.Trim()})" : "Grid", Margin = new Thickness(4, 2), Opacity = 0.7 });
+        return new Border { BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1), Child = new DockPanel { Children = { header } } };
+    }
+
     // ================================================================================
     // Windows
     // ================================================================================
@@ -244,6 +310,13 @@ public sealed class AvaloniaUiHost : IUiHost
     private Control? Create(VfpObject o)
     {
         var bc = o.Class.BaseClass;
+        if (_designMode && (bc == "Timer" || (!BaseClasses.IsVisual(bc) && bc is not ("DataEnvironment" or "Cursor" or "Relation"))))
+        {
+            var placeholder = CreateDesignPlaceholder(o);
+            placeholder.Tag = o;
+            o.Native = placeholder;
+            return placeholder;
+        }
         if (bc == "Timer")
         {
             var t = new DispatcherTimer();
@@ -269,7 +342,7 @@ public sealed class AvaloniaUiHost : IUiHost
             "Line" => new Line { Stroke = Brushes.Gray, StrokeThickness = 1 },
             "Image" => new Image { Stretch = Stretch.Uniform },
             "PageFrame" => CreatePageFrame(o),
-            "Grid" => CreateGridControl(o),
+            "Grid" => _designMode ? CreateDesignGrid(o) : CreateGridControl(o),
             "Container" or "Control" => new Border { Child = new Canvas() },
             _ => new TextBlock { Text = $"({bc})", Opacity = 0.6 },
         };
@@ -282,6 +355,7 @@ public sealed class AvaloniaUiHost : IUiHost
             Apply(o, c, p);
         if (c is Border { Child: Canvas inner } && bc is "Container" or "Control") AddMembers(o, inner);
         ShowValue(o, c);
+        if (_designMode) return c; // no event code runs in the designer
         if (c is Avalonia.Input.InputElement ie && bc is not ("Label" or "Shape" or "Line" or "Image" or "Container" or "Control" or "PageFrame"))
         {
             ie.GotFocus += (_, _) => Guard(() =>

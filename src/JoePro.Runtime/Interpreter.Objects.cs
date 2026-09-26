@@ -111,6 +111,7 @@ public sealed partial class Interpreter
                 }
                 else o.Set("DataSessionId", Value.Number(Session.Id));
                 // The data environment (and its cursors) exists and opens its tables before Load, as in VFP.
+                // In design mode (Form Designer) objects are built but no event code runs and no tables open.
                 var deName = levels.SelectMany(l => l.Definition!.Objects.Select(ao => (ao, l)))
                     .Where(x => !x.ao.Name.Contains('.') && MemberClass(x.ao, x.l).BaseClass.Equals("DataEnvironment", StringComparison.OrdinalIgnoreCase))
                     .Select(x => x.ao.Name).LastOrDefault();
@@ -123,15 +124,18 @@ public sealed partial class Interpreter
                             prebuilt.Add(ao);
                         }
                     var de = o.FindProperty(deName)!.Value.AsObject as VfpObject;
-                    if (de != null)
+                    if (de != null && !DesignMode)
                     {
                         RaiseEvent(de, "BeforeOpenTables", []);
                         if (de.FindProperty("AutoOpenTables")?.Value is not { Kind: ValueKind.Logical } auto || auto.AsBool)
                             InvokeMethod(de, "OpenTables", []);
                     }
                 }
-                var loaded = RaiseEvent(o, "Load", []);
-                if (loaded.Kind == ValueKind.Logical && !loaded.AsBool) o.Set("__LoadFailed", Value.True);
+                if (!DesignMode)
+                {
+                    var loaded = RaiseEvent(o, "Load", []);
+                    if (loaded.Kind == ValueKind.Logical && !loaded.AsBool) o.Set("__LoadFailed", Value.True);
+                }
             }
             SyncAutoChildren(o);
             // Pass 2: member objects (their Init runs later, in InitTree).
