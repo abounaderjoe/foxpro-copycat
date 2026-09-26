@@ -89,6 +89,8 @@ public sealed partial class Interpreter : IExpressionHost
     public string? OnErrorCommand { get; private set; }
     /// <summary>The attached user-interface host, if any.</summary>
     public IUiHost? Ui { get; set; }
+    /// <summary>The attached debugger, if any.</summary>
+    public Debugger? Debugger { get; set; }
     public int LastErrorNumber { get; private set; }
     public string LastErrorMessage { get; private set; } = "";
     public int LastErrorLine { get; private set; }
@@ -135,6 +137,36 @@ public sealed partial class Interpreter : IExpressionHost
     /// <summary>Evaluates an expression in the current context.</summary>
     public Value Evaluate(string expression) => Eval(Parser.ParseExpression(expression));
 
+    /// <summary>Evaluates an expression as if it ran inside <paramref name="frame"/> (debugger watches and hovers).</summary>
+    public Value EvaluateInFrame(Frame frame, string expression)
+    {
+        var saved = _frame;
+        var savedSession = Session;
+        var savedTry = _tryDepth;
+        _frame = frame;
+        if (frame.This != null) Session = SessionFor(frame.This);
+        _tryDepth++; // errors while evaluating never trigger ON ERROR
+        try { return Evaluate(expression); }
+        finally
+        {
+            _tryDepth = savedTry;
+            _frame = saved;
+            Session = savedSession;
+        }
+    }
+
+    /// <summary>Assigns a variable in a frame (debugger Locals window editing).</summary>
+    public void AssignInFrame(Frame frame, string name, string expression)
+    {
+        var value = EvaluateInFrame(frame, expression);
+        var saved = _frame;
+        _frame = frame;
+        try { Assign(Parser.ParseExpression(name), value); }
+        finally { _frame = saved; }
+    }
+
+    internal IEnumerable<Variable> PublicVariables() => _publics.Values;
+
     private void RunTop(Action body)
     {
         try
@@ -143,6 +175,10 @@ public sealed partial class Interpreter : IExpressionHost
         }
         catch (ReturnToMasterException)
         {
+        }
+        catch (CancelProgramException)
+        {
+            Notify("Program canceled.");
         }
         finally
         {
@@ -438,18 +474,20 @@ public sealed partial class Interpreter : IExpressionHost
         foreach (var s in stmts)
         {
             _frame.Line = s.Line;
+            Debugger?.OnStatement(_frame, s);
             Flow f;
             try
             {
                 f = ExecStmt(s);
             }
-            catch (VfpException ex) when (Annotate(ex) && _tryDepth == 0 && OnErrorCommand != null)
+            catch (VfpException ex) when (Annotate(ex) && ReportToDebugger(ex)) { throw; }
+            catch (VfpException ex) when (_tryDepth == 0 && OnErrorCommand != null)
             {
                 RecordError(ex);
                 RunOnError();
                 continue;
             }
-            catch (Exception ex) when (ex is not VfpException and not QuitException and not ReturnToMasterException and not InternalFlowException)
+            catch (Exception ex) when (ex is not VfpException and not QuitException and not ReturnToMasterException and not InternalFlowException and not CancelProgramException)
             {
                 var vex = Wrap(ex);
                 if (_tryDepth == 0 && OnErrorCommand != null)
@@ -463,6 +501,16 @@ public sealed partial class Interpreter : IExpressionHost
             if (f != Flow.Normal) return f;
         }
         return Flow.Normal;
+    }
+
+    private readonly HashSet<VfpException> _reportedToDebugger = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Exception filter: lets the debugger stop at an unhandled error before the stack unwinds. Always returns false.</summary>
+    private bool ReportToDebugger(VfpException ex)
+    {
+        if (Debugger is { BreakOnErrors: true } d && _tryDepth == 0 && OnErrorCommand == null && _reportedToDebugger.Add(ex))
+            d.OnUnhandledError(_frame, ex);
+        return false;
     }
 
     private bool Annotate(VfpException ex)
@@ -611,9 +659,17 @@ public sealed partial class Interpreter : IExpressionHost
                 foreach (var p in unit.Procedures) _frame.Unit?.Procedures.TryAdd(p.Key, p.Value);
                 return Exec(unit.Main);
             }
+            case NoOpStmt { Verb: "SUSPEND" }:
+                if (Debugger != null) Debugger.Suspend(_frame, s.Line);
+                else Notify("SUSPEND: no debugger is attached; continuing.");
+                return Flow.Normal;
+            case NoOpStmt { Verb: "RESUME" }:
+                return Flow.Normal;
             case NoOpStmt n:
                 Notify($"{n.Verb} is not supported yet; statement skipped.");
                 return Flow.Normal;
+            case QuitStmt { Cancel: true }:
+                throw new CancelProgramException();
             case QuitStmt q:
                 throw new QuitException(q.Cancel);
             case ReadEventsStmt re:
@@ -734,7 +790,7 @@ public sealed partial class Interpreter : IExpressionHost
             try { result = Exec(t.Body); }
             finally { _tryDepth--; }
         }
-        catch (Exception ex) when (t.Catch != null && ex is not QuitException and not ReturnToMasterException and not InternalFlowException)
+        catch (Exception ex) when (t.Catch != null && ex is not QuitException and not ReturnToMasterException and not InternalFlowException and not CancelProgramException)
         {
             if (!CatchMatches(t, ex)) throw;
             result = Exec(t.Catch);

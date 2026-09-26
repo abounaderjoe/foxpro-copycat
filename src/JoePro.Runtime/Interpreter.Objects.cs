@@ -267,6 +267,7 @@ public sealed partial class Interpreter
     /// <summary>Runs an event or method if the class defines it; returns .T. otherwise.</summary>
     internal Value RaiseEvent(VfpObject o, string name, List<Arg> args)
     {
+        Debugger?.OnEvent(o, name);
         var m = FindHandler(o, name);
         if (m == null) return Value.True;
         return Invoke(m.Value.Method, m.Value.Owner.Unit, args, self: o, methodClass: m.Value.Owner);

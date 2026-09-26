@@ -716,11 +716,32 @@ public sealed partial class Interpreter
                 o.Path.Clear();
                 o.Path.AddRange(Text().Trim('"', '\'').Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
                 break;
-            case "MULTILOCKS" or "REPROCESS" or "STATUS" or "ECHO" or "STEP" or "CONSOLE" or "ESCAPE" or "BELL" or "NOTIFY"
+            case "STEP":
+                if (st.Value == "ON")
+                {
+                    if (Debugger != null) Debugger.Suspend(_frame, _frame.Line);
+                    else Notify("SET STEP ON: no debugger is attached; continuing.");
+                }
+                break;
+            case "EVENTTRACKING":
+                if (Debugger != null && st.Value is "ON" or "OFF") Debugger.EventTracking = st.Value == "ON";
+                break;
+            case "COVERAGE":
+            {
+                var file = st.Expr != null ? Text() : (st.Value ?? "").Trim();
+                var additive = file.EndsWith(" ADDITIVE", StringComparison.OrdinalIgnoreCase);
+                if (additive) file = file[..^" ADDITIVE".Length].Trim();
+                file = file.Trim('"', '\'');
+                var dbg = Debugger ?? new Debugger(this);
+                if (file.Length == 0) dbg.StopCoverage();
+                else dbg.StartCoverage(Path.Combine(Options.Default_, file), additive);
+                break;
+            }
+            case "MULTILOCKS" or "REPROCESS" or "STATUS" or "ECHO" or "CONSOLE" or "ESCAPE" or "BELL" or "NOTIFY"
                 or "CPDIALOG" or "STRICTDATE" or "FIXED" or "UDFPARMS" or "COMPATIBLE" or "MEMOWIDTH" or "TEXTMERGE" or "HELP"
                 or "RESOURCE" or "SYSMENU" or "CURSOR" or "TYPEAHEAD" or "CARRY" or "CONFIRM" or "FULLPATH" or "UNIQUE" or "LOCK"
                 or "REFRESH" or "CURRENCY" or "CLOCK" or "ROLLOVER" or "BLOCKSIZE" or "NULLDISPLAY" or "VARCHARMAPPING"
-                or "TABLEVALIDATE" or "LIBRARY" or "CLASSLIB" or "DATASESSION" or "COVERAGE" or "EVENTTRACKING" or "ASSERTS"
+                or "TABLEVALIDATE" or "LIBRARY" or "CLASSLIB" or "DATASESSION" or "ASSERTS"
                 or "AUTOINCERROR" or "INDEX" or "KEY" or "SKIP" or "DEBUG" or "ALTERNATE" or "PRINTER" or "DEVICE" or "LOGERRORS"
                 or "MESSAGE" or "FDOW" or "FWEEK" or "SYSFORMATS" or "NOCPTRANS" or "OLEOBJECT" or "SQLBUFFERING" or "":
                 if (!UnsupportedSettings.Contains(st.Option)) UnsupportedSettings.Add(st.Option);
@@ -773,8 +794,13 @@ public sealed partial class Interpreter
                 break;
             }
             case "DEBUGOUT":
-                Notify("DEBUGOUT " + rest);
+            {
+                var text = rest.Trim().Length == 0 ? "" : string.Join(" ",
+                    Parser.ParseInteractive("? " + rest).Main.OfType<PrintStmt>().SelectMany(p => p.Items).Select(e => Formatter.ToDisplay(Eval(e), Options).Trim()));
+                if (Debugger != null) Debugger.Output(text);
+                else Notify("DEBUGOUT " + text);
                 break;
+            }
             default:
                 Notify($"{verb} {rest}: this designer/command is not available in this build (see roadmap).");
                 break;
