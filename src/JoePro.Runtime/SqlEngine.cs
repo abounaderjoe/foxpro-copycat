@@ -126,23 +126,43 @@ internal static class SqlEngine
         rt.SqlContext = ctx;
         try
         {
-            // 1. FROM (cross product of comma-separated sources) and JOINs.
-            var tuples = new List<Value[]?[]> { new Value[]?[sources.Count] };
-            int si = 0;
-            foreach (var _ in q.From)
+            // 1. FROM and JOINs. WHERE conjuncts that touch a single source filter it first (inner joins only);
+            //    equality conjuncts become hash joins. Every row is still checked against the full condition.
+            var whereParts = q.Where != null ? Conjuncts(q.Where) : [];
+            var allInner = q.Joins.All(j => j.Kind is "INNER" or "CROSS");
+            if (allInner && whereParts.Count > 0)
             {
-                var next = new List<Value[]?[]>();
-                foreach (var t in tuples)
-                    foreach (var row in sources[si].Rows)
+                for (int s = 0; s < sources.Count; s++)
+                {
+                    var local = whereParts.Where(w => Refs(w, sources) is { Count: 1 } r && r.Contains(s)).ToList();
+                    if (local.Count == 0) continue;
+                    var probe = new Value[]?[sources.Count];
+                    sources[s].Rows.RemoveAll(row =>
                     {
-                        var n = (Value[]?[])t.Clone();
-                        n[si] = row;
-                        next.Add(n);
-                    }
-                tuples = next;
-                si++;
+                        probe[s] = row;
+                        ctx.Current = probe;
+                        return !local.All(w => IsTrue(rt.Eval(w)));
+                    });
+                }
             }
-            if (q.From.Count == 0) tuples = [new Value[]?[0]];
+            List<Value[]?[]> tuples;
+            int si;
+            if (q.From.Count == 0)
+            {
+                tuples = [new Value[]?[sources.Count]];
+                si = 0;
+            }
+            else
+            {
+                tuples = sources[0].Rows.Select(r => { var t = new Value[]?[sources.Count]; t[0] = r; return t; }).ToList();
+                si = 1;
+                for (; si < q.From.Count; si++)
+                {
+                    // Comma-separated source: an inner join on the WHERE conjuncts that link it to earlier sources.
+                    var linking = allInner ? whereParts.Where(w => Refs(w, sources) is { } r && r.Contains(si) && r.All(x => x <= si) && r.Count > 1).ToList() : [];
+                    tuples = Join(rt, ctx, tuples, si, sources[si], new SqlJoin("INNER", q.From[si], AndAll(linking)));
+                }
+            }
             foreach (var j in q.Joins)
             {
                 tuples = Join(rt, ctx, tuples, si, sources[si], j);
@@ -305,10 +325,19 @@ internal static class SqlEngine
     {
         var result = new List<Value[]?[]>();
         var rightMatched = new bool[right.Rows.Count];
+        var hash = j.On != null ? BuildHash(rt, ctx, j.On, rightIndex, right) : null;
         foreach (var t in left)
         {
             bool matched = false;
-            for (int r = 0; r < right.Rows.Count; r++)
+            IEnumerable<int> candidates;
+            if (hash != null)
+            {
+                ctx.Current = t;
+                var key = HashKey(rt.Eval(hash.Value.LeftExpr));
+                candidates = key != null && hash.Value.Table.TryGetValue(key, out var list) ? list : [];
+            }
+            else candidates = Enumerable.Range(0, right.Rows.Count);
+            foreach (var r in candidates)
             {
                 var n = (Value[]?[])t.Clone();
                 n[rightIndex] = right.Rows[r];
@@ -338,6 +367,114 @@ internal static class SqlEngine
             }
         }
         return result;
+    }
+
+    /// <summary>Builds a hash table on the right source for an equality conjunct "leftExpr = rightExpr" if one is safe to hash.</summary>
+    private static (Expr LeftExpr, Dictionary<string, List<int>> Table)? BuildHash(Interpreter rt, SqlRowContext ctx, Expr on, int rightIndex, SqlSourceBinding right)
+    {
+        foreach (var c in Conjuncts(on))
+        {
+            if (c is not BinaryExpr { Op: "=" or "==" } eq) continue;
+            var lr = Refs(eq.Left, ctx.Sources);
+            var rr = Refs(eq.Right, ctx.Sources);
+            if (lr == null || rr == null) continue;
+            Expr leftSide, rightSide;
+            if (rr.Count == 1 && rr.Contains(rightIndex) && lr.All(x => x < rightIndex) && lr.Count > 0) (leftSide, rightSide) = (eq.Left, eq.Right);
+            else if (lr.Count == 1 && lr.Contains(rightIndex) && rr.All(x => x < rightIndex) && rr.Count > 0) (leftSide, rightSide) = (eq.Right, eq.Left);
+            else continue;
+            // Character keys hash safely only when comparison is exact: SET ANSI ON, "==", or two fixed-width fields of equal width.
+            if (!rt.Options.Ansi && eq.Op == "=" && !SameWidthFields(leftSide, rightSide, ctx.Sources, out var nonChar) && !nonChar) continue;
+            var table = new Dictionary<string, List<int>>();
+            var probe = new Value[]?[ctx.Sources.Count];
+            for (int i = 0; i < right.Rows.Count; i++)
+            {
+                probe[rightIndex] = right.Rows[i];
+                ctx.Current = probe;
+                var key = HashKey(rt.Eval(rightSide));
+                if (key == null) continue;
+                if (!table.TryGetValue(key, out var list)) table[key] = list = new List<int>();
+                list.Add(i);
+            }
+            return (leftSide, table);
+        }
+        return null;
+    }
+
+    private static bool SameWidthFields(Expr a, Expr b, List<SqlSourceBinding> sources, out bool nonCharacter)
+    {
+        var fa = FieldOf(a, sources);
+        var fb = FieldOf(b, sources);
+        nonCharacter = fa != null && fb != null && fa.Type is not ('C' or 'V' or 'M') && fb.Type is not ('C' or 'V' or 'M');
+        return fa != null && fb != null && fa.Type == 'C' && fb.Type == 'C' && fa.Width == fb.Width;
+    }
+
+    private static FieldDef? FieldOf(Expr e, List<SqlSourceBinding> sources) => e switch
+    {
+        NameExpr n => sources.Select(s => s.Index.TryGetValue(n.Name, out var i) ? s.Fields[i] : null).FirstOrDefault(f => f != null),
+        MemberExpr { Target: NameExpr a } m => sources.FirstOrDefault(s => s.Alias.Equals(a.Name, StringComparison.OrdinalIgnoreCase)) is { } sb && sb.Index.TryGetValue(m.Name, out var mi) ? sb.Fields[mi] : null,
+        _ => null,
+    };
+
+    private static string? HashKey(Value v) => v.Kind switch
+    {
+        ValueKind.Null => null,
+        ValueKind.Character => "C" + v.AsString.TrimEnd(' '),
+        ValueKind.Number or ValueKind.Currency => "N" + v.AsNumber.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+        ValueKind.Date => "D" + v.JulianDay,
+        ValueKind.DateTime => "T" + v.JulianMs,
+        ValueKind.Logical => v.AsBool ? "LT" : "LF",
+        ValueKind.Binary => "B" + Convert.ToBase64String(v.AsBinary),
+        _ => null,
+    };
+
+    private static List<Expr> Conjuncts(Expr e) =>
+        e is BinaryExpr { Op: "AND" } b ? [.. Conjuncts(b.Left), .. Conjuncts(b.Right)] : [e];
+
+    private static Expr? AndAll(List<Expr> parts) =>
+        parts.Count == 0 ? null : parts.Skip(1).Aggregate(parts[0], (a, b) => new BinaryExpr("AND", a, b));
+
+    /// <summary>The sources an expression reads, or null if that cannot be determined (subqueries, macros).</summary>
+    private static HashSet<int>? Refs(Expr e, List<SqlSourceBinding> sources)
+    {
+        var set = new HashSet<int>();
+        bool ok = true;
+        void Walk(Expr x)
+        {
+            switch (x)
+            {
+                case NameExpr n:
+                    for (int i = 0; i < sources.Count; i++) if (sources[i].Index.ContainsKey(n.Name)) { set.Add(i); break; }
+                    break;
+                case MemberExpr { Target: NameExpr a } m:
+                {
+                    var i = sources.FindIndex(s => s.Alias.Equals(a.Name, StringComparison.OrdinalIgnoreCase));
+                    if (i >= 0) set.Add(i); else ok = false;
+                    break;
+                }
+                case AliasFieldExpr af:
+                {
+                    var i = sources.FindIndex(s => s.Alias.Equals(af.Alias, StringComparison.OrdinalIgnoreCase));
+                    if (i >= 0) set.Add(i); else ok = false;
+                    break;
+                }
+                case LiteralExpr or MemVarExpr:
+                    break;
+                case BinaryExpr b: Walk(b.Left); Walk(b.Right); break;
+                case UnaryExpr u: Walk(u.Operand); break;
+                case CallExpr c:
+                    if (JoePro.Runtime.Builtins.Library.IsAggregate(c.Name)) { ok = false; break; }
+                    foreach (var arg in c.Args) Walk(arg);
+                    break;
+                case BetweenExpr bt: Walk(bt.Value); Walk(bt.Low); Walk(bt.High); break;
+                case InListExpr il when il.Items.All(i => i is not SubqueryExpr): Walk(il.Value); foreach (var i in il.Items) Walk(i); break;
+                case LikeExpr lk: Walk(lk.Value); Walk(lk.Pattern); break;
+                case IsNullExpr isn: Walk(isn.Value); break;
+                case EmptyArgExpr: break;
+                default: ok = false; break;
+            }
+        }
+        Walk(e);
+        return ok ? set : null;
     }
 
     // ---- Columns -------------------------------------------------------------------------------

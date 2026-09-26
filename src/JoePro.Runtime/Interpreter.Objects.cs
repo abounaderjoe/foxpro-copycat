@@ -38,6 +38,13 @@ public sealed partial class Interpreter
         throw new VfpException(1733, $"Class definition {name.ToUpperInvariant()} is not found.", name);
     }
 
+    /// <summary>True if <paramref name="name"/> is a user class or a native base class (otherwise CREATEOBJECT tries COM/.NET).</summary>
+    internal bool ClassExists(string name)
+    {
+        if (_classes.ContainsKey(name) || BaseClasses.Exists(name)) return true;
+        return SearchUnits().Any(u => u.Classes.ContainsKey(name));
+    }
+
     internal VfpObject CreateObjectByName(string className, List<Arg> args, ProgramUnit? module = null) =>
         CreateObject(ResolveClass(className, module), args) ?? throw new VfpException(1733, "Object could not be created.");
 
@@ -268,9 +275,11 @@ public sealed partial class Interpreter
     internal Value RaiseEvent(VfpObject o, string name, List<Arg> args)
     {
         Debugger?.OnEvent(o, name);
+        RunDelegates(o, name, args, after: false);
         var m = FindHandler(o, name);
-        if (m == null) return Value.True;
-        return Invoke(m.Value.Method, m.Value.Owner.Unit, args, self: o, methodClass: m.Value.Owner);
+        var result = m == null ? Value.True : Invoke(m.Value.Method, m.Value.Owner.Unit, args, self: o, methodClass: m.Value.Owner);
+        RunDelegates(o, name, args, after: true);
+        return result;
     }
 
     /// <summary>
@@ -452,13 +461,122 @@ public sealed partial class Interpreter
         // alias.field(…) is never valid; objects only.
         var target = Eval(mc.Target);
         if (target.Kind != ValueKind.Object) throw new VfpException(1924, $"{ExprPrinter.Print(mc.Target).ToUpperInvariant()} is not an object.");
+        if (target.AsObject is ClrObjectProxy proxy) return proxy.Call(mc.Name, mc.Args.Select(Eval).ToList());
         var o = (VfpObject)target.AsObject;
         var prop = o.FindProperty(mc.Name);
         if (prop?.Array != null) return prop.Array[ArrayIndex(prop.Array, mc.Args)];
+        CheckAccess(o, mc.Name);
         return InvokeMethod(o, mc.Name, EvalArgs(mc.Args, byRefVariables: false));
     }
 
+    // ================================================================================
+    // Visibility (PROTECTED / HIDDEN)
+    // ================================================================================
+
+    internal Value GetPropertyChecked(VfpObject o, string name)
+    {
+        CheckAccess(o, name);
+        return GetProperty(o, name);
+    }
+
+    /// <summary>
+    /// PROTECTED members are visible only to the object's own methods; HIDDEN members only to methods of the
+    /// class level that declared them. Outside code gets "Property … is not found", as in VFP.
+    /// </summary>
+    internal void CheckAccess(VfpObject o, string name)
+    {
+        var levels = o.Class.Hierarchy().Where(c => c.Definition != null).ToList();
+        if (levels.Count == 0 && o.Parent == null) return;
+        ClassInfo? hiddenAt = levels.FirstOrDefault(c => c.Definition!.Hidden.Contains(name));
+        bool isProtected = hiddenAt == null && (levels.Any(c => c.Definition!.Protected.Contains(name))
+            || (o.Parent != null && o.Parent.Class.Hierarchy().Any(c => c.Definition?.Objects.Any(a => a.Protected && a.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) == true))
+            || levels.Any(c => c.Definition!.Objects.Any(a => a.Protected && a.Name.Equals(name, StringComparison.OrdinalIgnoreCase))));
+        if (hiddenAt == null && !isProtected) return;
+        // Code running in a method of this object (or while it is being constructed).
+        var self = _frame.This;
+        if (hiddenAt != null)
+        {
+            if (ReferenceEquals(self, o) && (_frame.MethodClass == hiddenAt || _frame.MethodClass == null)) return;
+        }
+        else if (ReferenceEquals(self, o) || (self != null && IsMemberOf(o, self))) return;
+        throw VfpObject.PropertyNotFound(name);
+    }
+
+    private static bool IsMemberOf(VfpObject member, VfpObject container)
+    {
+        for (var p = member.Parent; p != null; p = p.Parent)
+            if (ReferenceEquals(p, container)) return true;
+        return false;
+    }
+
+    // ================================================================================
+    // BINDEVENT
+    // ================================================================================
+
+    private readonly Dictionary<(VfpObject Source, string Event), List<(VfpObject Handler, string Method, int Flags)>> _bindings = new();
+
+    internal void BindEvent(VfpObject source, string eventName, VfpObject handler, string method, int flags)
+    {
+        var key = (source, eventName.ToUpperInvariant());
+        if (!_bindings.TryGetValue(key, out var list)) _bindings[key] = list = new();
+        list.RemoveAll(b => ReferenceEquals(b.Handler, handler) && b.Method.Equals(method, StringComparison.OrdinalIgnoreCase));
+        list.Add((handler, method, flags));
+    }
+
+    internal int UnbindEvents(VfpObject target, string? eventName, VfpObject? handler, string? method)
+    {
+        int removed = 0;
+        foreach (var key in _bindings.Keys.ToList())
+        {
+            var list = _bindings[key];
+            if (ReferenceEquals(key.Source, target) && (eventName == null || key.Event == eventName.ToUpperInvariant()))
+            {
+                removed += list.RemoveAll(b => handler == null || (ReferenceEquals(b.Handler, handler) && (method == null || b.Method.Equals(method, StringComparison.OrdinalIgnoreCase))));
+            }
+            else if (eventName == null && handler == null)
+            {
+                removed += list.RemoveAll(b => ReferenceEquals(b.Handler, target));
+            }
+            if (list.Count == 0) _bindings.Remove(key);
+        }
+        return removed;
+    }
+
+    /// <summary>
+    /// Runs BINDEVENT delegates for an event. nFlags bit 0 runs the delegate after the event code (default:
+    /// before); bit 1 skips the delegate when the method is simply called from code rather than raised.
+    /// </summary>
+    private void RunDelegates(VfpObject source, string eventName, List<Arg> args, bool after, bool methodCall = false)
+    {
+        if (_bindings.Count == 0 || !_bindings.TryGetValue((source, eventName.ToUpperInvariant()), out var list)) return;
+        foreach (var (handler, method, flags) in list.ToList())
+        {
+            if (((flags & 1) != 0) != after || handler.Released || (methodCall && (flags & 2) != 0)) continue;
+            _eventSources.Push((source, eventName));
+            try { InvokeMethodCore(handler, method, args); }
+            finally { _eventSources.Pop(); }
+        }
+    }
+
+    private readonly Stack<(VfpObject Source, string Event)> _eventSources = new();
+
+    /// <summary>The object and event that triggered the running delegate, for AEVENTS(a, 0).</summary>
+    internal (VfpObject Source, string Event)? CurrentEventSource => _eventSources.Count > 0 ? _eventSources.Peek() : null;
+
+    /// <summary>Bindings for AEVENTS(a, oObject): (source, event, handler, method, flags).</summary>
+    internal IEnumerable<(VfpObject Source, string Event, VfpObject Handler, string Method, int Flags)> BindingsFor(VfpObject o) =>
+        _bindings.SelectMany(kv => kv.Value.Select(b => (kv.Key.Source, kv.Key.Event, b.Handler, b.Method, b.Flags)))
+            .Where(b => ReferenceEquals(b.Source, o) || ReferenceEquals(b.Handler, o));
+
     internal Value InvokeMethod(VfpObject o, string name, List<Arg> args)
+    {
+        RunDelegates(o, name, args, after: false, methodCall: true);
+        var result = InvokeMethodCore(o, name, args);
+        RunDelegates(o, name, args, after: true, methodCall: true);
+        return result;
+    }
+
+    private Value InvokeMethodCore(VfpObject o, string name, List<Arg> args)
     {
         var m = FindHandler(o, name);
         if (m != null) return Invoke(m.Value.Method, m.Value.Owner.Unit, args, self: o, methodClass: m.Value.Owner);

@@ -149,14 +149,15 @@ public sealed partial class Interpreter
             if (SqlContext != null && SqlContext.TryResolve(n.Name, m.Name, out var sv)) return sv;
             var v = FindVariable(n.Name);
             if (v != null && !v.IsArray && v.Value.Kind == ValueKind.Object)
-                return GetProperty((VfpObject)v.Value.AsObject, m.Name);
+                return v.Value.AsObject is ClrObjectProxy px ? px.Get(m.Name) : GetPropertyChecked((VfpObject)v.Value.AsObject, m.Name);
             if (Session.FindAlias(n.Name) != null) return FieldOfAlias(n.Name, m.Name);
             if (n.Name.Equals("M", StringComparison.OrdinalIgnoreCase)) return GetVariable(m.Name);
             if (v == null) throw VfpException.AliasNotFound(n.Name);
         }
         var target = Eval(m.Target);
         if (target.Kind != ValueKind.Object) throw new VfpException(1924, $"{ExprPrinter.Print(m.Target).ToUpperInvariant()} is not an object.");
-        return GetProperty((VfpObject)target.AsObject, m.Name);
+        if (target.AsObject is ClrObjectProxy proxy) return proxy.Get(m.Name);
+        return GetPropertyChecked((VfpObject)target.AsObject, m.Name);
     }
 
     private Value EvalCall(CallExpr c)
@@ -291,6 +292,8 @@ public sealed partial class Interpreter
                 }
                 var o = Eval(m.Target);
                 if (o.Kind != ValueKind.Object) throw new VfpException(1924, $"{ExprPrinter.Print(m.Target).ToUpperInvariant()} is not an object.");
+                if (o.AsObject is ClrObjectProxy proxy) { proxy.Set(m.Name, value); break; }
+                CheckAccess((VfpObject)o.AsObject, m.Name);
                 SetProperty((VfpObject)o.AsObject, m.Name, value);
                 break;
             }

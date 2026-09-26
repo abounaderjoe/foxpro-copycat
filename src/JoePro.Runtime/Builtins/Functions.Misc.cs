@@ -286,6 +286,8 @@ public static partial class Library
         Add("CREATEOBJECT", c =>
         {
             var cls = c.Str(0);
+            if (!c.Rt.ClassExists(cls) && (cls.Contains('.') || cls.StartsWith("net:", StringComparison.OrdinalIgnoreCase)))
+                return Value.Object(ClrObjectProxy.Create(cls));
             var args = Enumerable.Range(1, c.Count - 1).Select(i => new Interpreter.Arg(c[i], null)).ToList();
             var o = c.Rt.CreateObject(c.Rt.ResolveClass(cls), args);
             return o == null ? Value.Null : Value.Object(o);
@@ -298,7 +300,11 @@ public static partial class Library
             var o = c.Rt.CreateObject(c.Rt.ResolveClass(cls, module), args);
             return o == null ? Value.Null : Value.Object(o);
         });
-        Add("GETOBJECT", _ => throw VfpException.NotSupported("GETOBJECT (COM automation arrives in Phase 2)"));
+        Add("GETOBJECT", c =>
+        {
+            if (!OperatingSystem.IsWindows()) throw VfpException.NotSupported("GETOBJECT (COM automation is available on Windows only)");
+            throw VfpException.NotSupported("GETOBJECT (attaching to running COM servers is not implemented yet)");
+        });
         Add("CREATEOBJECTEX", _ => throw VfpException.NotSupported("CREATEOBJECTEX (COM automation arrives in Phase 2)"));
         Add("PEMSTATUS", c =>
         {
@@ -363,7 +369,33 @@ public static partial class Library
         Add("DODEFAULT", c => c.Rt.DoDefault(Enumerable.Range(0, c.Count).Select(i => new Interpreter.Arg(c[i], null)).ToList()));
         Add("NODEFAULT", c => { c.Rt.CurrentFrame.NoDefault = true; return Value.True; });
         Add("RAISEEVENT", c => c.Rt.InvokeMethod(Obj(c, 0), c.Str(1), Enumerable.Range(2, c.Count - 2).Select(i => new Interpreter.Arg(c[i], null)).ToList()));
-        Add(["BINDEVENT", "UNBINDEVENTS"], c => { c.Rt.Notify("BINDEVENT is not supported yet (Phase 3)."); return N(0); });
+        Add("BINDEVENT", c =>
+        {
+            if (c[0].Kind != ValueKind.Object || c[0].AsObject is not VfpObject src) throw VfpException.NotSupported("BINDEVENT to window handles");
+            c.Rt.BindEvent(src, c.Str(1), Obj(c, 2), c.Str(3), c.Int(4, 0));
+            return N(1);
+        });
+        Add("AEVENTS", c =>
+        {
+            if (c[1].Kind != ValueKind.Object)
+            {
+                // AEVENTS(a, 0): the source of the event that is running the current delegate.
+                if (c.Rt.CurrentEventSource is not { } es) return N(0);
+                var ea = c.NewArray(0, 3, 0);
+                ea[1] = Value.Object(es.Source); ea[2] = S(es.Event); ea[3] = S("Event");
+                return N(3);
+            }
+            var rows = c.Rt.BindingsFor(Obj(c, 1)).ToList();
+            if (rows.Count == 0) return N(0);
+            var arr = c.NewArray(0, rows.Count, 5);
+            for (int i = 0; i < rows.Count; i++)
+            {
+                arr[i * 5 + 1] = Value.Object(rows[i].Source); arr[i * 5 + 2] = S(rows[i].Event);
+                arr[i * 5 + 3] = Value.Object(rows[i].Handler); arr[i * 5 + 4] = S(rows[i].Method); arr[i * 5 + 5] = N(rows[i].Flags);
+            }
+            return N(rows.Count);
+        });
+        Add("UNBINDEVENTS", c => N(c.Rt.UnbindEvents(Obj(c, 0), c.Has(1) ? c.Str(1) : null, c.Has(2) ? Obj(c, 2) : null, c.Has(3) ? c.Str(3) : null)));
         Add("ACLASS", c =>
         {
             var o = Obj(c, 1);
