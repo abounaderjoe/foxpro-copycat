@@ -117,11 +117,7 @@ public static partial class Library
             var arr = c.NewArray(0, 1, 7);
             arr[1, 1] = N(c.Rt.LastErrorNumber);
             arr[1, 2] = S(c.Rt.LastErrorMessage);
-            arr[1, 3] = Value.Null;
-            arr[1, 4] = Value.Null;
-            arr[1, 5] = Value.Null;
-            arr[1, 6] = Value.Null;
-            arr[1, 7] = Value.Null;
+            for (int i = 0; i < 5; i++) arr[1, i + 3] = c.Rt.LastErrorDetail is { } d ? d[i] : Value.Null;
             return N(1);
         });
 

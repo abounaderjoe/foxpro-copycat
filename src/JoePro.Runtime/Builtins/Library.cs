@@ -165,6 +165,7 @@ public static partial class Library
         RegisterDates();
         RegisterData();
         RegisterMisc();
+        RegisterRemote();
     }
 
     public static IReadOnlyCollection<string> Names => Functions.Keys;

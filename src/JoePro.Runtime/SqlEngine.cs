@@ -299,26 +299,68 @@ internal static class SqlEngine
         var name = rt.NameValue(src.Table!);
         var bang = name.IndexOf('!');
         var aliasName = src.Alias ?? Path.GetFileNameWithoutExtension(bang >= 0 ? name[(bang + 1)..] : name);
-        var session = rt.Session;
-        var wa = session.FindAlias(Path.GetFileNameWithoutExtension(bang >= 0 ? name[(bang + 1)..] : name));
-        if (wa == null)
-        {
-            var area = session.FreeArea();
-            var current = session.CurrentAreaNumber;
-            if (Path.GetExtension(name).Equals(".dbf", StringComparison.OrdinalIgnoreCase))
-            {
-                rt.ExecuteCommand($"USE \"{name}\" IN {area}");
-                wa = session.Area(area);
-            }
-            else wa = session.Use(name, area, again: true);
-            session.Select(current);
-        }
-        var table = wa.Table;
+        var table = SourceArea(rt, name).Table;
         var binding = new SqlSourceBinding { Alias = aliasName, Fields = table.Fields.ToList() };
         foreach (var row in table.Scan(null, forward: true, skipDeleted: rt.Options.Deleted))
             binding.Rows.Add(row.Values);
         binding.BuildIndex();
         return binding;
+    }
+
+    /// <summary>The work area holding a FROM table: an open alias, else the table (or view) opened in a free area.</summary>
+    private static WorkArea SourceArea(Interpreter rt, string name)
+    {
+        var bang = name.IndexOf('!');
+        var session = rt.Session;
+        var wa = session.FindAlias(Path.GetFileNameWithoutExtension(bang >= 0 ? name[(bang + 1)..] : name));
+        if (wa != null) return wa;
+        var area = session.FreeArea(except: session.CurrentAreaNumber); // the current area may be about to receive the result
+        var current = session.CurrentAreaNumber;
+        try
+        {
+            if (Path.GetExtension(name).Equals(".dbf", StringComparison.OrdinalIgnoreCase))
+            {
+                rt.ExecuteCommand($"USE \"{name}\" IN {area}");
+                return session.Area(area);
+            }
+            if (session.FindView(name) is { } v) return Views.Open(rt, v.Database, v.View, area, null, noData: false);
+            return session.Use(name, area, again: true);
+        }
+        finally { session.Select(current); }
+    }
+
+    /// <summary>
+    /// For views: the output column names of a query and the base table and field behind each one
+    /// (null for computed columns). Table names are given as written in the FROM clause.
+    /// </summary>
+    public static List<(string Name, string? Table, string? Field)> ColumnSources(Interpreter rt, SqlSelect q)
+    {
+        var bindings = new List<SqlSourceBinding>();
+        var tables = new List<string?>();
+        foreach (var src in q.From.Concat(q.Joins.Select(j => j.Source)))
+        {
+            if (src.Derived != null)
+            {
+                bindings.Add(new SqlSourceBinding { Alias = src.Alias!, Fields = ExecuteCore(rt, src.Derived).Fields });
+                tables.Add(null);
+                continue;
+            }
+            var name = rt.NameValue(src.Table!);
+            var bang = name.IndexOf('!');
+            var bare = Path.GetFileNameWithoutExtension(bang >= 0 ? name[(bang + 1)..] : name);
+            var table = SourceArea(rt, name).Table;
+            var b = new SqlSourceBinding { Alias = src.Alias ?? bare, Fields = table.Fields.ToList() };
+            b.BuildIndex();
+            bindings.Add(b);
+            tables.Add(Path.HasExtension(name) && bang < 0 ? name : (bang >= 0 ? name[..bang] + "!" + bare : bare));
+        }
+        var result = new List<(string, string?, string?)>();
+        foreach (var col in ExpandColumns(q, bindings))
+        {
+            var i = col.Source == null ? -1 : bindings.FindIndex(b => b.Fields.Any(f => ReferenceEquals(f, col.Source)));
+            result.Add((col.Name, i >= 0 ? tables[i] : null, i >= 0 ? col.Source!.Name : null));
+        }
+        return result;
     }
 
     private static List<Value[]?[]> Join(Interpreter rt, SqlRowContext ctx, List<Value[]?[]> left, int rightIndex, SqlSourceBinding right, SqlJoin j)
@@ -457,7 +499,7 @@ internal static class SqlEngine
                     if (i >= 0) set.Add(i); else ok = false;
                     break;
                 }
-                case LiteralExpr or MemVarExpr:
+                case LiteralExpr or MemVarExpr or ViewParamExpr:
                     break;
                 case BinaryExpr b: Walk(b.Left); Walk(b.Right); break;
                 case UnaryExpr u: Walk(u.Operand); break;

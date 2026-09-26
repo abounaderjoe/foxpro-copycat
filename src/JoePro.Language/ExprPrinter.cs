@@ -105,6 +105,11 @@ public static class ExprPrinter
                 sb.Append(lk.Not ? " NOT LIKE " : " LIKE ");
                 Write(sb, lk.Pattern, 5);
                 break;
+            case ViewParamExpr vp:
+                sb.Append('?');
+                if (vp.Inner is NameExpr or MemVarExpr or MemberExpr) Write(sb, vp.Inner, 9);
+                else { sb.Append('('); Write(sb, vp.Inner, 0); sb.Append(')'); }
+                break;
             case IsNullExpr isn:
                 Write(sb, isn.Value, 4);
                 sb.Append(isn.Not ? " IS NOT NULL" : " IS NULL");

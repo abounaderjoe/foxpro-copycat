@@ -95,6 +95,13 @@ public sealed partial class Interpreter : IExpressionHost
     public string LastErrorMessage { get; private set; } = "";
     public int LastErrorLine { get; private set; }
     public string LastErrorProgram { get; private set; } = "";
+    /// <summary>AERROR() elements 3–7 when the last error carries extra detail (ODBC errors).</summary>
+    public Value[]? LastErrorDetail { get; private set; }
+    /// <summary>SQL pass-through connections.</summary>
+    public SqlPassThrough Remote => _remote ??= new SqlPassThrough(this);
+    private SqlPassThrough? _remote;
+    /// <summary>Connections shared by remote views with ShareConnection set, by connection name.</summary>
+    internal Dictionary<string, int> SharedViewConnections { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> UnsupportedSettings { get; } = new();
 
     internal void Talk(string message)
@@ -533,10 +540,15 @@ public sealed partial class Interpreter : IExpressionHost
         _ => new VfpException(ErrorCodes.FeatureNotAvailable, "Internal error: " + ex.Message),
     };
 
-    private void RecordError(VfpException ex)
+    /// <summary>Records an error for AERROR() without raising it (SQL pass-through functions return -1 instead).</summary>
+    internal void RecordError(VfpException ex)
     {
         LastErrorNumber = ex.Number;
         LastErrorMessage = ex.Message;
+        LastErrorDetail = ex.Data.Contains("OdbcMessage")
+            ? [Value.String((string)ex.Data["OdbcMessage"]!), ex.Data["SqlState"] is string st ? Value.String(st) : Value.Null,
+               Value.Number(Convert.ToDouble(ex.Data["NativeError"] ?? 0)), ex.Data["Handle"] is int h ? Value.Number(h) : Value.Null, Value.Null]
+            : null;
         LastErrorLine = ex.ErrorLine ?? _frame.Line;
         LastErrorProgram = ex.ErrorProgram ?? _frame.Program;
     }

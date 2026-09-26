@@ -1068,6 +1068,21 @@ public sealed partial class Parser
             }
             case TokenKind.Op when t.Text == "@":
                 return new ByRefExpr(Ident());
+            case TokenKind.Op when t.Text == "?" && _sql:
+            {
+                // View parameter: ?name, ?m.name, ?obj.prop or ?(expression).
+                if (AcceptOp("("))
+                {
+                    var pe = Expression();
+                    ExpectOp(")");
+                    return new ViewParamExpr(pe);
+                }
+                Expr target = new NameExpr(Ident());
+                if (target is NameExpr { Name: var n } && n.Equals("m", StringComparison.OrdinalIgnoreCase) && AcceptOp("."))
+                    target = new MemVarExpr(Ident());
+                while (IsOp(".") && _p + 1 < _t.Count && _t[_p + 1].Kind == TokenKind.Ident) { _p++; target = new MemberExpr(target, Ident()); }
+                return new ViewParamExpr(target);
+            }
             case TokenKind.Op when t.Text == ".":
                 // .Member inside WITH … ENDWITH
                 return new MemberExpr(new SpecialObjectExpr("WITH"), Ident());

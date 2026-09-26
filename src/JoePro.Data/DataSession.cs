@@ -62,10 +62,10 @@ public sealed class DataSession : IDisposable
         return wa;
     }
 
-    public int FreeArea()
+    public int FreeArea(int? except = null)
     {
         for (int i = 1; i <= MaxWorkAreas; i++)
-            if (!_areas.TryGetValue(i, out var wa) || !wa.InUse) return i;
+            if (i != except && (!_areas.TryGetValue(i, out var wa) || !wa.InUse)) return i;
         throw new VfpException(ErrorCodes.InvalidArgument, "No free work area.");
     }
 
@@ -162,6 +162,34 @@ public sealed class DataSession : IDisposable
         var named = new TableSchema(Path.GetFileNameWithoutExtension(file), schema.Fields);
         named.Tags.AddRange(schema.Tags);
         return store.CreateTable(named, ExpressionHost);
+    }
+
+    /// <summary>The connection string of a named connection in an open database, or null.</summary>
+    public string? NamedConnection(string name)
+    {
+        var (db, bare) = SplitDatabaseName(name);
+        foreach (var store in db != null ? new[] { db } : OpenDatabases.OrderBy(d => d == CurrentDatabase ? 0 : 1).ToArray())
+            if (store.GetConnection(bare) is { } c) return c.BuildConnectString();
+        return null;
+    }
+
+    /// <summary>Finds a view by name ("db!view" names a specific database); the current database is searched first.</summary>
+    public (Store Database, ViewDefinition View)? FindView(string name)
+    {
+        var (db, bare) = SplitDatabaseName(name);
+        if (bare.Contains('.') || bare.Contains(Path.DirectorySeparatorChar)) return null;
+        foreach (var store in db != null ? new[] { db } : OpenDatabases.OrderBy(d => d == CurrentDatabase ? 0 : 1).ToArray())
+            if (store.GetView(bare) is { } v) return (store, v);
+        return null;
+    }
+
+    private (Store? Db, string Name) SplitDatabaseName(string name)
+    {
+        var bang = name.IndexOf('!');
+        if (bang <= 0) return (null, name.Trim());
+        var db = OpenDatabases.FirstOrDefault(d => string.Equals(d.Name, name[..bang].Trim(), StringComparison.OrdinalIgnoreCase))
+            ?? OpenDatabase(name[..bang].Trim());
+        return (db, name[(bang + 1)..].Trim());
     }
 
     /// <summary>CREATE CURSOR: a temporary table in the session's in-memory store.</summary>
@@ -273,7 +301,7 @@ public sealed class DataSession : IDisposable
         TransactionLevel--;
         foreach (var wa in OpenWorkAreas())
         {
-            if (wa.Eof) continue;
+            if (wa.Eof || wa.HasPendingChanges) continue;
             try { wa.Go(wa.RecNo); } catch (VfpException) { wa.GoTop(); }
         }
     }

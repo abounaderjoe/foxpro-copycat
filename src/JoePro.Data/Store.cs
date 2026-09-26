@@ -243,6 +243,55 @@ public sealed class Store : IDisposable
         set => SetMeta("stored_procedures", value);
     }
 
+    // ---- Named objects (views, connections) ------------------------------------------
+
+    private bool _objectsReady;
+
+    private void EnsureObjectTable()
+    {
+        if (_objectsReady) return;
+        Exec("CREATE TABLE IF NOT EXISTS _jp_objects(kind TEXT NOT NULL, name TEXT NOT NULL COLLATE NOCASE, definition TEXT NOT NULL, PRIMARY KEY(kind, name))");
+        _objectsReady = true;
+    }
+
+    public void SaveObject(string kind, string name, string definition)
+    {
+        EnsureObjectTable();
+        Exec("INSERT INTO _jp_objects(kind, name, definition) VALUES ($k,$n,$d) ON CONFLICT(kind, name) DO UPDATE SET definition=excluded.definition",
+            ("$k", kind), ("$n", name), ("$d", definition));
+    }
+
+    public string? GetObject(string kind, string name)
+    {
+        EnsureObjectTable();
+        return ScalarString("SELECT definition FROM _jp_objects WHERE kind=$k AND name=$n", ("$k", kind), ("$n", name));
+    }
+
+    public bool HasObject(string kind, string name) => GetObject(kind, name) != null;
+
+    public IReadOnlyList<string> ObjectNames(string kind)
+    {
+        EnsureObjectTable();
+        using var cmd = Command("SELECT name FROM _jp_objects WHERE kind=$k ORDER BY name", ("$k", kind));
+        using var r = cmd.ExecuteReader();
+        var list = new List<string>();
+        while (r.Read()) list.Add(r.GetString(0));
+        return list;
+    }
+
+    public bool DeleteObject(string kind, string name)
+    {
+        EnsureObjectTable();
+        return ScalarLong("SELECT COUNT(*) FROM _jp_objects WHERE kind=$k AND name=$n", ("$k", kind), ("$n", name)) > 0
+            && ExecCount("DELETE FROM _jp_objects WHERE kind=$k AND name=$n", ("$k", kind), ("$n", name)) > 0;
+    }
+
+    private int ExecCount(string sql, params (string, object?)[] args)
+    {
+        using var cmd = Command(sql, args);
+        return cmd.ExecuteNonQuery();
+    }
+
     public void AddRelation(RelationDef r) =>
         Exec("INSERT INTO _jp_relations VALUES ($p,$pt,$c,$ct,$u,$d,$i)",
             ("$p", r.ParentTable), ("$pt", r.ParentTag), ("$c", r.ChildTable), ("$ct", r.ChildTag), ("$u", r.RiUpdate), ("$d", r.RiDelete), ("$i", r.RiInsert));

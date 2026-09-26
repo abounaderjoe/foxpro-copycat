@@ -36,6 +36,13 @@ public sealed class WorkArea : IRecord
     /// <summary>CURSORSETPROP("Buffering"): 1 none, 2/3 row (pessimistic/optimistic), 4/5 table.</summary>
     public int BufferMode { get; private set; } = 1;
     public bool IsCursor { get; private set; }
+    /// <summary>Runtime state for a cursor opened from a view (definition, update properties, connection).</summary>
+    public object? ViewState { get; set; }
+    /// <summary>
+    /// For views: sends buffered changes to the base tables before TABLEUPDATE commits them to the cursor.
+    /// Receives the changes and the force flag; returns false on an update conflict.
+    /// </summary>
+    public Func<IReadOnlyList<BufferedChange>, bool, bool>? UpdateHandler { get; set; }
 
     public int RecNo { get; private set; }
     public bool Eof { get; private set; } = true;
@@ -74,6 +81,9 @@ public sealed class WorkArea : IRecord
         Filter = null;
         Relations.Clear();
         BufferMode = 1;
+        (ViewState as IDisposable)?.Dispose();
+        ViewState = null;
+        UpdateHandler = null;
         _current = null;
         RecNo = 0;
         Eof = Bof = true;
@@ -216,6 +226,9 @@ public sealed class WorkArea : IRecord
                 if (recNo > 0 && t.RowVersion(recNo) != orig.RowVersion) return false;
             }
         }
+        if (UpdateHandler != null
+            && !UpdateHandler(entries.Select(e => new BufferedChange(e.Key, e.Value.Original, e.Value.Current)).ToList(), force))
+            return false;
         var renumbered = new Dictionary<int, int>();
         t.Store.InTransaction(() =>
         {
@@ -245,6 +258,17 @@ public sealed class WorkArea : IRecord
             if (rn > 0) { _current = t.Read(rn); RecNo = rn; }
         }
         return true;
+    }
+
+    /// <summary>REQUERY(): replaces the cursor's rows, discarding buffered changes.</summary>
+    public void ReplaceRows(IEnumerable<Value[]> rows)
+    {
+        _buffer.Clear();
+        Session.Locks.ReleaseAll(this);
+        var t = Table;
+        t.Zap();
+        foreach (var r in rows) t.Append(r);
+        GoTop();
     }
 
     /// <summary>TABLEREVERT(): discards buffered changes and returns the number of records reverted.</summary>
@@ -501,4 +525,11 @@ public sealed class WorkArea : IRecord
     public bool RLock(int? recNo = null) => Session.Locks.TryLock(this, recNo ?? RecNo);
     public bool FLock() => Session.Locks.TryLockTable(this);
     public void Unlock() => Session.Locks.ReleaseAll(this);
+}
+
+/// <summary>A buffered row change. RecNo &lt; 0 is an appended row; Current.Deleted marks a deletion.</summary>
+public sealed record BufferedChange(int RecNo, RowData Original, RowData Current)
+{
+    public bool IsInsert => RecNo < 0;
+    public bool IsDelete => Current.Deleted && !Original.Deleted;
 }

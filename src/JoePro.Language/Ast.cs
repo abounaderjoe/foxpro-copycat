@@ -39,6 +39,8 @@ public sealed record BetweenExpr(Expr Value, Expr Low, Expr High, bool Not) : Ex
 public sealed record LikeExpr(Expr Value, Expr Pattern, bool Not) : Expr;
 public sealed record IsNullExpr(Expr Value, bool Not) : Expr;
 public sealed record ExistsExpr(SqlSelect Query) : Expr;
+/// <summary>?name or ?(expression) in a view or pass-through query: a parameter evaluated when the query runs.</summary>
+public sealed record ViewParamExpr(Expr Inner) : Expr;
 
 // ======================================================================================
 // Statements
@@ -88,7 +90,7 @@ public sealed record Scope(string Kind = "DEFAULT", Expr? Count = null, Expr? Fo
 
 // ---- Data commands ---------------------------------------------------------------------
 
-public sealed record UseStmt(Expr? Table, Expr? In, Expr? Alias, bool Again, bool? Exclusive, Expr? Order, bool NoUpdate) : Stmt;
+public sealed record UseStmt(Expr? Table, Expr? In, Expr? Alias, bool Again, bool? Exclusive, Expr? Order, bool NoUpdate, bool NoData = false) : Stmt;
 public sealed record SelectAreaStmt(Expr Area) : Stmt;
 public sealed record GoStmt(string Where, Expr? RecNo, Expr? In) : Stmt; // TOP, BOTTOM, RECORD
 public sealed record SkipStmt(Expr? Count, Expr? In) : Stmt;
@@ -146,6 +148,14 @@ public sealed record SqlSelect(
     List<Expr> GroupBy, Expr? Having, List<(SqlSelect Query, bool All)> Unions,
     List<SqlOrder> OrderBy, string? IntoKind, string? IntoName, bool ReadWrite, bool NoFilter);
 public sealed record SqlSelectStmt(SqlSelect Query) : Stmt;
+/// <summary>CREATE SQL VIEW name [REMOTE] [CONNECTION conn [SHARE]] AS select. The SELECT text is kept verbatim.</summary>
+public sealed record CreateViewStmt(Expr Name, bool Remote, Expr? Connection, bool Share, string Sql) : Stmt;
+/// <summary>CREATE CONNECTION name [DATASOURCE …] [USERID …] [PASSWORD …] [DATABASE …] | [CONNSTRING …].</summary>
+public sealed record CreateConnectionStmt(Expr Name, Expr? DataSource, Expr? UserId, Expr? Password, Expr? Database, Expr? ConnectString) : Stmt;
+/// <summary>DELETE VIEW / DELETE CONNECTION / DROP VIEW (Kind is VIEW or CONNECTION).</summary>
+public sealed record DeleteDbObjectStmt(string Kind, Expr Name) : Stmt;
+/// <summary>RENAME VIEW / RENAME CONNECTION.</summary>
+public sealed record RenameDbObjectStmt(string Kind, Expr From, Expr To) : Stmt;
 public sealed record SqlInsertStmt(Expr Table, List<string>? Columns, List<Expr>? Values, SqlSelect? Select, string? FromMemvar, string? FromName, string? FromArray) : Stmt;
 public sealed record SqlUpdateStmt(Expr Table, List<(string Column, Expr Value)> Sets, Expr? Where) : Stmt;
 public sealed record SqlDeleteStmt(Expr Table, Expr? Where) : Stmt;

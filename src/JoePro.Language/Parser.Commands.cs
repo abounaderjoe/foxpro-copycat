@@ -63,6 +63,8 @@ public sealed partial class Parser
         }
         if (V("DELETE"))
         {
+            if (AcceptKw("VIEW")) return new DeleteDbObjectStmt("VIEW", NameArg());
+            if (AcceptKw("CONNECTION")) return new DeleteDbObjectStmt("CONNECTION", NameArg());
             if (AcceptKw("TAG"))
             {
                 if (AcceptKw("ALL")) return new DeleteTagStmt([], true);
@@ -152,6 +154,16 @@ public sealed partial class Parser
         if (V("UPDATE")) return SqlUpdate();
         if (V("DEFINE")) { _p = _t.Count; return new NoOpStmt("DEFINE"); }
         if (V("CD") || V("CHDIR")) return new ChdirStmt(NameArg());
+        if ((Kw("RENAME") || Kw("DROP")) && _p + 1 < _t.Count && (_t[_p + 1].Text.Equals("VIEW", StringComparison.OrdinalIgnoreCase) || _t[_p + 1].Text.Equals("CONNECTION", StringComparison.OrdinalIgnoreCase)))
+        {
+            var rename = V("RENAME");
+            if (!rename) V("DROP");
+            var kind = Next().Text.ToUpperInvariant();
+            var from = NameArg("TO");
+            if (!rename) return new DeleteDbObjectStmt(kind, from);
+            ExpectKw("TO");
+            return new RenameDbObjectStmt(kind, from, NameArg());
+        }
         if (V("MODIFY") || V("MODI") || V("BUILD") || V("REPORT") || V("LABEL") || V("KEYBOARD") || V("ACTIVATE") || V("DEACTIVATE")
             || V("HIDE") || V("SHOW") || V("MOVE") || V("PUSH") || V("POP") || V("RESTORE") || V("SAVE") || V("RUN") || V("FLUSH")
             || V("UNLOCK") || V("DOEVENTS") || V("RETRY") || V("EXTERNAL") || V("SLEEP") || V("LOCK") || V("VALIDATE") || V("ASSERT")
@@ -173,7 +185,7 @@ public sealed partial class Parser
     private Stmt Use()
     {
         Expr? table = null, inA = null, alias = null, order = null;
-        bool again = false, noUpdate = false;
+        bool again = false, noUpdate = false, noData = false;
         bool? excl = null;
         string[] stops = ["IN", "ALIAS", "AGAIN", "EXCLUSIVE", "SHARED", "ORDER", "NOUPDATE", "INDEX", "NODATA", "NOREQUERY", "CONNSTRING", "ONLINE", "ADMIN"];
         if (!AtEnd && !stops.Any(Kw)) table = NameArg(stops);
@@ -185,11 +197,12 @@ public sealed partial class Parser
             else if (AcceptKw("EXCLUSIVE")) excl = true;
             else if (AcceptKw("SHARED")) excl = false;
             else if (AcceptKw("NOUPDATE")) noUpdate = true;
+            else if (AcceptKw("NODATA")) noData = true;
             else if (AcceptKw("ORDER")) { AcceptKw("TAG"); order = NameArg(stops); AcceptKw("ASCENDING"); AcceptKw("DESCENDING"); }
             else if (AcceptKw("INDEX")) NameArg(stops);
             else _p++;
         }
-        return new UseStmt(table, inA, alias, again, excl, order, noUpdate);
+        return new UseStmt(table, inA, alias, again, excl, order, noUpdate, noData);
     }
 
     private Stmt Go()
@@ -372,6 +385,41 @@ public sealed partial class Parser
     private Stmt Create()
     {
         if (AcceptKw("DATABASE")) return new CreateDatabaseStmt(NameArg());
+        if (Kw("SQL") && _p + 1 < _t.Count && _t[_p + 1].Text.Equals("VIEW", StringComparison.OrdinalIgnoreCase))
+        {
+            _p += 2;
+            if (AtEnd) { _p = _t.Count; return new SetStmt("__CREATE", "VIEW", null, []); }
+            var viewName = NameArg("REMOTE", "CONNECTION", "AS");
+            bool remote = false, share = false;
+            Expr? conn = null;
+            while (!AtEnd && !Kw("AS"))
+            {
+                if (AcceptKw("REMOTE")) remote = true;
+                else if (AcceptKw("CONNECTION")) { conn = NameArg("SHARE", "AS"); remote = true; }
+                else if (AcceptKw("SHARE")) share = true;
+                else _p++;
+            }
+            ExpectKw("AS");
+            var sql = RawText(_p, _t.Count);
+            _p = _t.Count;
+            return new CreateViewStmt(viewName, remote, conn, share, sql);
+        }
+        if (AcceptKw("CONNECTION"))
+        {
+            string[] opts = ["DATASOURCE", "USERID", "PASSWORD", "DATABASE", "CONNSTRING"];
+            var connName = NameArg(opts);
+            Expr? ds = null, uid = null, pwd = null, db = null, cs = null;
+            while (!AtEnd)
+            {
+                if (AcceptKw("DATASOURCE")) ds = Expression();
+                else if (AcceptKw("USERID")) uid = Expression();
+                else if (AcceptKw("PASSWORD")) pwd = Expression();
+                else if (AcceptKw("DATABASE")) db = Expression();
+                else if (AcceptKw("CONNSTRING")) cs = Expression();
+                else _p++;
+            }
+            return new CreateConnectionStmt(connName, ds, uid, pwd, db, cs);
+        }
         bool cursor = AcceptKw("CURSOR");
         if (!cursor && !AcceptKw("TABLE") && !AcceptKw("DBF"))
         {

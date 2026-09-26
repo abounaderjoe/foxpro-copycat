@@ -76,6 +76,8 @@ public sealed partial class Interpreter
             }
             case IsNullExpr isn:
                 return Value.Logical(Eval(isn.Value).IsNull != isn.Not);
+            case ViewParamExpr vp:
+                return Eval(vp.Inner);
             case ExistsExpr ex:
                 return Value.Logical(SqlEngine.Execute(this, ex.Query, materialize: false).Rows.Count > 0);
             case SubqueryExpr sq:

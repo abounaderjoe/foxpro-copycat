@@ -235,12 +235,14 @@ public static partial class Library
             var prop = c.Str(0).ToUpperInvariant();
             var wa = c.Area(2);
             if (prop == "BUFFERING") wa.SetBuffering(c.Int(1));
+            else Views.SetCursorProp(wa, prop, c.Has(1) ? c[1] : Value.False);
             return Value.True;
         });
         Add("CURSORGETPROP", c =>
         {
             var prop = c.Str(0).ToUpperInvariant();
             var wa = c.Area(1);
+            if (Views.GetCursorProp(wa, prop) is { } viewProp) return viewProp;
             return prop switch
             {
                 "BUFFERING" => N(wa.BufferMode),
@@ -275,6 +277,9 @@ public static partial class Library
             var db = c.Rt.Session.CurrentDatabase ?? throw new VfpException(1520, "No database is open or set as the current database.");
             if (type == "DATABASE") return prop == "VERSION" ? N(1) : Value.EmptyString;
             var dot = name.IndexOf('.');
+            if (type == "CONNECTION") return ConnectionProp(db, name, prop);
+            if (type == "VIEW" || (type == "FIELD" && dot > 0 && db.GetView(name[..dot]) != null))
+                return ViewProp(db, name, type, prop);
             var t = db.OpenTable(dot > 0 ? name[..dot] : name, c.Rt);
             if (type == "FIELD" && dot > 0)
             {
@@ -304,8 +309,137 @@ public static partial class Library
         });
         Add("CPDBF", _ => N(0));
         Add("CPCURRENT", _ => N(1252));
-        Add("REQUERY", _ => N(1));
+        Add("REQUERY", c => N(Views.Requery(c.Rt, c.Area(0))));
+        Add("DBSETPROP", c =>
+        {
+            var name = c.Str(0).Trim();
+            var type = c.Str(1).Trim().ToUpperInvariant();
+            var prop = c.Str(2).Trim();
+            var value = c[3];
+            var db = c.Rt.Session.CurrentDatabase ?? throw new VfpException(1520, "No database is open or set as the current database.");
+            var dot = name.IndexOf('.');
+            switch (type)
+            {
+                case "VIEW":
+                {
+                    var v = db.GetView(name) ?? throw new VfpException(1562, $"Cannot find object {name.ToUpperInvariant()} in the database.");
+                    if (prop.Equals("SQL", StringComparison.OrdinalIgnoreCase) || prop.Equals("SourceType", StringComparison.OrdinalIgnoreCase) || prop.Equals("ConnectName", StringComparison.OrdinalIgnoreCase))
+                        throw new VfpException(1559, $"Property {prop.ToUpperInvariant()} is read-only.");
+                    if (!ViewDefinition.ViewDefaults.ContainsKey(prop)) throw new VfpException(1559, $"Property {prop.ToUpperInvariant()} is invalid.");
+                    v.Set(prop, value);
+                    db.SaveView(v);
+                    return Value.True;
+                }
+                case "FIELD" when dot > 0 && db.GetView(name[..dot]) is { } view:
+                {
+                    var field = name[(dot + 1)..];
+                    if (!ViewDefinition.FieldDefaults.ContainsKey(prop)) throw new VfpException(1559, $"Property {prop.ToUpperInvariant()} is invalid.");
+                    view.SetField(field, prop, value);
+                    db.SaveView(view);
+                    return Value.True;
+                }
+                case "CONNECTION":
+                {
+                    var conn = db.GetConnection(name) ?? throw new VfpException(1562, $"Cannot find object {name.ToUpperInvariant()} in the database.");
+                    switch (prop.ToUpperInvariant())
+                    {
+                        case "CONNECTSTRING": conn.ConnectString = value.AsString; break;
+                        case "DATASOURCE": conn.DataSource = value.AsString; break;
+                        case "USERID": conn.UserId = value.AsString; break;
+                        case "PASSWORD": conn.Password = value.AsString; break;
+                        case "DATABASE": conn.Database = value.AsString; break;
+                        default: conn.Properties[prop] = PropValue.Encode(value); break;
+                    }
+                    db.SaveConnection(conn);
+                    return Value.True;
+                }
+                default:
+                    throw VfpException.NotSupported($"DBSETPROP() for {type.ToLowerInvariant()} properties");
+            }
+        });
+        Add("ADBOBJECTS", c =>
+        {
+            var db = c.Rt.Session.CurrentDatabase ?? throw new VfpException(1520, "No database is open or set as the current database.");
+            var kind = c.Str(1).Trim().ToUpperInvariant();
+            if (kind == "RELATION")
+            {
+                var rels = db.Relations();
+                if (rels.Count == 0) return N(0);
+                var ra = c.NewArray(0, rels.Count, 5);
+                for (int i = 0; i < rels.Count; i++)
+                {
+                    ra[i + 1, 1] = S(rels[i].ChildTable.ToUpperInvariant()); ra[i + 1, 2] = S(rels[i].ParentTable.ToUpperInvariant());
+                    ra[i + 1, 3] = S(rels[i].ChildTag.ToUpperInvariant()); ra[i + 1, 4] = S(rels[i].ParentTag.ToUpperInvariant());
+                    ra[i + 1, 5] = S(rels[i].RiUpdate + rels[i].RiDelete + rels[i].RiInsert);
+                }
+                return N(rels.Count);
+            }
+            IReadOnlyList<string> names = kind switch
+            {
+                "TABLE" => db.TableNames(),
+                "VIEW" => db.ObjectNames(DbObjectStore.ViewKind),
+                "CONNECTION" => db.ObjectNames(DbObjectStore.ConnectionKind),
+                _ => throw VfpException.InvalidArgument(),
+            };
+            if (names.Count == 0) return N(0);
+            var arr = c.NewArray(0, names.Count, 0);
+            for (int i = 0; i < names.Count; i++) arr[i + 1] = S(names[i].ToUpperInvariant());
+            return N(names.Count);
+        });
+        Add("INDBC", c =>
+        {
+            var db = c.Rt.Session.CurrentDatabase ?? throw new VfpException(1520, "No database is open or set as the current database.");
+            var name = c.Str(0).Trim();
+            return c.Str(1).Trim().ToUpperInvariant() switch
+            {
+                "TABLE" => L(db.HasTable(name)),
+                "VIEW" => L(db.HasObject(DbObjectStore.ViewKind, name)),
+                "CONNECTION" => L(db.HasObject(DbObjectStore.ConnectionKind, name)),
+                "FIELD" or "INDEX" => L(db.TableNames().Select(t => db.OpenTable(t, c.Rt))
+                    .Any(t => c.Str(1).Trim().Equals("FIELD", StringComparison.OrdinalIgnoreCase) ? t.Schema.FieldIndex(name) >= 0 : t.Schema.Tags.Any(g => g.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))),
+                _ => throw VfpException.InvalidArgument(),
+            };
+        });
         Add("REFRESH", _ => N(0));
+    }
+
+    private static Value ViewProp(Store db, string name, string type, string prop)
+    {
+        var dot = name.IndexOf('.');
+        var view = db.GetView(type == "FIELD" ? name[..dot] : name) ?? throw new VfpException(1562, $"Cannot find object {name.ToUpperInvariant()} in the database.");
+        if (type == "FIELD") return view.GetField(name[(dot + 1)..], prop);
+        return prop switch
+        {
+            "SQL" => S(view.Sql),
+            "SOURCETYPE" => N(view.Remote ? 2 : 1),
+            "CONNECTNAME" => S(view.Connection ?? ""),
+            _ => view.Get(prop),
+        };
+    }
+
+    private static Value ConnectionProp(Store db, string name, string prop)
+    {
+        var conn = db.GetConnection(name) ?? throw new VfpException(1562, $"Cannot find object {name.ToUpperInvariant()} in the database.");
+        return prop switch
+        {
+            "CONNECTSTRING" => S(conn.ConnectString ?? ""),
+            "DATASOURCE" => S(conn.DataSource ?? ""),
+            "USERID" => S(conn.UserId ?? ""),
+            "PASSWORD" => S(conn.Password ?? ""),
+            "DATABASE" => S(conn.Database ?? ""),
+            _ => conn.Properties.TryGetValue(prop, out var v) ? PropValue.Decode(v)
+                : prop switch
+                {
+                    "ASYNCHRONOUS" or "DISPWARNINGS" => Value.False,
+                    "BATCHMODE" => Value.True,
+                    "CONNECTTIMEOUT" => N(15),
+                    "DISPLOGIN" or "TRANSACTIONS" => N(1),
+                    "IDLETIMEOUT" or "QUERYTIMEOUT" => N(0),
+                    "PACKETSIZE" => N(4096),
+                    "WAITTIME" => N(100),
+                    _ => Value.EmptyString,
+                },
+        };
     }
 
     private static int OldValField(CallContext c, WorkArea wa)

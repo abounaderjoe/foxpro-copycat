@@ -148,6 +148,10 @@ public sealed partial class Interpreter
             case SqlSelectStmt sq:
                 SqlEngine.Execute(this, sq.Query, materialize: true);
                 return true;
+            case CreateViewStmt cv: Views.Create(this, cv); return true;
+            case CreateConnectionStmt cc: ExecCreateConnection(cc); return true;
+            case DeleteDbObjectStmt dd: ExecDeleteDbObject(dd); return true;
+            case RenameDbObjectStmt rd: ExecRenameDbObject(rd); return true;
             case SqlInsertStmt si: SqlEngine.Insert(this, si); return true;
             case SqlUpdateStmt su: SqlEngine.Update(this, su); return true;
             case SqlDeleteStmt sdel: SqlEngine.Delete(this, sdel); return true;
@@ -176,6 +180,52 @@ public sealed partial class Interpreter
 
     // ---- USE -----------------------------------------------------------------------
 
+    private Store RequireDatabase() =>
+        Session.CurrentDatabase ?? throw new VfpException(1520, "No database is open or set as the current database.");
+
+    private void ExecCreateConnection(CreateConnectionStmt cc)
+    {
+        string? Opt(Expr? e) => e == null ? null : Eval(e) is { Kind: ValueKind.Character } v ? v.AsString : NameValue(e);
+        RequireDatabase().SaveConnection(new ConnectionDefinition
+        {
+            Name = NameValue(cc.Name), DataSource = Opt(cc.DataSource), UserId = Opt(cc.UserId), Password = Opt(cc.Password),
+            Database = Opt(cc.Database), ConnectString = Opt(cc.ConnectString),
+        });
+    }
+
+    private void ExecDeleteDbObject(DeleteDbObjectStmt dd)
+    {
+        var name = NameValue(dd.Name);
+        var db = RequireDatabase();
+        if (dd.Kind == "VIEW" && Session.OpenWorkAreas().Any(w => w.ViewState is ViewCursor vc && vc.ViewName.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            throw new VfpException(ErrorCodes.FileInUse, "File is in use.", name);
+        if (!db.DeleteObject(dd.Kind, name))
+            throw new VfpException(1562, $"Cannot find object {name.ToUpperInvariant()} in the database.");
+    }
+
+    private void ExecRenameDbObject(RenameDbObjectStmt rd)
+    {
+        var db = RequireDatabase();
+        var from = NameValue(rd.From);
+        var to = NameValue(rd.To);
+        var json = db.GetObject(rd.Kind, from) ?? throw new VfpException(1562, $"Cannot find object {from.ToUpperInvariant()} in the database.");
+        if (db.HasObject(rd.Kind, to)) throw new VfpException(1561, $"Object {to.ToUpperInvariant()} already exists.");
+        if (rd.Kind == "VIEW")
+        {
+            var v = db.GetView(from)!;
+            v.Name = to;
+            db.DeleteObject(rd.Kind, from);
+            db.SaveView(v);
+        }
+        else
+        {
+            var c = db.GetConnection(from)!;
+            c.Name = to;
+            db.DeleteObject(rd.Kind, from);
+            db.SaveConnection(c);
+        }
+    }
+
     private void ExecUse(UseStmt u)
     {
         int? area = null;
@@ -197,6 +247,13 @@ public sealed partial class Interpreter
         if (ext == ".dbf")
         {
             wa = OpenLegacyDbf(name, targetArea, u.Alias != null ? NameValue(u.Alias) : null);
+        }
+        else if (ext == "" && Session.FindView(name) is { } view)
+        {
+            var viewAlias = u.Alias != null ? NameValue(u.Alias) : null;
+            if (Session.FindAlias(viewAlias ?? view.View.Name) is { } open && open.Number != targetArea && !u.Again)
+                throw new VfpException(ErrorCodes.FileInUse, "File is in use.", view.View.Name);
+            wa = Views.Open(this, view.Database, view.View, targetArea, viewAlias, u.NoData);
         }
         else
         {
