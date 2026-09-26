@@ -1036,7 +1036,7 @@ public sealed partial class Parser
         switch (t.Kind)
         {
             case TokenKind.Number:
-                return new LiteralExpr(Value.Number(t.Number, t.Decimals));
+                return new LiteralExpr(t.IsCurrency ? Value.Currency((decimal)t.Number) : Value.Number(t.Number, t.Decimals));
             case TokenKind.String:
                 return new LiteralExpr(Value.String(t.Text));
             case TokenKind.Logical:

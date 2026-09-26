@@ -203,17 +203,19 @@ public sealed partial class Parser
 
     private Stmt Replace()
     {
+        // Scope clauses may appear before or after the field list: REPLACE ALL x WITH 1, REPLACE x WITH 1 FOR …
+        var leading = ParseScope();
         var items = new List<(Expr, Expr, bool)>();
         do
         {
-            if (ScopeWords.Any(Kw)) break;
+            if (AtEnd || ScopeWords.Any(Kw)) break;
             var field = Postfix(Primary());
             ExpectKw("WITH");
             var value = Expression();
             bool additive = AcceptKw("ADDITIVE");
             items.Add((field, value, additive));
         } while (AcceptOp(","));
-        return new ReplaceStmt(items, ParseScope());
+        return new ReplaceStmt(items, MergeScope(leading, ParseScope()));
     }
 
     private Stmt Index()

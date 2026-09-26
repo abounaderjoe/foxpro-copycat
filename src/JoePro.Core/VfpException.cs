@@ -9,6 +9,10 @@ public class VfpException : Exception
     public int Number { get; }
     /// <summary>Optional extra detail (for example, the missing variable name).</summary>
     public string? Detail { get; }
+    /// <summary>Source line where the error was raised (set by the runtime).</summary>
+    public int? ErrorLine { get; set; }
+    /// <summary>Program or procedure where the error was raised (set by the runtime).</summary>
+    public string? ErrorProgram { get; set; }
 
     public VfpException(int number, string message, string? detail = null) : base(message)
     {

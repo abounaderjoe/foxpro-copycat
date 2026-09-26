@@ -10,6 +10,7 @@ public sealed record Token(TokenKind Kind, string Text, int Column)
 {
     public double Number { get; init; }
     public int Decimals { get; init; }
+    public bool IsCurrency { get; init; }
     public bool IsOp(string op) => Kind == TokenKind.Op && Text == op;
     public override string ToString() => Kind == TokenKind.String ? $"\"{Text}\"" : Text;
 }
@@ -224,6 +225,14 @@ public static class Lexer
             if (char.IsDigit(c) || (c == '.' && i + 1 < text.Length && char.IsDigit(text[i + 1]) && !PrevIsOperand(tokens)))
             {
                 tokens.Add(LexNumber(text, ref i));
+                continue;
+            }
+
+            if (c == '$' && i + 1 < text.Length && (char.IsDigit(text[i + 1]) || text[i + 1] == '.') && !PrevIsOperand(tokens))
+            {
+                i++;
+                var money = LexNumber(text, ref i);
+                tokens.Add(money with { Column = start, IsCurrency = true });
                 continue;
             }
 

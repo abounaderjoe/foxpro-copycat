@@ -1,0 +1,663 @@
+using System.Text;
+using JoePro.Core;
+using JoePro.Language;
+
+namespace JoePro.Runtime.Builtins;
+
+public static partial class Library
+{
+    private static readonly Dictionary<int, FileStream> Handles = new();
+    private static int _nextHandle = 10;
+
+    private static void RegisterMisc()
+    {
+        // ---- Conditional and null handling ----
+        Add("IIF", c =>
+        {
+            c.Require(3, 3);
+            var cond = c[0];
+            return cond.Kind == ValueKind.Logical && cond.AsBool ? c[1] : c[2];
+        });
+        Add("ICASE", c =>
+        {
+            int i = 0;
+            for (; i + 1 < c.Count; i += 2)
+                if (c[i].Kind == ValueKind.Logical && c[i].AsBool) return c[i + 1];
+            return i < c.Count ? c[i] : Value.Null;
+        });
+        Add("EVL", c => c[0].IsEmpty || c[0].IsNull ? c[1] : c[0]);
+        Add("NVL", c => c[0].IsNull ? c[1] : c[0]);
+        Add("INLIST", c =>
+        {
+            c.Require(2);
+            var v = c[0];
+            if (v.IsNull) return Value.Null;
+            var mode = c.Rt.CompareMode();
+            for (int i = 1; i < c.Count; i++)
+            {
+                var x = c[i];
+                if (x.IsNull) continue;
+                if (v.Kind == x.Kind || (v.Kind is ValueKind.Number or ValueKind.Currency && x.Kind is ValueKind.Number or ValueKind.Currency) || (v.Kind is ValueKind.Date or ValueKind.DateTime && x.Kind is ValueKind.Date or ValueKind.DateTime))
+                    if (VfpCompare.Compare(v, x, mode) == 0) return Value.True;
+            }
+            return Value.False;
+        });
+        Add("BETWEEN", c =>
+        {
+            if (c[0].IsNull || c[1].IsNull || c[2].IsNull) return Value.Null;
+            var mode = c.Rt.CompareMode();
+            return L(VfpCompare.Compare(c[0], c[1], mode) >= 0 && VfpCompare.Compare(c[0], c[2], mode) <= 0);
+        });
+        Add("EMPTY", c => L(c[0].IsEmpty));
+        Add("ISNULL", c => L(c[0].IsNull));
+        Add("ISBLANK", c =>
+        {
+            var v = c[0];
+            return L(v.Kind switch
+            {
+                ValueKind.Character => v.AsString.Trim().Length == 0,
+                ValueKind.Date or ValueKind.DateTime => v.IsEmptyDate,
+                ValueKind.Null => false,
+                _ => false,
+            });
+        });
+        Add("VARTYPE", c =>
+        {
+            if (c.Exprs[0] is NameExpr n && c.Rt.FindVariable(n.Name) == null && !(c.Rt.Session.Current.InUse && c.Rt.Session.Current.FieldIndex(n.Name) >= 0))
+                return S("U");
+            try { return S(c[0].VarType.ToString()); }
+            catch (VfpException) { return S("U"); }
+        });
+        Add("TYPE", c =>
+        {
+            var text = c.Str(0);
+            if (c.Has(1) && c.Int(1) == 1)
+            {
+                var v = c.Rt.FindVariable(text.Trim());
+                return S(v == null ? "U" : v.IsArray ? "A" : v.Value.Kind == ValueKind.Object && ((VfpObject)v.Value.AsObject).Items != null ? "C" : "U");
+            }
+            try
+            {
+                var e = Parser.ParseExpression(text);
+                var v = c.Rt.Eval(e);
+                return S(v.Kind == ValueKind.Null ? "X" : v.VarType.ToString());
+            }
+            catch (VfpException) { return S("U"); }
+        });
+        Add("EVALUATE", c => c.Rt.Evaluate(c.Str(0)));
+        Add("EXECSCRIPT", c =>
+        {
+            var unit = Parser.ParseProgram(c.Str(0), "EXECSCRIPT");
+            var proc = new ProcedureDef("EXECSCRIPT", unit.MainParameters, unit.MainLocalParameters, unit.Main, 1);
+            var args = Enumerable.Range(1, c.Count - 1).Select(i => new Interpreter.Arg(c[i], null)).ToList();
+            foreach (var p in unit.Procedures) c.Rt.CurrentFrame.Unit?.Procedures.TryAdd(p.Key, p.Value);
+            return c.Rt.Invoke(proc, unit, args, bindDeclared: false);
+        });
+        Add("SET", c => SetFunction(c));
+        Add("ON", c => S(c.Str(0).Equals("ERROR", StringComparison.OrdinalIgnoreCase) ? c.Rt.OnErrorCommand ?? "" : ""));
+
+        // ---- Errors and program state ----
+        Add("ERROR", c => N(c.Rt.LastErrorNumber));
+        Add("MESSAGE", c => S(c.Has(0) ? "" : c.Rt.LastErrorMessage));
+        Add("LINENO", c => N(c.Rt.CurrentFrame.Line));
+        Add("PROGRAM", c =>
+        {
+            if (!c.Has(0)) return S(c.Rt.CurrentFrame.Program);
+            var n = c.Int(0);
+            var frames = new List<Frame>();
+            for (var f = c.Rt.CurrentFrame; f != null; f = f.Parent) frames.Add(f);
+            frames.Reverse();
+            if (n == -1) return N(frames.Count);
+            return S(n >= 1 && n <= frames.Count ? frames[n - 1].Program : "");
+        });
+        Add(["PCOUNT", "PARAMETERS"], c => N(c.Rt.CurrentFrame.ParameterCount));
+        Add("AERROR", c =>
+        {
+            if (c.Rt.LastErrorNumber == 0) return N(0);
+            var arr = c.NewArray(0, 1, 7);
+            arr[1, 1] = N(c.Rt.LastErrorNumber);
+            arr[1, 2] = S(c.Rt.LastErrorMessage);
+            arr[1, 3] = Value.Null;
+            arr[1, 4] = Value.Null;
+            arr[1, 5] = Value.Null;
+            arr[1, 6] = Value.Null;
+            arr[1, 7] = Value.Null;
+            return N(1);
+        });
+
+        // ---- System ----
+        Add("VERSION", c =>
+        {
+            if (!c.Has(0)) return S(Interpreter.VersionString);
+            return c.Int(0) switch
+            {
+                4 => S("09.00.0000.0000"),
+                5 => N(900),
+                2 => N(2),
+                3 => S("00"),
+                _ => S(Interpreter.VersionString),
+            };
+        });
+        Add("OS", c => S(c.Has(0) && c.Int(0) == 1 ? Environment.OSVersion.VersionString : OperatingSystem.IsWindows() ? "Windows " + Environment.OSVersion.Version.Major : Environment.OSVersion.Platform.ToString()));
+        Add("GETENV", c => S(Environment.GetEnvironmentVariable(c.Str(0)) ?? ""));
+        Add("SYS", c => Sys(c));
+        Add("MESSAGEBOX", c =>
+        {
+            var text = c[0].Kind == ValueKind.Character ? c.Str(0) : TransformDefault(c[0], c.Options);
+            var flags = c.Has(1) && c[1].Kind == ValueKind.Number ? c.Int(1) : 0;
+            var title = c.Has(2) ? c.Str(2) : "Joe Pro";
+            if (c.Rt.MessageBox != null) return N(c.Rt.MessageBox(text, title, flags));
+            c.Rt.Notify($"[{title}] {text}");
+            return N((flags & 0xF) switch { 1 => 1, 2 => 3, 3 or 4 => 6, 5 => 4, _ => 1 });
+        });
+        Add("INPUTBOX", c => S(c.Has(2) ? c.Str(2) : ""));
+        Add(["INKEY", "LASTKEY", "ROW", "COL", "PROW", "PCOL", "RECCOUNT_"], _ => N(0));
+        Add("CHRSAW", _ => Value.False);
+        Add("SROWS", _ => N(25));
+        Add("SCOLS", _ => N(80));
+        Add(["WONTOP", "WOUTPUT", "WTITLE"], _ => Value.EmptyString);
+        Add(["WEXIST", "WVISIBLE", "CAPSLOCK", "NUMLOCK", "INSMODE"], _ => Value.False);
+        Add("__DOFORM", c => throw VfpException.NotSupported("DO FORM"));
+
+        // ---- Files ----
+        Add("FILE", c => L(File.Exists(c.Rt.Session.ResolvePath(c.Str(0).Trim(), ""))));
+        Add("DIRECTORY", c => L(Directory.Exists(Path.Combine(c.Options.Default_, c.Str(0).Trim()))));
+        Add("CURDIR", c =>
+        {
+            var d = c.Options.Default_;
+            var root = Path.GetPathRoot(d) ?? "";
+            return S(Path.DirectorySeparatorChar + Path.GetRelativePath(root, d).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
+        });
+        Add("FULLPATH", c => S(Path.GetFullPath(Path.Combine(c.Options.Default_, c.Str(0))).ToUpperInvariant()));
+        Add("JUSTFNAME", c => S(FileName(c.Str(0))));
+        Add("JUSTSTEM", c => { var f = FileName(c.Str(0)); var d = f.LastIndexOf('.'); return S(d < 0 ? f : f[..d]); });
+        Add("JUSTEXT", c => { var f = FileName(c.Str(0)); var d = f.LastIndexOf('.'); return S(d < 0 ? "" : f[(d + 1)..]); });
+        Add("JUSTPATH", c => { var s = Norm(c.Str(0)); var i = s.LastIndexOfAny(['\\', '/']); return S(i < 0 ? "" : s[..i]); });
+        Add("JUSTDRIVE", c => { var s = c.Str(0); return S(s.Length >= 2 && s[1] == ':' ? s[..2] : ""); });
+        Add("FORCEEXT", c => { var s = Norm(c.Str(0)); var e = c.Str(1).TrimStart('.'); var dot = s.LastIndexOf('.'); var sl = s.LastIndexOfAny(['\\', '/']); return S((dot > sl ? s[..dot] : s) + (e.Length > 0 ? "." + e : "")); });
+        Add("FORCEPATH", c => { var p = c.Str(1).TrimEnd(); return S(p + (p.EndsWith('\\') || p.EndsWith('/') || p.Length == 0 ? "" : "\\") + FileName(c.Str(0))); });
+        Add("DEFAULTEXT", c => { var s = c.Str(0); return S(Path.HasExtension(s) ? s : s + "." + c.Str(1).TrimStart('.')); });
+        Add("ADDBS", c => { var s = c.Str(0).TrimEnd(); return S(s.Length == 0 || s.EndsWith('\\') || s.EndsWith('/') ? s : s + (s.Contains('/') && !s.Contains('\\') ? "/" : "\\")); });
+        Add("FILETOSTR", c =>
+        {
+            var p = c.Rt.Session.ResolvePath(c.Str(0), "");
+            if (!File.Exists(p)) throw VfpException.FileNotFound(c.Str(0));
+            return S(Encoding.Latin1.GetString(File.ReadAllBytes(p)) is var s && LooksUtf8(p) ? File.ReadAllText(p) : s);
+        });
+        Add("STRTOFILE", c =>
+        {
+            var text = c[0].Kind == ValueKind.Binary ? c[0].AsBinary : Encoding.UTF8.GetBytes(c.Str(0));
+            var path = Path.Combine(c.Options.Default_, c.Str(1));
+            var additive = c.Has(2) && (c[2].Kind == ValueKind.Logical ? c[2].AsBool : (c.Int(2) & 1) != 0);
+            if (additive) { using var fs = new FileStream(path, FileMode.Append); fs.Write(text); }
+            else File.WriteAllBytes(path, text);
+            return N(text.Length);
+        });
+        Add("ADIR", c =>
+        {
+            var skeleton = c.Has(1) ? c.Str(1) : "*.*";
+            var full = Path.Combine(c.Options.Default_, skeleton);
+            var dir = Path.GetDirectoryName(full) ?? c.Options.Default_;
+            var pattern = Path.GetFileName(full);
+            if (pattern == "*.*") pattern = "*";
+            var files = Directory.Exists(dir) ? Directory.GetFiles(dir, pattern).Select(f => new FileInfo(f)).OrderBy(f => f.Name).ToList() : [];
+            var attrs = c.Has(2) ? c.Str(2).ToUpperInvariant() : "";
+            var dirs = attrs.Contains('D') && Directory.Exists(dir) ? Directory.GetDirectories(dir, pattern).Select(d => new DirectoryInfo(d)).ToList() : [];
+            int n = files.Count + dirs.Count;
+            if (n == 0) return N(0);
+            var arr = c.NewArray(0, n, 5);
+            int r = 1;
+            foreach (var f in files)
+            {
+                arr[r, 1] = S(f.Name.ToUpperInvariant());
+                arr[r, 2] = N(f.Length);
+                arr[r, 3] = Value.DateOf(DateOnly.FromDateTime(f.LastWriteTime));
+                arr[r, 4] = S(f.LastWriteTime.ToString("HH:mm:ss"));
+                arr[r, 5] = S((f.IsReadOnly ? "R" : ".") + "...." );
+                r++;
+            }
+            foreach (var d in dirs)
+            {
+                arr[r, 1] = S(d.Name.ToUpperInvariant());
+                arr[r, 2] = N(0);
+                arr[r, 3] = Value.DateOf(DateOnly.FromDateTime(d.LastWriteTime));
+                arr[r, 4] = S(d.LastWriteTime.ToString("HH:mm:ss"));
+                arr[r, 5] = S("....D");
+                r++;
+            }
+            return N(n);
+        });
+        Add("FCREATE", c => N(OpenHandle(Path.Combine(c.Options.Default_, c.Str(0)), FileMode.Create, FileAccess.ReadWrite)));
+        Add("FOPEN", c =>
+        {
+            var p = c.Rt.Session.ResolvePath(c.Str(0), "");
+            if (!File.Exists(p)) return N(-1);
+            var mode = c.Int(1, 0) % 10;
+            return N(OpenHandle(p, FileMode.Open, mode switch { 1 => FileAccess.Write, 2 => FileAccess.ReadWrite, _ => FileAccess.Read }));
+        });
+        Add("FCLOSE", c => { lock (Handles) { if (Handles.Remove(c.Int(0), out var fs)) { fs.Dispose(); return Value.True; } } return Value.False; });
+        Add("FREAD", c =>
+        {
+            var fs = Handle(c.Int(0));
+            var buf = new byte[Math.Max(0, c.Int(1))];
+            var n = fs.Read(buf, 0, buf.Length);
+            return S(Encoding.Latin1.GetString(buf, 0, n));
+        });
+        Add("FGETS", c =>
+        {
+            var fs = Handle(c.Int(0));
+            var max = c.Int(1, 254);
+            var sb = new StringBuilder();
+            int b;
+            while (sb.Length < max && (b = fs.ReadByte()) >= 0)
+            {
+                if (b == '\n') break;
+                if (b == '\r')
+                {
+                    var next = fs.ReadByte();
+                    if (next != '\n' && next >= 0) fs.Seek(-1, SeekOrigin.Current);
+                    break;
+                }
+                sb.Append((char)b);
+            }
+            return S(sb.ToString());
+        });
+        Add(["FWRITE", "FPUTS"], c =>
+        {
+            var fs = Handle(c.Int(0));
+            var s = c.Str(1);
+            if (c.Has(2)) s = s[..Math.Min(s.Length, c.Int(2))];
+            if (c.Name.Equals("FPUTS", StringComparison.OrdinalIgnoreCase)) s += "\r\n";
+            var bytes = Encoding.Latin1.GetBytes(s);
+            fs.Write(bytes);
+            return N(bytes.Length);
+        });
+        Add("FEOF", c => { var fs = Handle(c.Int(0)); return L(fs.Position >= fs.Length); });
+        Add("FSEEK", c =>
+        {
+            var fs = Handle(c.Int(0));
+            var origin = c.Int(2, 0) switch { 1 => SeekOrigin.End, 2 => SeekOrigin.Current, _ => SeekOrigin.Begin };
+            return N(fs.Seek(c.Int(1), origin));
+        });
+        Add("FFLUSH", c => { Handle(c.Int(0)).Flush(); return Value.True; });
+        Add("FCHSIZE", c => { var fs = Handle(c.Int(0)); fs.SetLength(c.Int(1)); return N(fs.Length); });
+
+        // ---- Objects ----
+        Add("CREATEOBJECT", c =>
+        {
+            var cls = c.Str(0);
+            var args = Enumerable.Range(1, c.Count - 1).Select(i => new Interpreter.Arg(c[i], null)).ToList();
+            var o = c.Rt.CreateObject(c.Rt.ResolveClass(cls), args);
+            return o == null ? Value.Null : Value.Object(o);
+        });
+        Add("NEWOBJECT", c =>
+        {
+            var cls = c.Str(0);
+            ProgramUnit? module = c.Has(1) && c.Str(1).Length > 0 ? c.Rt.LoadProgram(c.Str(1)) : null;
+            var args = Enumerable.Range(3, Math.Max(0, c.Count - 3)).Select(i => new Interpreter.Arg(c[i], null)).ToList();
+            var o = c.Rt.CreateObject(c.Rt.ResolveClass(cls, module), args);
+            return o == null ? Value.Null : Value.Object(o);
+        });
+        Add("GETOBJECT", _ => throw VfpException.NotSupported("GETOBJECT (COM automation arrives in Phase 2)"));
+        Add("CREATEOBJECTEX", _ => throw VfpException.NotSupported("CREATEOBJECTEX (COM automation arrives in Phase 2)"));
+        Add("PEMSTATUS", c =>
+        {
+            var o = Obj(c, 0);
+            var name = c.Str(1);
+            var what = c.Int(2);
+            var prop = o.FindProperty(name);
+            var method = o.Class.FindMethod(name);
+            return what switch
+            {
+                5 => L(prop != null || method != null || name.Equals("Parent", StringComparison.OrdinalIgnoreCase)),
+                3 => S(prop != null ? (prop.Value.Kind == ValueKind.Object ? "Object" : "Property") : method != null ? "Method" : ""),
+                4 => L(o.Class.Hierarchy().Any(h => h.Definition != null && (h.Definition.Members.Any(m => m.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) || h.Definition.Methods.ContainsKey(name)))),
+                6 => L(o.Class.Parent?.FindMethod(name) != null),
+                2 => L(o.Class.Hierarchy().Any(h => h.Definition?.Protected.Contains(name) == true)),
+                _ => Value.False,
+            };
+        });
+        Add("ADDPROPERTY", c =>
+        {
+            var o = Obj(c, 0);
+            o.Set(c.Str(1), c.Has(2) ? c[2] : Value.False);
+            return Value.True;
+        });
+        Add("REMOVEPROPERTY", c => L(Obj(c, 0).Properties.Remove(c.Str(1))));
+        Add("AMEMBERS", c =>
+        {
+            var o = Obj(c, 1);
+            var mode = c.Int(2, 0);
+            var names = o.Properties.Keys.ToList();
+            if (mode == 1)
+                names.AddRange(o.Class.Hierarchy().Where(h => h.Definition != null).SelectMany(h => h.Definition!.Methods.Keys));
+            names = names.Select(n => n.ToUpperInvariant()).Distinct().OrderBy(n => n, StringComparer.Ordinal).ToList();
+            if (names.Count == 0) return N(0);
+            var arr = c.NewArray(0, names.Count, mode == 1 ? 2 : 0);
+            for (int i = 0; i < names.Count; i++)
+            {
+                if (mode == 1)
+                {
+                    arr[i + 1, 1] = S(names[i]);
+                    arr[i + 1, 2] = S(o.FindProperty(names[i]) is { } p ? (p.Value.Kind == ValueKind.Object ? "Object" : "Property") : "Method");
+                }
+                else arr[i + 1] = S(names[i]);
+            }
+            return N(names.Count);
+        });
+        Add("COMPOBJ", c =>
+        {
+            var a = Obj(c, 0);
+            var b = Obj(c, 1);
+            if (a.Class.Name != b.Class.Name || a.Properties.Count != b.Properties.Count) return Value.False;
+            foreach (var (k, v) in a.Properties)
+                if (!b.Properties.TryGetValue(k, out var w) || !v.Value.Equals(w.Value)) return Value.False;
+            return Value.True;
+        });
+        Add("GETPEM", c =>
+        {
+            if (c[0].Kind == ValueKind.Object) return c.Rt.GetProperty(Obj(c, 0), c.Str(1));
+            var o = c.Rt.CreateObject(c.Rt.ResolveClass(c.Str(0)), [], noInit: true)!;
+            return c.Rt.GetProperty(o, c.Str(1));
+        });
+        Add("DODEFAULT", c => c.Rt.DoDefault(Enumerable.Range(0, c.Count).Select(i => new Interpreter.Arg(c[i], null)).ToList()));
+        Add("NODEFAULT", c => { c.Rt.CurrentFrame.NoDefault = true; return Value.True; });
+        Add("RAISEEVENT", c => c.Rt.InvokeMethod(Obj(c, 0), c.Str(1), Enumerable.Range(2, c.Count - 2).Select(i => new Interpreter.Arg(c[i], null)).ToList()));
+        Add(["BINDEVENT", "UNBINDEVENTS"], c => { c.Rt.Notify("BINDEVENT is not supported yet (Phase 3)."); return N(0); });
+        Add("ACLASS", c =>
+        {
+            var o = Obj(c, 1);
+            var names = o.Class.Hierarchy().Select(h => h.Name.ToUpperInvariant()).ToList();
+            var arr = c.NewArray(0, names.Count, 0);
+            for (int i = 0; i < names.Count; i++) arr[i + 1] = S(names[i]);
+            return N(names.Count);
+        });
+
+        // ---- Arrays ----
+        Add("ALEN", c =>
+        {
+            var a = c.Array(0);
+            var mode = c.Int(1, 0);
+            return N(mode switch { 1 => a.Rows, 2 => a.Cols, _ => a.Length });
+        });
+        Add("ASCAN", c =>
+        {
+            var a = c.Array(0);
+            var target = c[1];
+            int start = c.Int(2, 1), count = c.Has(3) && c.Int(3) >= 0 ? c.Int(3) : a.Length;
+            int col = c.Int(4, -1), flags = c.Int(5, 0);
+            bool exact = (flags & 4) != 0 || ((flags & 2) == 0 && c.Rt.Options.Exact);
+            bool ci = (flags & 1) != 0;
+            bool rowResult = (flags & 8) != 0;
+            if (start < 1) start = 1;
+            var end = Math.Min(a.Length, start + count - 1);
+            for (int i = start; i <= end; i++)
+            {
+                if (col > 0 && a.TwoDimensional && a.Subscript(i).Col != col) continue;
+                var v = a[i];
+                if (v.Kind != target.Kind && !(v.Kind is ValueKind.Number or ValueKind.Currency && target.Kind is ValueKind.Number or ValueKind.Currency)) continue;
+                bool eq;
+                if (v.Kind == ValueKind.Character)
+                {
+                    var x = ci ? v.AsString.ToUpperInvariant() : v.AsString;
+                    var y = ci ? target.AsString.ToUpperInvariant() : target.AsString;
+                    eq = VfpCompare.CompareStrings(x, y, exact ? StringCompareMode.Padded : StringCompareMode.RightLength) == 0;
+                }
+                else eq = VfpCompare.AreEqual(v, target, StringCompareMode.Padded);
+                if (eq) return N(rowResult && a.TwoDimensional ? a.Subscript(i).Row : i);
+            }
+            return N(0);
+        });
+        Add("ASORT", c =>
+        {
+            var a = c.Array(0);
+            int start = c.Int(1, 1), count = c.Has(2) && c.Int(2) > 0 ? c.Int(2) : -1;
+            bool desc = c.Int(3, 0) == 1;
+            bool ci = (c.Int(4, 0) & 1) != 0;
+            if (!a.TwoDimensional)
+            {
+                var items = a.Raw.Skip(start - 1).Take(count < 0 ? int.MaxValue : count).ToList();
+                items.Sort((x, y) => CompareForSort(x, y, ci));
+                if (desc) items.Reverse();
+                for (int i = 0; i < items.Count; i++) a[start + i] = items[i];
+                return N(1);
+            }
+            var (startRow, sortCol) = a.Subscript(start);
+            var rows = Enumerable.Range(startRow, count < 0 ? a.Rows - startRow + 1 : Math.Min(count, a.Rows - startRow + 1))
+                .Select(r => Enumerable.Range(1, a.Cols).Select(col => a[r, col]).ToArray()).ToList();
+            rows.Sort((x, y) => CompareForSort(x[sortCol - 1], y[sortCol - 1], ci));
+            if (desc) rows.Reverse();
+            for (int i = 0; i < rows.Count; i++)
+                for (int col = 1; col <= a.Cols; col++) a[startRow + i, col] = rows[i][col - 1];
+            return N(1);
+        });
+        Add("ACOPY", c =>
+        {
+            var src = c.Array(0);
+            var name = c.ArrayName(1);
+            var dst = c.Rt.FindVariable(name)?.Array;
+            int srcStart = c.Int(2, 1), n = c.Has(3) && c.Int(3) >= 0 ? c.Int(3) : src.Length - srcStart + 1, dstStart = c.Int(4, 1);
+            if (dst == null || dst.Length < dstStart + n - 1)
+            {
+                var created = c.NewArray(1, src.TwoDimensional ? src.Rows : src.Length, src.Cols);
+                if (dst != null) for (int i = 1; i <= Math.Min(dst.Length, created.Length); i++) created[i] = dst[i];
+                dst = created;
+            }
+            for (int i = 0; i < n; i++) dst[dstStart + i] = src[srcStart + i];
+            return N(n);
+        });
+        Add("ADEL", c =>
+        {
+            var a = c.Array(0);
+            var n = c.Int(1);
+            if (!a.TwoDimensional || c.Int(2, 1) == 1 && !a.TwoDimensional)
+            {
+                for (int i = n; i < a.Length; i++) a[i] = a[i + 1];
+                a[a.Length] = Value.False;
+            }
+            else if (c.Int(2, 1) == 2)
+            {
+                for (int r = 1; r <= a.Rows; r++)
+                {
+                    for (int col = n; col < a.Cols; col++) a[r, col] = a[r, col + 1];
+                    a[r, a.Cols] = Value.False;
+                }
+            }
+            else
+            {
+                for (int r = n; r < a.Rows; r++)
+                    for (int col = 1; col <= a.Cols; col++) a[r, col] = a[r + 1, col];
+                for (int col = 1; col <= a.Cols; col++) a[a.Rows, col] = Value.False;
+            }
+            return N(1);
+        });
+        Add("AINS", c =>
+        {
+            var a = c.Array(0);
+            var n = c.Int(1);
+            if (!a.TwoDimensional)
+            {
+                for (int i = a.Length; i > n; i--) a[i] = a[i - 1];
+                a[n] = Value.False;
+            }
+            else if (c.Int(2, 1) == 2)
+            {
+                for (int r = 1; r <= a.Rows; r++)
+                {
+                    for (int col = a.Cols; col > n; col--) a[r, col] = a[r, col - 1];
+                    a[r, n] = Value.False;
+                }
+            }
+            else
+            {
+                for (int r = a.Rows; r > n; r--)
+                    for (int col = 1; col <= a.Cols; col++) a[r, col] = a[r - 1, col];
+                for (int col = 1; col <= a.Cols; col++) a[n, col] = Value.False;
+            }
+            return N(1);
+        });
+        Add("AELEMENT", c => { var a = c.Array(0); return N(c.Has(2) ? a.Index(c.Int(1), c.Int(2)) : c.Int(1)); });
+        Add("ASUBSCRIPT", c => { var a = c.Array(0); var (r, col) = a.Subscript(c.Int(1)); return N(c.Int(2) == 1 ? r : col); });
+        Add("ALINES", c =>
+        {
+            var text = c[1].IsNull ? "" : c.Str(1);
+            var flags = c.Has(2) && c[2].Kind == ValueKind.Number ? c.Int(2) : (c.Has(2) && c[2].Kind == ValueKind.Logical && c[2].AsBool ? 1 : 0);
+            IEnumerable<string> parts;
+            if (c.Count > 3)
+            {
+                var seps = Enumerable.Range(3, c.Count - 3).Select(c.Str).Where(s => s.Length > 0).ToArray();
+                parts = text.Split(seps, StringSplitOptions.None);
+            }
+            else parts = SplitLines(text);
+            if ((flags & 1) != 0) parts = parts.Select(p => p.Trim());
+            if ((flags & 4) != 0) parts = parts.Where(p => p.Length > 0);
+            var list = parts.ToList();
+            if (text.Length == 0 && (flags & 4) == 0) list = [""];
+            if (list.Count == 0) return N(0);
+            var arr = c.NewArray(0, list.Count, 0);
+            for (int i = 0; i < list.Count; i++) arr[i + 1] = S(list[i]);
+            return N(list.Count);
+        });
+    }
+
+    private static int CompareForSort(Value x, Value y, bool ci)
+    {
+        if (x.Kind != y.Kind) return x.Kind.CompareTo(y.Kind);
+        if (ci && x.Kind == ValueKind.Character) return string.CompareOrdinal(x.AsString.ToUpperInvariant(), y.AsString.ToUpperInvariant());
+        try { return VfpCompare.Compare(x, y, StringCompareMode.Padded); }
+        catch (VfpException) { return 0; }
+    }
+
+    private static VfpObject Obj(CallContext c, int i) =>
+        c[i].Kind == ValueKind.Object && c[i].AsObject is VfpObject o ? o : throw VfpException.InvalidArgument();
+
+    private static string Norm(string path) => path.Trim();
+
+    /// <summary>File name part of a path, treating both '\' and '/' as separators (FoxPro paths are Windows paths).</summary>
+    private static string FileName(string path)
+    {
+        path = path.Trim();
+        var i = path.LastIndexOfAny(['\\', '/', ':']);
+        return i < 0 ? path : path[(i + 1)..];
+    }
+
+    private static bool LooksUtf8(string path)
+    {
+        var b = File.ReadAllBytes(path);
+        if (b.Length >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF) return true;
+        try { _ = new UTF8Encoding(false, true).GetString(b); return b.Any(x => x > 127); }
+        catch (DecoderFallbackException) { return false; }
+    }
+
+    private static int OpenHandle(string path, FileMode mode, FileAccess access)
+    {
+        try
+        {
+            var fs = new FileStream(path, mode, access, FileShare.ReadWrite);
+            lock (Handles)
+            {
+                var h = _nextHandle++;
+                Handles[h] = fs;
+                return h;
+            }
+        }
+        catch (IOException) { return -1; }
+        catch (UnauthorizedAccessException) { return -1; }
+    }
+
+    private static FileStream Handle(int h)
+    {
+        lock (Handles) return Handles.TryGetValue(h, out var fs) ? fs : throw VfpException.InvalidArgument();
+    }
+
+    private static Value SetFunction(CallContext c)
+    {
+        var o = c.Options;
+        var name = c.Str(0).ToUpperInvariant();
+        string OnOff(bool b) => b ? "ON" : "OFF";
+        return name switch
+        {
+            "EXACT" => S(OnOff(o.Exact)),
+            "ANSI" => S(OnOff(o.Ansi)),
+            "DELETED" => S(OnOff(o.Deleted)),
+            "NEAR" => S(OnOff(o.Near)),
+            "TALK" => S(OnOff(o.Talk)),
+            "CENTURY" => S(OnOff(o.Century)),
+            "NULL" => S(OnOff(o.Null)),
+            "SECONDS" => S(OnOff(o.Seconds)),
+            "EXCLUSIVE" => S(OnOff(o.Exclusive)),
+            "SAFETY" => S(OnOff(o.Safety)),
+            "OPTIMIZE" => S(OnOff(o.Optimize)),
+            "HOURS" => N(o.Hours),
+            "DECIMALS" => N(o.Decimals),
+            "DATE" => S(o.Date.ToString().ToUpperInvariant()),
+            "MARK" => S(o.Mark?.ToString() ?? ""),
+            "POINT" => S(o.Point.ToString()),
+            "SEPARATOR" => S(o.Separator.ToString()),
+            "ENGINEBEHAVIOR" => N(o.EngineBehavior),
+            "COLLATE" => S(o.Collate),
+            "DEFAULT" => S(o.Default_.ToUpperInvariant()),
+            "PATH" => S(string.Join(";", o.Path)),
+            "DATABASE" => S(c.Rt.Session.CurrentDatabase?.Name ?? ""),
+            "ORDER" => S(c.Rt.Session.Current.Order?.Name ?? ""),
+            "FILTER" => S(c.Rt.Session.Current.Filter?.Source ?? ""),
+            "MULTILOCKS" => S("ON"),
+            "REPROCESS" => N(0),
+            "MEMOWIDTH" => N(50),
+            "STRICTDATE" => N(1),
+            "DATASESSION" => N(c.Rt.Session.Id),
+            _ => Value.EmptyString,
+        };
+    }
+
+    private static Value Sys(CallContext c)
+    {
+        var n = c.Int(0);
+        switch (n)
+        {
+            case 0: return S(Environment.MachineName + " # " + Environment.UserName);
+            case 1: return S(Julian.FromDate(DateOnly.FromDateTime(DateTime.Today)).ToString());
+            case 2: return S(((int)DateTime.Now.TimeOfDay.TotalSeconds).ToString());
+            case 3:
+            case 2015:
+            {
+                var ms = (long)(DateTime.UtcNow - new DateTime(2000, 1, 1)).TotalMilliseconds + Interlocked.Increment(ref _sysCounter);
+                var s = ToBase36(ms);
+                return S(n == 2015 ? "_" + s.PadLeft(9, '0')[^9..] : s.PadLeft(8, '0')[^8..]);
+            }
+            case 5: return S(Path.GetPathRoot(c.Options.Default_)?.TrimEnd('\\', '/') ?? "");
+            case 10: return S(Formatter.DateToString(long.Parse(c.Str(1)), c.Options));
+            case 11:
+            {
+                var v = c[1];
+                var jd = v.Kind == ValueKind.Character ? Formatter.ParseDate(v.AsString, c.Options) : v.JulianDay;
+                return S(jd.ToString());
+            }
+            case 16: return S(c.Rt.CurrentFrame.Unit?.File?.ToUpperInvariant() ?? c.Rt.CurrentFrame.Program);
+            case 2003: return S(c.Options.Default_.ToUpperInvariant());
+            case 2004: return S(AppContext.BaseDirectory.ToUpperInvariant());
+            case 2018: return S(c.Rt.LastErrorMessage);
+            case 2023: return S(Path.GetTempPath().TrimEnd('\\', '/'));
+            case 3054: return S("0");
+            case 3050: return S("0");
+            case 1037: return Value.EmptyString;
+            case 987: return Value.False;
+            case 2019: return Value.EmptyString;
+            case 6: return Value.EmptyString;
+            case 12: return S("655360");
+            default:
+                c.Rt.Notify($"SYS({n}) is not supported yet.");
+                return Value.EmptyString;
+        }
+    }
+
+    private static long _sysCounter;
+
+    private static string ToBase36(long v)
+    {
+        const string digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        var sb = new StringBuilder();
+        do { sb.Insert(0, digits[(int)(v % 36)]); v /= 36; } while (v > 0);
+        return sb.ToString();
+    }
+}
