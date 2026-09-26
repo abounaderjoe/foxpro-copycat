@@ -169,6 +169,7 @@ public sealed class AvaloniaUiHost : IUiHost
     public Canvas BuildDesignSurface(VfpObject form)
     {
         _designMode = true;
+        if (!form.Class.BaseClass.Equals("Form", StringComparison.OrdinalIgnoreCase)) return BuildClassSurface(form);
         var canvas = new Canvas
         {
             Width = Math.Max(20, Prop(form, "Width").AsNumber),
@@ -178,6 +179,36 @@ public sealed class AvaloniaUiHost : IUiHost
         if (IsCustomColor(Prop(form, "BackColor"))) canvas.Background = new SolidColorBrush(ValueText.ToColor(Prop(form, "BackColor")));
         AddMembers(form, canvas);
         form.Native = canvas;
+        return canvas;
+    }
+
+    /// <summary>
+    /// The Class Designer's surface for a class that is not a form: the object itself at the top left (a container
+    /// with its members, a control, or a placeholder for a non-visual class and the objects it holds).
+    /// </summary>
+    private Canvas BuildClassSurface(VfpObject root)
+    {
+        double N(string name, double fallback) => Prop(root, name) is { Kind: ValueKind.Number } v && v.AsNumber > 0 ? v.AsNumber : fallback;
+        var canvas = new Canvas { Tag = root };
+        var bc = root.Class.BaseClass;
+        if (BaseClasses.IsVisual(bc) && bc is not ("Toolbar" or "FormSet"))
+        {
+            var c = Create(root)!;
+            Canvas.SetLeft(c, 0);
+            Canvas.SetTop(c, 0);
+            canvas.Children.Add(c);
+            canvas.Width = Math.Max(20, N("Width", 100));
+            canvas.Height = Math.Max(20, N("Height", 25));
+            return canvas;
+        }
+        // Non-visual classes (Custom, Session, Toolbar…) show their members on a plain surface.
+        AddMembers(root, canvas);
+        var extentW = canvas.Children.OfType<Control>().Select(ch => Canvas.GetLeft(ch) + (double.IsNaN(ch.Width) ? 70 : ch.Width)).DefaultIfEmpty(0).Max();
+        var extentH = canvas.Children.OfType<Control>().Select(ch => Canvas.GetTop(ch) + (double.IsNaN(ch.Height) ? 24 : ch.Height)).DefaultIfEmpty(0).Max();
+        canvas.Width = Math.Max(Math.Max(200, N("Width", 200)), extentW + 12);
+        canvas.Height = Math.Max(Math.Max(120, N("Height", 120)), extentH + 12);
+        canvas.Background = new SolidColorBrush(Color.FromArgb(20, 128, 128, 128));
+        root.Native = canvas;
         return canvas;
     }
 

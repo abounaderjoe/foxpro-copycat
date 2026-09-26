@@ -21,7 +21,7 @@ public sealed partial class Interpreter
     /// Finds a class library or form: a converted .jpclass/.jpform is preferred to the legacy .vcx/.scx of the same
     /// name. Relative names are looked up next to <paramref name="relativeTo"/> first, then along SET DEFAULT/PATH.
     /// </summary>
-    internal string? ResolveClassFile(string name, string modernExt, string legacyExt, string? relativeTo = null)
+    public string? ResolveClassFile(string name, string modernExt, string legacyExt, string? relativeTo = null)
     {
         name = name.Trim().Replace('\\', Path.DirectorySeparatorChar);
         var ext = Path.GetExtension(name).ToLowerInvariant();

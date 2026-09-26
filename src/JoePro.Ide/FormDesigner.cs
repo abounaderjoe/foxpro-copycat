@@ -17,12 +17,12 @@ using JoePro.Ui.Runtime;
 
 namespace JoePro.Ide;
 
-/// <summary>A form (.jpform) or visual class open in the Form Designer.</summary>
+/// <summary>A form (.jpform) in the Form Designer, or a class of a library (.jpclass) in the Class Designer.</summary>
 public sealed class FormDesignerTab : DocumentTab
 {
-    public FormDesignerTab(string? path, ClassFile file, string workingDirectory, bool dark)
+    public FormDesignerTab(string? path, ClassFile file, string workingDirectory, bool dark, string? className = null)
     {
-        Designer = new FormDesigner(path, file, workingDirectory, dark);
+        Designer = new FormDesigner(path, file, workingDirectory, dark, className);
         Designer.Session.Changed += UpdateTitle;
         Designer.Saved += UpdateTitle;
         Content = Designer;
@@ -32,7 +32,9 @@ public sealed class FormDesignerTab : DocumentTab
     public FormDesigner Designer { get; }
 
     private void UpdateTitle() =>
-        Title = (Designer.FilePath != null ? System.IO.Path.GetFileName(Designer.FilePath) : Designer.Session.ClassName + ".jpform") + (Designer.Session.IsDirty ? " •" : "");
+        Title = (Designer.IsClass
+            ? $"{Designer.Session.ClassName} ({System.IO.Path.GetFileName(Designer.FilePath)})"
+            : Designer.FilePath != null ? System.IO.Path.GetFileName(Designer.FilePath) : Designer.Session.ClassName + ".jpform") + (Designer.Session.IsDirty ? " •" : "");
 }
 
 /// <summary>
@@ -67,10 +69,10 @@ public sealed class FormDesigner : UserControl
         "Spinner", "Grid", "Image", "Shape", "Line", "Container", "PageFrame", "Timer",
     ];
 
-    public FormDesigner(string? path, ClassFile file, string workingDirectory, bool dark)
+    public FormDesigner(string? path, ClassFile file, string workingDirectory, bool dark, string? className = null)
     {
         FilePath = path;
-        Session = new DesignSession(file);
+        Session = new DesignSession(file, className);
         _rt = new Interpreter(new TextWriterOutput(TextWriter.Null), workingDirectory) { DesignMode = true };
         _rt.ExecuteCommand("SET TALK OFF");
         _host = new AvaloniaUiHost(_rt);
@@ -78,6 +80,7 @@ public sealed class FormDesigner : UserControl
         Properties.ObjectChosen += p => Select([p]);
         Properties.MethodChosen += OpenMethod;
         Properties.Error += m => Status?.Invoke(m);
+        Properties.DescriptionProvider = DescriptionOf;
 
         _code = new TextEditor
         {
@@ -166,6 +169,8 @@ public sealed class FormDesigner : UserControl
     private static TextBlock Header(string text) => new() { Text = text, FontWeight = FontWeight.SemiBold, Margin = new Thickness(6, 4) };
 
     public DesignSession Session { get; }
+    /// <summary>True in the Class Designer (a class of a .jpclass library), false in the Form Designer.</summary>
+    public bool IsClass => Session.File.Kind == ClassFileKind.ClassLibrary;
     public PropertySheet Properties { get; }
     public string? FilePath { get; private set; }
     public VfpObject? Root { get; private set; }
@@ -177,8 +182,11 @@ public sealed class FormDesigner : UserControl
     public string? RenderError { get; private set; }
 
     public event Action<string>? Status;
+    /// <summary>Commands to run in the IDE session (DO FORM for a form, a preview instance for a class).</summary>
     public event Action<string>? RunRequested;
     public event Action? Saved;
+    /// <summary>Save was chosen for a document without a file name.</summary>
+    public event Action? SaveAsRequested;
 
     // ================================================================================
     // Rendering
@@ -204,7 +212,9 @@ public sealed class FormDesigner : UserControl
             _renderHost.Height = Rendered.Height;
             _overlay.Width = _adorners.Width = Rendered.Width;
             _overlay.Height = _adorners.Height = Rendered.Height;
-            _formTitle.Text = Prop(obj, "Caption") is { Kind: ValueKind.Character } c ? c.AsString : name;
+            _formTitle.Text = IsClass
+                ? $"{Session.ClassName}  ·  based on {Session.Class.ParentClass}{(Session.Class.ParentLibrary != null ? " of " + Session.Class.ParentLibrary : "")}"
+                : Prop(obj, "Caption") is { Kind: ValueKind.Character } c ? c.AsString : name;
         }
         catch (Exception ex) when (ex is VfpException or CompileException)
         {
@@ -586,6 +596,11 @@ public sealed class FormDesigner : UserControl
     public string AddObjectAt(string className, Point p, Size? size = null)
     {
         var parent = ContainerAt(p);
+        if (parent.Length == 0 && Root != null && !CanContain(Root.Class.BaseClass))
+        {
+            Status?.Invoke($"A {Root.Class.BaseClass} cannot contain other objects.");
+            return "";
+        }
         var origin = parent.Length == 0 || Find(parent) is not { } po || RectOf(po.Class.BaseClass == "Page" ? po.Parent! : po) is not { } pr
             ? new Point(0, 0)
             : po.Class.BaseClass == "Page" ? new Point(pr.X, pr.Y + TabStripHeight(po.Parent!)) : pr.TopLeft;
@@ -607,6 +622,10 @@ public sealed class FormDesigner : UserControl
         Select([path]);
         return path;
     }
+
+    /// <summary>Base classes that can hold objects added in the designer.</summary>
+    public static bool CanContain(string baseClass) =>
+        baseClass is "Form" or "FormSet" or "Container" or "Control" or "Page" or "Custom" or "Toolbar" or "DataEnvironment" or "Column";
 
     private static double TabStripHeight(VfpObject pageFrame) =>
         pageFrame.Native is TabControl tabs && tabs.SelectedContent is Control content && content.TranslatePoint(new Point(0, 0), tabs) is { } p ? p.Y : 30;
@@ -778,6 +797,7 @@ public sealed class FormDesigner : UserControl
     /// <summary>Adds a table to the data environment (DE cursor) and returns its alias.</summary>
     public string AddTable(string tablePath, string? alias = null)
     {
+        if (IsClass) throw new InvalidOperationException("Only forms have a data environment.");
         var name = System.IO.Path.GetFileNameWithoutExtension(tablePath);
         alias ??= name;
         var formDir = FilePath != null ? System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(FilePath))! : _rt.Options.Default_;
@@ -908,7 +928,9 @@ public sealed class FormDesigner : UserControl
     {
         CommitCode();
         FilePath = path ?? FilePath ?? throw new InvalidOperationException("No file name.");
-        ClassFileWriter.Save(Session.File, FilePath);
+        // A class is saved into its library without touching the library's other classes.
+        if (IsClass) ClassLibrary.SaveClass(FilePath, Session.Class, Session.File.Includes);
+        else ClassFileWriter.Save(Session.File, FilePath);
         Session.MarkSaved();
         Saved?.Invoke();
         Status?.Invoke($"Saved {System.IO.Path.GetFileName(FilePath)}.");
@@ -918,7 +940,116 @@ public sealed class FormDesigner : UserControl
     {
         if (FilePath == null) { Status?.Invoke("Save the form before running it."); return; }
         Save();
-        RunRequested?.Invoke(FilePath);
+        RunRequested?.Invoke(RunCommand());
+    }
+
+    /// <summary>
+    /// What Run executes: DO FORM for a form; for a class, an instance in a public variable (_oPreview), shown
+    /// in a form when it is a control, as the Class Designer has no running mode of its own.
+    /// </summary>
+    public string RunCommand() =>
+        IsClass ? PreviewCommand(Session.ClassName, FilePath!, Root?.Class.BaseClass ?? "Custom") : $"DO FORM \"{FilePath!.Replace("\"", "")}\"";
+
+    /// <summary>Commands that create an instance of a library class to try it out (in _oPreview).</summary>
+    public static string PreviewCommand(string cls, string libraryPath, string baseClass)
+    {
+        var file = libraryPath.Replace("\"", "");
+        if (baseClass is "Form" or "FormSet" or "Toolbar")
+            return $"PUBLIC _oPreview\n_oPreview = NEWOBJECT(\"{cls}\", \"{file}\")\n_oPreview.Show()";
+        if (BaseClasses.IsVisual(baseClass))
+            return $"PUBLIC _oPreview\n_oPreview = CREATEOBJECT(\"Form\")\n_oPreview.Caption = \"{cls}\"\n_oPreview.NewObject(\"oPreview\", \"{cls}\", \"{file}\")\n"
+                   + "_oPreview.oPreview.Visible = .T.\n_oPreview.Width = MAX(_oPreview.Width, _oPreview.oPreview.Width + 24)\n"
+                   + "_oPreview.Height = MAX(_oPreview.Height, _oPreview.oPreview.Height + 24)\n_oPreview.Show()";
+        return $"PUBLIC _oPreview\n_oPreview = NEWOBJECT(\"{cls}\", \"{file}\")\n? \"{cls} created in _oPreview\"";
+    }
+
+    // ================================================================================
+    // Class members (New Property, New Method, Edit Property/Method, Class Info)
+    // ================================================================================
+
+    /// <summary>A custom property, array or method: defined by this class, or inherited from a parent class.</summary>
+    public sealed record CustomMember(string Name, string Kind, string? Visibility, string? Description, string? InheritedFrom);
+
+    public void NewProperty(string name, string initialValue = ".F.", string? visibility = null, string? description = null, bool access = false, bool assign = false) =>
+        Session.AddProperty(name, initialValue, visibility, description, access, assign);
+
+    public void NewMethod(string name, string? visibility = null, string? description = null)
+    {
+        Session.AddMethod(name, visibility, description);
+        OpenMethod("", name);
+    }
+
+    /// <summary>The custom members of the class being designed, then those it inherits (Edit Property/Method).</summary>
+    public IReadOnlyList<CustomMember> CustomMembers()
+    {
+        var list = new List<CustomMember>();
+        var cls = Session.Class;
+        var baseClass = Root?.Class.BaseClass ?? cls.ParentClass;
+        var inherited = InheritedMembers();
+        foreach (var (name, _) in cls.Properties)
+            if (!name.Contains('.') && !BaseClasses.IsNativeProperty(baseClass, name) && !inherited.ContainsKey(name))
+                list.Add(new(name, "Property", Session.VisibilityOf(name), cls.MemberDescriptions.GetValueOrDefault(name), null));
+        foreach (var (name, _) in cls.Arrays)
+            list.Add(new(name, "Array", Session.VisibilityOf(name), cls.MemberDescriptions.GetValueOrDefault(name), null));
+        foreach (var m in cls.Methods.Where(m => m.ObjectPath.Length == 0))
+            if (!DesignerEvents.IsNative(baseClass, m.Name) && !inherited.ContainsKey(m.Name))
+                list.Add(new(m.Name, "Method", m.Visibility, cls.MemberDescriptions.GetValueOrDefault(m.Name), null));
+        list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        foreach (var (name, (kind, owner)) in inherited.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+            list.Add(new(name, kind, null, DescriptionOf(name), owner));
+        return list;
+    }
+
+    /// <summary>Custom members defined by user-defined parent classes: name → (kind, defining class).</summary>
+    private Dictionary<string, (string Kind, string Owner)> InheritedMembers()
+    {
+        var result = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
+        if (Root == null) return result;
+        var baseClass = Root.Class.BaseClass;
+        for (var c = Root.Class.Parent; c != null; c = c.Parent)
+        {
+            if (c.Definition == null) continue;
+            foreach (var m in c.Definition.Members)
+                if (!BaseClasses.IsNativeProperty(baseClass, m.Name) && !result.ContainsKey(m.Name))
+                    result[m.Name] = (m.Dims != null ? "Array" : "Property", c.Name);
+            foreach (var name in c.Definition.Methods.Keys.Where(k => !k.Contains('.')))
+                if (!DesignerEvents.IsNative(baseClass, name) && !result.ContainsKey(name))
+                    result[name] = ("Method", c.Name);
+        }
+        return result;
+    }
+
+    public void RemoveMember(string name)
+    {
+        if (!Session.MemberExists(name)) { Status?.Invoke($"{name} is inherited; remove it in the class that defines it."); return; }
+        if (_codeMethod != null && _codePath == "" && _codeMethod.Equals(name, StringComparison.OrdinalIgnoreCase)) _codeMethod = null;
+        Session.RemoveMember(name);
+    }
+
+    public void SetMemberVisibility(string name, string? visibility) => Session.SetVisibility(name, visibility);
+    public void SetMemberDescription(string name, string? description) => Session.SetDescription(name, description);
+    public void SetClassInfo(string? description, string? icon, string? containerIcon, bool olePublic) => Session.SetClassInfo(description, icon, containerIcon, olePublic);
+
+    private readonly Dictionary<string, ClassFile?> _libraryCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The description of a custom member of the selected object, from its class or the parent class that defines it.</summary>
+    private string? DescriptionOf(string name)
+    {
+        var o = _selection.Count > 0 ? Find(_selection[0]) : null;
+        if (o == null || o == Root)
+            if (Session.Class.MemberDescriptions.TryGetValue(name, out var own)) return own;
+        for (var c = (o ?? Root)?.Class; c != null; c = c.Parent)
+        {
+            if (c.Unit?.File is not { } file || !file.EndsWith(".jpclass", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!_libraryCache.TryGetValue(file, out var lib))
+            {
+                try { lib = System.IO.File.Exists(file) ? ClassLibrary.Load(file) : null; }
+                catch (Exception ex) when (ex is FormatException or IOException) { lib = null; }
+                _libraryCache[file] = lib;
+            }
+            if (lib?.Find(c.Name)?.MemberDescriptions.GetValueOrDefault(name) is { } text) return text;
+        }
+        return null;
     }
 
     private Control BuildToolbar()
@@ -937,8 +1068,8 @@ public sealed class FormDesigner : UserControl
             Margin = new Thickness(4),
             Children =
             {
-                B("Save", "Save the form (Ctrl+S)", () => Save()),
-                B("▶ Run", "Save and run the form (Ctrl+E)", Run),
+                B("Save", "Save (Ctrl+S)", () => { if (FilePath == null) SaveAsRequested?.Invoke(); else Save(); }),
+                B("▶ Run", "Save and run (Ctrl+E)", () => { if (FilePath == null) SaveAsRequested?.Invoke(); else Run(); }),
                 B("↶", "Undo (Ctrl+Z)", Undo),
                 B("↷", "Redo (Ctrl+Y)", Redo),
                 B("⇤", "Align left edges", () => Align("Left")),
@@ -950,6 +1081,10 @@ public sealed class FormDesigner : UserControl
                 B("⊟", "Center horizontally", () => Align("CenterHorizontally")),
                 B("Front", "Bring to front", () => ZOrder(true)),
                 B("Back", "Send to back", () => ZOrder(false)),
+                B("+ Property", "New property", () => MemberDialogs.NewMember(this, isMethod: false)),
+                B("+ Method", "New method", () => MemberDialogs.NewMember(this, isMethod: true)),
+                B("Members…", "Edit properties and methods", () => MemberDialogs.EditMembers(this)),
+                B("Info…", "Class information", () => MemberDialogs.ClassInfo(this)),
                 snap,
             },
         };

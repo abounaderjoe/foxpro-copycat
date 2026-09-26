@@ -23,4 +23,8 @@
     <ProjectReference Include="..\..\src\JoePro.Ide\JoePro.Ide.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\corpus\foxunit\*" LinkBase="corpus\foxunit" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

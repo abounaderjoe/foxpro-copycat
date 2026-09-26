@@ -6,6 +6,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
+using JoePro.Core;
 using JoePro.Runtime;
 using DebugAction = JoePro.Runtime.DebugAction;
 using JoePro.Ui.Runtime;
@@ -169,6 +170,7 @@ public sealed class MainWindow : Window
         CommandWindow.SetDark(IsDark);
         foreach (var t in Documents.Items.OfType<CodeEditorTab>()) t.SetDark(IsDark);
         foreach (var d in Documents.Items.OfType<FormDesignerTab>()) d.Designer.SetDark(IsDark);
+        foreach (var b in Documents.Items.OfType<ClassBrowserTab>()) b.Browser.SetDark(IsDark);
     }
 
     public void Run(string command)
@@ -227,6 +229,12 @@ public sealed class MainWindow : Window
             case "FORM":
                 OpenForm(request.Path.Length == 0 ? null : request.Path, request.Create, request.BaseClass, request.BaseLibrary);
                 return true;
+            case "CLASS" when request.ClassName != null:
+                OpenClass(request.Path, request.ClassName);
+                return true;
+            case "CLASSLIB" when request.Path.Length > 0:
+                OpenClassBrowser(request.Path);
+                return true;
             default:
                 return false;
         }
@@ -268,10 +276,70 @@ public sealed class MainWindow : Window
             }
         }
         var tab = new FormDesignerTab(target, file, _session.Runtime.Options.Default_, IsDark);
-        tab.Designer.Status += SetStatus;
-        tab.Designer.RunRequested += p => Run($"DO FORM \"{p}\"");
+        WireDesigner(tab.Designer);
         OpenDocument(tab);
         if (note != null) SetStatus(note);
+        return tab;
+    }
+
+    private void WireDesigner(FormDesigner designer)
+    {
+        designer.Status += SetStatus;
+        designer.RunRequested += Run;
+        designer.SaveAsRequested += () => _ = SaveDesignerAs(designer);
+        designer.Saved += () =>
+        {
+            if (designer.IsClass && designer.FilePath != null)
+            {
+                _session.Runtime.InvalidateClassLibrary(designer.FilePath);
+                foreach (var b in Documents.Items.OfType<ClassBrowserTab>().Where(b => SamePath(b.Browser.LibraryPath, designer.FilePath))) b.Browser.Reload();
+            }
+        };
+    }
+
+    private static bool SamePath(string a, string b) => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>MODIFY CLASS name OF lib: the Class Designer on one class of a .jpclass library.</summary>
+    public FormDesignerTab OpenClass(string libraryPath, string className)
+    {
+        var existing = Documents.Items.OfType<FormDesignerTab>().FirstOrDefault(t => t.Designer.IsClass && t.Designer.FilePath != null
+            && SamePath(t.Designer.FilePath, libraryPath) && t.Designer.Session.ClassName.Equals(className, StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+        {
+            Documents.SelectedItem = existing;
+            return existing;
+        }
+        if (Path.GetExtension(libraryPath).Equals(".vcx", StringComparison.OrdinalIgnoreCase))
+            throw new VfpException(1102, $"{Path.GetFileName(libraryPath)} is a legacy class library and is read-only. Open it in the Class Browser and save it as .jpclass to edit its classes.", libraryPath);
+        var file = JoePro.Documents.ClassLibrary.Load(libraryPath);
+        if (file.Find(className) == null) throw new VfpException(1733, $"Class definition {className.ToUpperInvariant()} is not found.", className);
+        var tab = new FormDesignerTab(libraryPath, file, _session.Runtime.Options.Default_, IsDark, file.Find(className)!.Name);
+        WireDesigner(tab.Designer);
+        OpenDocument(tab);
+        return tab;
+    }
+
+    /// <summary>The Class Browser on a library (.jpclass, or a legacy .vcx shown read-only).</summary>
+    public ClassBrowserTab OpenClassBrowser(string libraryPath)
+    {
+        var existing = Documents.Items.OfType<ClassBrowserTab>().FirstOrDefault(t => SamePath(t.Browser.LibraryPath, libraryPath));
+        if (existing != null)
+        {
+            existing.Browser.Reload();
+            Documents.SelectedItem = existing;
+            return existing;
+        }
+        var browser = new ClassBrowser(libraryPath, _session.Runtime, IsDark);
+        browser.Status += SetStatus;
+        browser.RunRequested += Run;
+        browser.ModifyRequested += (lib, cls) =>
+        {
+            try { OpenClass(lib, cls); }
+            catch (VfpException ex) { SetStatus(ex.Message); }
+        };
+        browser.LibraryChanged += path => _session.Runtime.InvalidateClassLibrary(path);
+        var tab = new ClassBrowserTab(browser);
+        OpenDocument(tab);
         return tab;
     }
 
@@ -346,7 +414,7 @@ public sealed class MainWindow : Window
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.scx", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
+                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.scx", "*.jpclass", "*.vcx", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
                 new FilePickerFileType("All files") { Patterns = ["*"] },
             ],
         });
@@ -367,6 +435,9 @@ public sealed class MainWindow : Window
             case ".jpform" or ".scx":
                 OpenForm(path);
                 break;
+            case ".jpclass" or ".vcx":
+                OpenClassBrowser(path);
+                break;
             default:
                 OpenFile(path);
                 break;
@@ -382,6 +453,16 @@ public sealed class MainWindow : Window
             FileTypeFilter = [new FilePickerFileType("Tables") { Patterns = ["*.jpt", "*.dbf"] }],
         });
         if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) designer.AddTable(path);
+    }
+
+    private async Task OpenClassLibraryWithPicker()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Class library",
+            FileTypeFilter = [new FilePickerFileType("Class libraries") { Patterns = ["*.jpclass", "*.vcx"] }],
+        });
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) OpenClassBrowser(path);
     }
 
     private async Task ImportFolder()
@@ -401,6 +482,11 @@ public sealed class MainWindow : Window
         void A(string title, string shortcut, Action run) => _actions.Add(new PaletteAction(title, shortcut, run));
         A("New program", "Ctrl+N", () => OpenDocument(new CodeEditorTab(null, IsDark, Debugger.Engine, Language)));
         A("New form", "", () => OpenForm(null, create: true));
+        A("Class browser…", "", () => _ = OpenClassLibraryWithPicker());
+        A("Class: new property…", "", () => { if (ActiveDesigner is { } d) MemberDialogs.NewMember(d, isMethod: false); });
+        A("Class: new method…", "", () => { if (ActiveDesigner is { } d) MemberDialogs.NewMember(d, isMethod: true); });
+        A("Class: edit property/method…", "", () => { if (ActiveDesigner is { } d) MemberDialogs.EditMembers(d); });
+        A("Class: class info…", "", () => { if (ActiveDesigner is { } d) MemberDialogs.ClassInfo(d); });
         A("Edit form as code", "", () => { if (ActiveDesigner is { FilePath: { } p } d) { if (d.Session.IsDirty) d.Save(); OpenFile(p); } });
         A("Form: undo", "Ctrl+Z", () => ActiveDesigner?.Undo());
         A("Form: redo", "Ctrl+Y", () => ActiveDesigner?.Redo());
@@ -510,6 +596,15 @@ public sealed class MainWindow : Window
                     new Separator(),
                     Item("Add Table to _Data Environment…", "Form: add table to data environment…"),
                     Item("Edit as _Code", "Edit form as code"),
+                } },
+                new MenuItem { Header = "_Class", Items =
+                {
+                    Item("New _Property…", "Class: new property…"),
+                    Item("New _Method…", "Class: new method…"),
+                    Item("_Edit Property/Method…", "Class: edit property/method…"),
+                    Item("Class _Info…", "Class: class info…"),
+                    new Separator(),
+                    Item("Class _Browser…", "Class browser…"),
                 } },
                 new MenuItem { Header = "_Program", Items =
                 {

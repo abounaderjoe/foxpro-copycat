@@ -25,7 +25,8 @@ public sealed class PropertySheet : UserControl
     private readonly TabControl _tabs = new() { Padding = new Thickness(0) };
     private bool _loading;
 
-    public static readonly string[] Categories = ["All", "Layout", "Data", "Appearance", "Behavior", "Other"];
+    public static readonly string[] Categories = ["All", "Layout", "Data", "Appearance", "Behavior", "Custom", "Other"];
+    private readonly TextBlock _description = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6, 4), FontSize = 12, MinHeight = 34 };
 
     private static readonly HashSet<string> Layout = new(StringComparer.OrdinalIgnoreCase)
     { "Left", "Top", "Width", "Height", "Anchor", "AutoSize", "Visible", "TabIndex", "TabStop", "ZOrderSet", "Alignment", "AutoCenter", "WindowState", "ScrollBars", "Stretch" };
@@ -53,6 +54,9 @@ public sealed class PropertySheet : UserControl
         var filters = new StackPanel { Children = { _search, _category } };
         DockPanel.SetDock(filters, Dock.Top);
         props.Children.Add(filters);
+        var descriptionBorder = new Border { Child = _description, BorderThickness = new Thickness(0, 1, 0, 0), BorderBrush = Brushes.Gray };
+        DockPanel.SetDock(descriptionBorder, Dock.Bottom);
+        props.Children.Add(descriptionBorder);
         props.Children.Add(new ScrollViewer { Content = _rows });
         _tabs.Items.Add(new TabItem { Header = "Properties", Content = props, FontSize = 13 });
         _tabs.Items.Add(new TabItem { Header = "Methods", Content = _methods, FontSize = 13 });
@@ -74,6 +78,18 @@ public sealed class PropertySheet : UserControl
     public event Action<string, string>? MethodChosen;
     /// <summary>A property edit failed (for example an invalid name).</summary>
     public event Action<string>? Error;
+
+    /// <summary>Descriptions of custom properties and methods (supplied by the designer from the class documents).</summary>
+    public Func<string, string?>? DescriptionProvider { get; set; }
+
+    /// <summary>The text in the description pane under the property list.</summary>
+    public string DescriptionText => _description.Text ?? "";
+
+    public void ShowDescription(string name)
+    {
+        var text = DescriptionProvider?.Invoke(name) ?? PropertyHelp.For(name);
+        _description.Text = text == null ? name : $"{name}: {text}";
+    }
 
     public IReadOnlyList<string> VisibleProperties => _rows.Children.OfType<PropertyRow>().Select(r => r.Name!).ToList();
 
@@ -105,7 +121,8 @@ public sealed class PropertySheet : UserControl
     }
 
     private string CategoryOf(string name) =>
-        Layout.Contains(name) ? "Layout" : Data.Contains(name) ? "Data" : Appearance.Contains(name) ? "Appearance" : Behavior.Contains(name) ? "Behavior" : "Other";
+        Layout.Contains(name) ? "Layout" : Data.Contains(name) ? "Data" : Appearance.Contains(name) ? "Appearance" : Behavior.Contains(name) ? "Behavior"
+        : _object != null && !BaseClasses.IsNativeProperty(_object.Class.BaseClass, name) ? "Custom" : "Other";
 
     private void Rebuild()
     {
@@ -200,6 +217,7 @@ public sealed class PropertySheet : UserControl
                 else if (e.Key == Key.Escape) { box.Text = original; e.Handled = true; }
             };
             box.LostFocus += (_, _) => CommitIfChanged();
+            box.GotFocus += (_, _) => sheet.ShowDescription(name);
             var reset = new MenuItem { Header = "Reset to default", IsEnabled = stored != null && !readOnly };
             reset.Click += (_, _) => sheet.Reset(name);
             ContextMenu = new ContextMenu { Items = { reset } };
@@ -239,6 +257,77 @@ public static class DesignerEvents
         "DataEnvironment" => [.. Common, "BeforeOpenTables", "AfterCloseTables", "OpenTables", "CloseTables"],
         "Cursor" or "Relation" => Common,
         "Label" or "Image" or "Shape" or "Line" or "Container" or "Control" => [.. Common, .. Visual],
+        "Toolbar" => [.. Common, .. Visual, "AfterDock", "BeforeDock", "UnDock", "Resize", "Activate", "Deactivate"],
+        "Hyperlink" => [.. Common, "NavigateTo", "GoBack", "GoForward"],
         _ => Common,
     };
+
+    private static readonly HashSet<string> NativeMethods = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "AddObject", "AddProperty", "NewObject", "RemoveObject", "Release", "Refresh", "SetFocus", "Move", "ZOrder", "Show", "Hide", "Draw",
+        "Cls", "Print", "ReadExpression", "WriteExpression", "ReadMethod", "WriteMethod", "ResetToDefault", "SaveAs", "SaveAsClass", "SetAll",
+        "OLEDrag", "Box", "Circle", "Line", "PSet", "Point", "TextHeight", "TextWidth", "CloneObject", "ShowWhatsThis", "WhatsThisMode",
+        "AddItem", "AddListItem", "RemoveItem", "RemoveListItem", "Clear", "Requery", "DoVerb", "AddColumn", "DeleteColumn", "ActivateCell",
+        "DoScroll", "GridHitTest", "AutoFit", "NavigateTo", "GoBack", "GoForward", "Dock", "Reset", "Timer", "CursorFill", "CursorRefresh",
+        "CursorAttach", "CursorDetach", "OpenTables", "CloseTables", "Item", "Add", "Remove", "GetKey",
+    };
+
+    /// <summary>True for an event or method every object of the base class has (as opposed to a custom method).</summary>
+    public static bool IsNative(string baseClass, string method) =>
+        NativeMethods.Contains(method) || For(baseClass).Contains(method, StringComparer.OrdinalIgnoreCase);
+}
+
+/// <summary>Short descriptions of common native properties for the property sheet's description pane.</summary>
+public static class PropertyHelp
+{
+    private static readonly Dictionary<string, string> Text = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Alignment"] = "Alignment of text in the control (0 left, 1 right, 2 center, 3 automatic).",
+        ["Anchor"] = "How the control moves and resizes when its container is resized.",
+        ["AutoCenter"] = "Centers the form in its parent window when it is shown.",
+        ["AutoSize"] = "Sizes the control to fit its contents.",
+        ["BackColor"] = "Background color, as red,green,blue.",
+        ["BackStyle"] = "0 transparent, 1 opaque.",
+        ["BorderStyle"] = "Border of the object (for forms: 0 none, 1 fixed single, 2 fixed dialog, 3 sizable).",
+        ["BoundColumn"] = "The column of a multicolumn list whose value is stored in Value.",
+        ["BufferMode"] = "Buffering of the form's tables: 0 none, 1 pessimistic, 2 optimistic.",
+        ["Caption"] = "The text shown in the object's title or label.",
+        ["Closable"] = "Whether the form can be closed from its title bar.",
+        ["ColumnCount"] = "Number of columns (-1 in a grid: one per field of the record source).",
+        ["ControlSource"] = "The field or variable the control's value is bound to.",
+        ["DataSession"] = "1 default data session, 2 private data session for the form.",
+        ["Enabled"] = "Whether the object responds to user input.",
+        ["FontBold"] = "Bold text.",
+        ["FontName"] = "Font used for the object's text.",
+        ["FontSize"] = "Font size in points.",
+        ["ForeColor"] = "Text color, as red,green,blue.",
+        ["Format"] = "Display and input format codes (for example ! for uppercase, K to select on entry).",
+        ["Height"] = "Height in pixels.",
+        ["InputMask"] = "How data is entered and shown: 9 digit, X any character, A letter, ! uppercase, # digit or sign.",
+        ["Interval"] = "Milliseconds between Timer events (0 disables the timer).",
+        ["Left"] = "Distance from the left edge of the container, in pixels.",
+        ["MaxLength"] = "Maximum number of characters that can be typed.",
+        ["Name"] = "The name used to refer to the object in code.",
+        ["PageCount"] = "Number of pages in the page frame.",
+        ["PasswordChar"] = "Character shown instead of what is typed.",
+        ["Picture"] = "Image file shown by the object.",
+        ["ReadOnly"] = "Whether the value can be changed by the user.",
+        ["RecordSource"] = "The table, alias or query shown in the grid.",
+        ["RowSource"] = "Where a list or combo box gets its items.",
+        ["RowSourceType"] = "Kind of row source: 0 none, 1 value, 2 alias, 3 SQL statement, 5 array, 6 fields…",
+        ["ShowWindow"] = "0 in screen, 1 in top-level form, 2 as top-level form.",
+        ["TabIndex"] = "Order of the control when tabbing through the form.",
+        ["TabStop"] = "Whether Tab moves to the control.",
+        ["Tag"] = "Extra text stored with the object for your own use.",
+        ["ToolTipText"] = "Text shown when the mouse rests on the control.",
+        ["Top"] = "Distance from the top edge of the container, in pixels.",
+        ["Value"] = "The current value of the control.",
+        ["Visible"] = "Whether the object is shown.",
+        ["Width"] = "Width in pixels.",
+        ["WindowState"] = "0 normal, 1 minimized, 2 maximized.",
+        ["WindowType"] = "0 modeless, 1 modal.",
+        ["WordWrap"] = "Wraps text onto several lines.",
+    };
+
+    public static string? For(string property) => Text.GetValueOrDefault(property);
 }

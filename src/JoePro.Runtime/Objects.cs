@@ -142,6 +142,14 @@ public static class BaseClasses
         ["OLEBoundControl"] = (true, ["ControlSource", "OLEClass"]),
     };
 
+    /// <summary>True for a property every object of the base class has (as opposed to a custom property added by a class).</summary>
+    public static bool IsNativeProperty(string baseClass, string property)
+    {
+        if (Common.Contains(property, StringComparer.OrdinalIgnoreCase)) return true;
+        if (!Catalog.TryGetValue(baseClass, out var c)) return false;
+        return (c.Visual && Visual.Contains(property, StringComparer.OrdinalIgnoreCase)) || c.Props.Contains(property, StringComparer.OrdinalIgnoreCase);
+    }
+
     public static bool Exists(string name) => Catalog.ContainsKey(name);
     public static bool IsVisual(string name) => Catalog.TryGetValue(name, out var c) && c.Visual;
     public static IEnumerable<string> Names => Catalog.Keys;

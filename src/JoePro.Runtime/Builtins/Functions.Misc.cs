@@ -10,7 +10,7 @@ public static partial class Library
     private static int _nextHandle = 10;
 
     /// <summary>The native base class a library class derives from (following parents in this and other libraries).</summary>
-    internal static string BaseClassOf(Interpreter rt, JoePro.Documents.ClassFile lib, JoePro.Documents.ClassDocument cls, string libPath, int depth = 0)
+    public static string BaseClassOf(Interpreter rt, JoePro.Documents.ClassFile lib, JoePro.Documents.ClassDocument cls, string libPath, int depth = 0)
     {
         if (depth > 50) return "";
         if (cls.ParentLibrary == null)
