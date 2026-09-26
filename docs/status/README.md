@@ -56,6 +56,20 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Performance: record navigation, batching, prepared statements | ✅ 10–60× faster navigation and bulk commands ([benchmarks](benchmarks.md)) |
 | Bytecode VM | ⏸ Deferred until benchmarks show interpreter overhead dominating ([ADR 0002 amendment](../adr/0002-tree-walking-interpreter-first.md)) |
 
+## Phase 3 — Form Designer + Class Designer
+
+| Item | Status |
+|---|---|
+| Canonical `.jpform`/`.jpclass` format (`JoePro.Documents`): sorted classes and properties, one property per line, members in z-order; re-saving is byte-identical, one property change is a one-line diff | ✅ Done |
+| SCX → `.jpform`, VCX → `.jpclass`: data environment, implicit children (pages, columns, buttons), member code in containers, custom properties/methods/arrays, PROTECTED/HIDDEN, cross-library inheritance (`OF lib.jpclass`), #INCLUDE files; value mapping (colors → `RGB()`, paths, `=expressions`, multi-line values) with findings | ✅ Done. Checked on 51 real forms and class libraries from public VFP projects: all convert, all compile, all re-save with zero diffs. FoxUnit's libraries are in the test corpus and compared with FoxBin2Prg's text versions |
+| Legacy files run directly: `DO FORM x.scx`, `SET CLASSLIB TO x.vcx`, `NEWOBJECT`, `ADD OBJECT … OF lib` (converted copies preferred when present) | ✅ Done |
+| Form DataEnvironment: cursors and relations open before Load, close after Unload (AutoOpenTables/AutoCloseTables, BeforeOpenTables/AfterCloseTables, BufferModeOverride, Order, Filter, NoDataOnLoad) | ✅ Done |
+| `IMPORT FOXPRO` converts forms and class libraries, mirrors the folder layout, copies programs/headers/pictures, analyzes method code | ✅ Done. A whole real application (GoFish) imports with no failures |
+| Compatibility: every one of 299 real programs in the corpus compiles (about 40 parser gaps fixed: leading-dot calls, `obj.&macro`, `m.` in declarations, multiple CATCH, `CAST()`, comment continuation, textmerge lines, …) | ✅ Done |
+| Form Designer (design surface, toolbox, property sheet, code editor, data environment, undo) | ⛔ Not started |
+| Class Designer, Class Browser | ⛔ Not started |
+| Remaining controls: grid dynamic properties, InputMask/Format, Toolbar, FormSet, Hyperlink, OLE hosting | ⛔ Not started |
+
 ## Screenshots
 
 Rendered headlessly by `tools/JoePro.Screenshots` (`dotnet run --project tools/JoePro.Screenshots -- docs/images`).

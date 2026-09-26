@@ -47,9 +47,7 @@ public sealed partial class Interpreter
         if (_legacyCache.TryGetValue(path, out var cached) && cached.Stamp == stamp) return cached.Unit;
         var result = LegacyFormConverter.Convert(path);
         var text = ClassFileWriter.Write(result.File);
-        var dir = Path.GetDirectoryName(path)!;
-        var unit = Parser.ParseProgram(text, Path.GetFileNameWithoutExtension(path).ToUpperInvariant(), path,
-            inc => DataSession.FindIgnoringCase(Path.Combine(dir, inc.Replace('\\', Path.DirectorySeparatorChar))) is { } p ? File.ReadAllText(p) : ResolveProgramFile(inc, ".h") is { } q ? File.ReadAllText(q) : null);
+        var unit = Parser.ParseProgram(text, Path.GetFileNameWithoutExtension(path).ToUpperInvariant(), path, inc => ResolveInclude(inc, path));
         _legacyCache[path] = (stamp, unit);
         RegisterUnit(unit);
         var unsupported = result.Findings.Count(f => f.Status == FindingStatus.Unsupported);

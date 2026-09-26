@@ -86,13 +86,39 @@ public sealed class DataSession : IDisposable
         return Path.Combine(Path.GetDirectoryName(candidate) ?? ".", Path.GetFileName(candidate).ToLowerInvariant());
     }
 
+    /// <summary>
+    /// Finds a file whose path matches <paramref name="path"/> ignoring case in every segment (FoxPro code written
+    /// on Windows says "..\lib\Base.vcx" for a folder named "Lib"). Returns null if there is no such file.
+    /// </summary>
     public static string? FindIgnoringCase(string path)
     {
         if (File.Exists(path)) return path;
-        var dir = Path.GetDirectoryName(path);
-        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return null;
-        var name = Path.GetFileName(path);
-        return Directory.EnumerateFiles(dir).FirstOrDefault(f => string.Equals(Path.GetFileName(f), name, StringComparison.OrdinalIgnoreCase));
+        string full;
+        try { full = Path.GetFullPath(path); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
+        if (File.Exists(full)) return full;
+        var dir = Path.GetDirectoryName(full);
+        if (string.IsNullOrEmpty(dir)) return null;
+        var realDir = Directory.Exists(dir) ? dir : FindDirectoryIgnoringCase(dir);
+        if (realDir == null) return null;
+        var name = Path.GetFileName(full);
+        return Directory.EnumerateFiles(realDir).FirstOrDefault(f => string.Equals(Path.GetFileName(f), name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Finds a directory ignoring case in every segment of an absolute path.</summary>
+    public static string? FindDirectoryIgnoringCase(string dir)
+    {
+        if (Directory.Exists(dir)) return dir;
+        var parent = Path.GetDirectoryName(dir);
+        if (string.IsNullOrEmpty(parent) || parent == dir) return null;
+        var realParent = FindDirectoryIgnoringCase(parent);
+        if (realParent == null) return null;
+        var name = Path.GetFileName(dir);
+        try
+        {
+            return Directory.EnumerateDirectories(realParent).FirstOrDefault(d => string.Equals(Path.GetFileName(d), name, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (UnauthorizedAccessException) { return null; }
     }
 
     private Store GetStore(string path)

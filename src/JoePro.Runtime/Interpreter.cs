@@ -323,10 +323,19 @@ public sealed partial class Interpreter : IExpressionHost
         var stamp = File.GetLastWriteTimeUtc(resolved);
         if (_programCache.TryGetValue(resolved, out var cached) && cached.Stamp == stamp) return cached.Unit;
         var unit = Parser.ParseProgram(File.ReadAllText(resolved), Path.GetFileNameWithoutExtension(resolved).ToUpperInvariant(), resolved,
-            inc => ResolveProgramFile(inc, ".h") is { } p ? File.ReadAllText(p) : null);
+            inc => ResolveInclude(inc, resolved));
         _programCache[resolved] = (stamp, unit);
         RegisterUnit(unit);
         return unit;
+    }
+
+    /// <summary>#INCLUDE: next to the file being compiled first, then along SET DEFAULT/PATH.</summary>
+    internal string? ResolveInclude(string name, string? includingFile)
+    {
+        name = name.Trim().Replace('\\', Path.DirectorySeparatorChar);
+        if (includingFile != null && !Path.IsPathRooted(name)
+            && DataSession.FindIgnoringCase(Path.Combine(Path.GetDirectoryName(includingFile)!, name)) is { } near) return File.ReadAllText(near);
+        return ResolveProgramFile(name, ".h") is { } p ? File.ReadAllText(p) : null;
     }
 
     private string? ResolveProgramFile(string name, string ext = ".prg")

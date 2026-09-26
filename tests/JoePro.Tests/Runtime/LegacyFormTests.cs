@@ -90,4 +90,31 @@ public class LegacyFormTests : RuntimeHarness
         Run("? USED(\"cust\")");
         Assert.Equal(".F.", Out.ToString().Trim());
     }
+
+    [Fact]
+    public void Library_paths_ignore_case_in_every_folder_like_windows()
+    {
+        Directory.CreateDirectory(Path.Combine(Dir, "Lib"));
+        File.WriteAllText(Path.Combine(Dir, "Lib", "Base.jpclass"), """
+            *-- Joe Pro class library v1
+            #INCLUDE "Consts.h"
+
+            DEFINE CLASS basething AS Custom
+                PROCEDURE Hello
+                    RETURN GREETING
+                ENDPROC
+            ENDDEFINE
+            """);
+        File.WriteAllText(Path.Combine(Dir, "Lib", "CONSTS.H"), "#DEFINE GREETING \"hi from lib\"");
+        Directory.CreateDirectory(Path.Combine(Dir, "Forms"));
+        File.WriteAllText(Path.Combine(Dir, "Forms", "frm.jpform"), """
+            *-- Joe Pro form v1
+
+            DEFINE CLASS frm AS Form
+                ADD OBJECT oThing AS basething OF ..\lib\base.jpclass
+            ENDDEFINE
+            """);
+        var o = Run("DO FORM forms\\frm NAME oF NOSHOW\n? oF.oThing.Hello()");
+        Assert.Equal("hi from lib", o);
+    }
 }
