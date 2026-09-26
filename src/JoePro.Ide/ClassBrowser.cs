@@ -40,6 +40,7 @@ public sealed class ClassBrowser : UserControl
     private readonly TextEditor _code;
     private readonly TextBlock _legacyNote = new() { Margin = new Thickness(8, 4), Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap };
     private readonly List<Button> _writeButtons = new();
+    private Button? _saveAsButton;
     private readonly Dictionary<string, ClassFile?> _libraries = new(StringComparer.OrdinalIgnoreCase);
 
     public ClassBrowser(string path, Interpreter rt, bool dark)
@@ -127,6 +128,7 @@ public sealed class ClassBrowser : UserControl
         _legacyNote.IsVisible = IsLegacy;
         _legacyNote.Text = IsLegacy ? $"{Path.GetFileName(LibraryPath)} is a legacy class library (converted in memory, read-only). Use \"Save as .jpclass\" to edit it." : "";
         foreach (var b in _writeButtons) b.IsEnabled = !IsLegacy;
+        if (_saveAsButton != null) _saveAsButton.IsVisible = IsLegacy;
         var keep = SelectedClass;
         FillTree();
         if (keep != null && Library.Find(keep) != null) SelectClass(keep);
@@ -215,7 +217,7 @@ public sealed class ClassBrowser : UserControl
             var mark = m.Visibility switch { "PROTECTED" => "#", "HIDDEN" => "-", _ => "+" };
             var kind = m.Kind switch { "Method" => "◆", "Object" => "▣", "Array" => "▦", _ => "◇" };
             var text = $"{mark} {kind} {m.Name}{(m.Value != null ? " = " + m.Value : "")}{(m.InheritedFrom != null ? "   (from " + m.InheritedFrom + ")" : "")}";
-            var item = new ListBoxItem { Content = text, Tag = m, Opacity = m.InheritedFrom != null ? 0.6 : 1, FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
+            var item = new ListBoxItem { Content = text, Tag = m, Opacity = m.InheritedFrom != null ? 0.6 : 1, Padding = new Thickness(8, 3), MinHeight = 0, FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
             if (m.Description != null) ToolTip.SetTip(item, m.Description);
             _members.Items.Add(item);
         }
@@ -422,7 +424,7 @@ public sealed class ClassBrowser : UserControl
                     if (SelectedClass is { } c)
                         Prompt("Export Class Code", [("File", Path.Combine(Path.GetDirectoryName(LibraryPath)!, c.ToLowerInvariant() + ".prg"))], v => ExportCode(c, v[0]));
                 }),
-                B("Save as .jpclass", "Convert this legacy library to a .jpclass library", () => SaveAsJpclass()),
+                (_saveAsButton = B("Save as .jpclass", "Convert this legacy library to a .jpclass library", () => SaveAsJpclass())),
                 B("Refresh", "Reload the library from disk", Reload),
             },
         };

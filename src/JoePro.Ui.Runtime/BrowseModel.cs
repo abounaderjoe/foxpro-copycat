@@ -17,9 +17,14 @@ public sealed class BrowseRow : List<string>
     public int RecNo { get; }
     public bool Deleted { get; set; }
     public string Mark => Deleted ? "✕" : "";
+    /// <summary>Per-column styles from a grid's Dynamic… properties (null when the grid has none).</summary>
+    public CellStyle?[]? Styles { get; set; }
 }
 
 public sealed record BrowseColumn(string Header, int FieldIndex, char Type, bool ReadOnly);
+
+/// <summary>The result of a column's DynamicBackColor, DynamicForeColor, DynamicFontBold and DynamicFontItalic for one row.</summary>
+public sealed record CellStyle(int? BackColor, int? ForeColor, bool? Bold, bool? Italic);
 
 /// <summary>
 /// The data model behind the Browse window and the Grid control: loads the visible records of a work
@@ -51,6 +56,8 @@ public sealed class BrowseModel
     public ObservableCollection<BrowseRow> Rows { get; } = new();
     /// <summary>Maximum rows loaded at once. Paging for very large tables is a later milestone.</summary>
     public int Limit { get; set; } = 100_000;
+    /// <summary>Evaluated with the record pointer on each row as it is loaded (grid Dynamic… properties).</summary>
+    public Func<CellStyle?[]>? RowStyle { get; set; }
 
     public string Title => $"{Area.Alias} ({Area.Table.RecordCount} records)";
 
@@ -63,7 +70,7 @@ public sealed class BrowseModel
         Area.GoTop();
         while (!Area.Eof && Rows.Count < Limit)
         {
-            Rows.Add(new BrowseRow(Area.RecNo, Area.Deleted, Columns.Select(c => Cell(Area.Get(c.FieldIndex), c.Type, o))));
+            Rows.Add(new BrowseRow(Area.RecNo, Area.Deleted, Columns.Select(c => Cell(Area.Get(c.FieldIndex), c.Type, o))) { Styles = RowStyle?.Invoke() });
             Area.Skip();
         }
         if (current > 0) Area.Go(current);

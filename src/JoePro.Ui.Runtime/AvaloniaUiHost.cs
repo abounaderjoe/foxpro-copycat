@@ -11,6 +11,7 @@ using JoePro.Core;
 using JoePro.Data;
 using JoePro.Language;
 using JoePro.Runtime;
+using JoePro.Runtime.Builtins;
 using Path = System.IO.Path;
 
 namespace JoePro.Ui.Runtime;
@@ -30,6 +31,7 @@ public sealed class AvaloniaUiHost : IUiHost
     private bool _designMode;
     private int _updating;
     private int _groupSeq;
+    private int _refusing;
 
     public AvaloniaUiHost(Interpreter rt)
     {
@@ -57,9 +59,22 @@ public sealed class AvaloniaUiHost : IUiHost
 
     public void Show(VfpObject form, bool modal)
     {
+        if (form.Class.BaseClass == "FormSet")
+        {
+            // A form set shows its forms (each in its own window); the set itself has no window.
+            foreach (var f in form.Members.Where(m => m.Class.BaseClass == "Form").ToList())
+                if (ValueText.IsTrue(Prop(f, "Visible")) || Prop(f, "Visible").Kind != ValueKind.Logical) Show(f, false);
+            if (modal && !_modalFrames.ContainsKey(form))
+            {
+                var setFrame = new DispatcherFrame();
+                _modalFrames[form] = setFrame;
+                Dispatcher.UIThread.PushFrame(setFrame);
+            }
+            return;
+        }
         if (!_windows.TryGetValue(form, out var w))
         {
-            w = BuildWindow(form);
+            w = form.Class.BaseClass == "Toolbar" ? BuildToolbarWindow(form) : BuildWindow(form);
             _windows[form] = w;
         }
         Refresh(form);
@@ -75,6 +90,8 @@ public sealed class AvaloniaUiHost : IUiHost
 
     public void Hide(VfpObject form)
     {
+        if (form.Class.BaseClass == "FormSet")
+            foreach (var f in form.Members.Where(m => m.Class.BaseClass == "Form")) Hide(f);
         if (_windows.TryGetValue(form, out var w)) w.Hide();
         EndModal(form);
     }
@@ -82,6 +99,8 @@ public sealed class AvaloniaUiHost : IUiHost
     public void Release(VfpObject form)
     {
         EndModal(form);
+        if (form.Class.BaseClass == "FormSet")
+            foreach (var f in form.Members.Where(m => m.Class.BaseClass == "Form").ToList()) Release(f);
         if (!_windows.Remove(form, out var w)) return;
         _closing.Add(form);
         w.Close();
@@ -97,6 +116,11 @@ public sealed class AvaloniaUiHost : IUiHost
     public void PropertyChanged(VfpObject o, string property)
     {
         if (_updating > 0) return;
+        if (o.Class.BaseClass == "Toolbar" && _windows.TryGetValue(o, out var tw))
+        {
+            if (property.Equals("Caption", StringComparison.OrdinalIgnoreCase)) tw.Title = Prop(o, "Caption").AsString;
+            return;
+        }
         if (Interpreter.OwningForm(o) == o && _windows.TryGetValue(o, out var w))
         {
             ApplyWindow(o, w, property);
@@ -292,6 +316,41 @@ public sealed class AvaloniaUiHost : IUiHost
         return w;
     }
 
+    /// <summary>
+    /// A toolbar: its controls side by side in z-order (Left/Top are ignored, separators add a divider) in a small
+    /// tool window. Closing it hides it, as in VFP.
+    /// </summary>
+    private Window BuildToolbarWindow(VfpObject toolbar)
+    {
+        var strip = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Margin = new Thickness(3) };
+        foreach (var m in toolbar.Members.ToList())
+        {
+            var c = Create(m);
+            if (c == null) continue;
+            c.VerticalAlignment = VerticalAlignment.Center;
+            strip.Children.Add(c);
+        }
+        var w = new Window
+        {
+            Title = Prop(toolbar, "Caption") is { Kind: ValueKind.Character } cap ? cap.AsString : "",
+            Content = strip,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            ShowInTaskbar = false,
+            Tag = toolbar,
+        };
+        w.Closing += (_, e) =>
+        {
+            if (_closing.Contains(toolbar) || toolbar.Released) return;
+            e.Cancel = true;
+            toolbar.Set("Visible", Value.False);
+            w.Hide();
+        };
+        toolbar.Native = w;
+        if (Owner != null) w.Topmost = Owner.Topmost;
+        return w;
+    }
+
     private void ApplyWindow(VfpObject form, Window w, string prop)
     {
         Value P(string n) => form.FindProperty(n)?.Value ?? Value.Null;
@@ -375,6 +434,7 @@ public sealed class AvaloniaUiHost : IUiHost
             "PageFrame" => CreatePageFrame(o),
             "Grid" => _designMode ? CreateDesignGrid(o) : CreateGridControl(o),
             "Container" or "Control" => new Border { Child = new Canvas() },
+            "Separator" => new Border { BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = Brushes.Gray, Margin = new Thickness(4, 3) },
             _ => new TextBlock { Text = $"({bc})", Opacity = 0.6 },
         };
         o.Native = c;
@@ -382,16 +442,28 @@ public sealed class AvaloniaUiHost : IUiHost
         c.Tag = o;
         foreach (var p in new[] { "LEFT", "TOP", "WIDTH", "HEIGHT", "VISIBLE", "ENABLED", "TOOLTIPTEXT", "FONTNAME", "FONTSIZE", "FONTBOLD", "FONTITALIC",
                      "FORECOLOR", "BACKCOLOR", "CAPTION", "READONLY", "ALIGNMENT", "PICTURE", "CURVATURE", "BORDERWIDTH", "BORDERCOLOR", "FILLCOLOR",
-                     "BACKSTYLE", "LINESLANT", "ROWSOURCE", "INCREMENT", "SPINNERHIGHVALUE", "SPINNERLOWVALUE", "WORDWRAP", "PASSWORDCHAR", "MAXLENGTH" })
+                     "BACKSTYLE", "LINESLANT", "ROWSOURCE", "INCREMENT", "SPINNERHIGHVALUE", "SPINNERLOWVALUE", "WORDWRAP", "PASSWORDCHAR", "MAXLENGTH", "INPUTMASK" })
             Apply(o, c, p);
         if (c is Border { Child: Canvas inner } && bc is "Container" or "Control") AddMembers(o, inner);
+        if (bc == "Separator") { c.Width = 1; c.Height = double.NaN; c.IsVisible = o.Parent?.Class.BaseClass == "Toolbar"; }
         ShowValue(o, c);
         if (_designMode) return c; // no event code runs in the designer
         if (c is Avalonia.Input.InputElement ie && bc is not ("Label" or "Shape" or "Line" or "Image" or "Container" or "Control" or "PageFrame"))
         {
             ie.GotFocus += (_, _) => Guard(() =>
             {
-                _rt.Raise(o, "When");
+                // When returning .F. refuses the focus: it moves on to the next control, as in VFP.
+                var when = _rt.Raise(o, "When");
+                if (when.Kind == ValueKind.Logical && !when.AsBool || when.Kind == ValueKind.Number && when.AsNumber == 0)
+                {
+                    if (_refusing < 20)
+                    {
+                        _refusing++;
+                        try { TopLevel.GetTopLevel(c)?.FocusManager?.TryMoveFocus(Avalonia.Input.NavigationDirection.Next); }
+                        finally { _refusing--; }
+                    }
+                    return;
+                }
                 _rt.Raise(o, "GotFocus");
             });
         }
@@ -466,6 +538,9 @@ public sealed class AvaloniaUiHost : IUiHost
                 break;
             case "MAXLENGTH":
                 if (c is TextBox mtb && v.Kind == ValueKind.Number && v.AsNumber > 0) mtb.MaxLength = (int)v.AsNumber;
+                break;
+            case "INPUTMASK" or "FORMAT":
+                if (c is TextBox) ShowValue(o, c);
                 break;
             case "ALIGNMENT":
                 if (v.Kind != ValueKind.Number) break;
@@ -586,6 +661,10 @@ public sealed class AvaloniaUiHost : IUiHost
             {
                 case TextBox tb:
                     var text = v.Kind == ValueKind.Character || v.Kind == ValueKind.Null ? (v.IsNull ? "" : v.AsString.TrimEnd(' ')) : ValueText.ToText(v, _rt.Options);
+                    if (MaskOf(o) is { } mi && !v.IsNull)
+                        text = !tb.IsFocused ? mi.Display(v, _rt.Options)
+                            : v.Kind == ValueKind.Character ? mi.EditText(v.AsString.TrimEnd(' '))
+                            : v.Kind is ValueKind.Number or ValueKind.Currency ? Library.TransformDefault(v, _rt.Options).Trim() : text;
                     if (tb.Text != text) tb.Text = text;
                     break;
                 case CheckBox cb:
@@ -615,6 +694,16 @@ public sealed class AvaloniaUiHost : IUiHost
             }
         }
         finally { _updating--; }
+    }
+
+    /// <summary>The InputMask/Format of a text box or spinner, or null when it has neither.</summary>
+    private static MaskedInput? MaskOf(VfpObject o)
+    {
+        var format = Prop(o, "Format") is { Kind: ValueKind.Character } f ? f.AsString : "";
+        var mask = Prop(o, "InputMask") is { Kind: ValueKind.Character } m ? m.AsString : "";
+        if (format.Length == 0 && mask.Length == 0) return null;
+        var mi = new MaskedInput(format, mask);
+        return mi.IsEmpty ? null : mi;
     }
 
     private void UserChangedValue(VfpObject o, Value newValue, bool writeNow)
@@ -670,7 +759,33 @@ public sealed class AvaloniaUiHost : IUiHost
         {
             if (e.Property != TextBox.TextProperty || _updating > 0) return;
             var like = Prop(o, "Value");
-            if (ValueText.TryParse(tb.Text ?? "", like, _rt.Options, out var v, FieldTypeOf(o))) UserChangedValue(o, v, writeNow: false);
+            var typed = tb.Text ?? "";
+            var mi = MaskOf(o);
+            if (mi != null && !multiline)
+            {
+                // Apply the mask as the user types: drop characters that do not fit, add literal characters.
+                var fixedText = like.Kind is ValueKind.Number or ValueKind.Currency ? MaskedInput.FilterNumber(typed, _rt.Options.Point)
+                    : like.Kind is ValueKind.Character or ValueKind.Null ? mi.ApplyCharacterMask(typed) : typed;
+                if (fixedText != typed)
+                {
+                    _updating++;
+                    try { tb.Text = fixedText; tb.CaretIndex = fixedText.Length; }
+                    finally { _updating--; }
+                    typed = fixedText;
+                }
+                if (like.Kind is ValueKind.Character or ValueKind.Null)
+                {
+                    UserChangedValue(o, Value.String(mi.StoredText(typed)), writeNow: false);
+                    return;
+                }
+            }
+            if (ValueText.TryParse(typed, like, _rt.Options, out var v, FieldTypeOf(o))) UserChangedValue(o, v, writeNow: false);
+        };
+        tb.GotFocus += (_, _) =>
+        {
+            if (MaskOf(o) is not { } mi) return;
+            ShowValue(o, tb); // the edit form of the value (no display formatting)
+            if (mi.SelectOnEntry) tb.SelectAll();
         };
         tb.LostFocus += (_, _) => Guard(() =>
         {
@@ -686,6 +801,7 @@ public sealed class AvaloniaUiHost : IUiHost
                 Dispatcher.UIThread.Post(() => tb.Focus());
                 throw;
             }
+            if (MaskOf(o) != null) ShowValue(o, tb); // back to the display format
             _rt.Raise(o, "LostFocus");
         });
         return tb;
@@ -949,6 +1065,7 @@ public sealed class AvaloniaUiHost : IUiHost
         if (Prop(o, "ColumnCount") is { Kind: ValueKind.Number } cc && cc.AsNumber >= 0 && columns.Count > 0)
             fields = columns.Select(c => Prop(c, "ControlSource") is { Kind: ValueKind.Character } s ? s.AsString : "").ToList();
         var model = new BrowseModel(_rt, wa, fields, session);
+        model.RowStyle = DynamicStyles(o, columns, wa, session);
         model.Load();
         ConfigureGrid(grid, model, ValueText.IsTrue(Prop(o, "ReadOnly")));
         for (int i = 0; i < grid.Columns.Count && fields != null && i < columns.Count; i++)
@@ -958,6 +1075,60 @@ public sealed class AvaloniaUiHost : IUiHost
             if (Prop(columns[i], "Width") is { Kind: ValueKind.Number } w) grid.Columns[i].Width = new DataGridLength(w.AsNumber);
         }
         grid.Tag = o;
+    }
+
+    /// <summary>
+    /// The grid's Dynamic… column properties as a function evaluated on each row (the record pointer is on the row
+    /// and the grid's table is the current work area), or null when no column has any.
+    /// </summary>
+    private Func<CellStyle?[]>? DynamicStyles(VfpObject grid, List<VfpObject> columns, WorkArea wa, DataSession session)
+    {
+        string? Expr(VfpObject col, string name) => Prop(col, name) is { Kind: ValueKind.Character } v && v.AsString.Trim().Length > 0 ? v.AsString.Trim() : null;
+        var specs = columns.Select(c => (Col: c, Back: Expr(c, "DynamicBackColor"), Fore: Expr(c, "DynamicForeColor"), Bold: Expr(c, "DynamicFontBold"), Italic: Expr(c, "DynamicFontItalic"))).ToList();
+        if (specs.All(x => x.Back == null && x.Fore == null && x.Bold == null && x.Italic == null)) return null;
+        var reported = false;
+        return () => _rt.InSession(session, () =>
+        {
+            var saved = session.CurrentAreaNumber;
+            session.Select(wa.Number);
+            try
+            {
+                return specs.Select(x =>
+                {
+                    if (x.Back == null && x.Fore == null && x.Bold == null && x.Italic == null) return null;
+                    try
+                    {
+                        int? Color(string? e) => e != null && _rt.ReadControlSource(x.Col, e) is { Kind: ValueKind.Number } n ? (int)n.AsNumber : null;
+                        bool? Flag(string? e) => e != null && _rt.ReadControlSource(x.Col, e) is { Kind: ValueKind.Logical } l ? l.AsBool : null;
+                        return new CellStyle(Color(x.Back), Color(x.Fore), Flag(x.Bold), Flag(x.Italic));
+                    }
+                    catch (VfpException ex)
+                    {
+                        if (!reported) { reported = true; Error?.Invoke(ex); }
+                        return (CellStyle?)null;
+                    }
+                }).ToArray();
+            }
+            finally { session.Select(saved); }
+        });
+    }
+
+    /// <summary>Applies a row's dynamic styles to its cells (rows are recycled, so every cell is reset).</summary>
+    private static void ApplyRowStyles(DataGrid grid, DataGridRow row)
+    {
+        if (row.DataContext is not BrowseRow data) return;
+        for (int i = 1; i < grid.Columns.Count; i++)
+        {
+            if (grid.Columns[i].GetCellContent(row) is not TextBlock cell) continue;
+            var style = data.Styles != null && i - 1 < data.Styles.Length ? data.Styles[i - 1] : null;
+            IBrush? back = style?.BackColor is { } b ? new SolidColorBrush(ValueText.ToColor(Value.Number(b))) : null;
+            if (cell.Parent is DataGridCell dc) dc.Background = back;
+            else cell.Background = back;
+            if (style?.ForeColor is { } f) cell.Foreground = new SolidColorBrush(ValueText.ToColor(Value.Number(f)));
+            else cell.ClearValue(TextBlock.ForegroundProperty);
+            cell.FontWeight = style?.Bold == true ? FontWeight.Bold : FontWeight.Normal;
+            cell.FontStyle = style?.Italic == true ? FontStyle.Italic : FontStyle.Normal;
+        }
     }
 
     /// <summary>Creates an editable grid over a Browse model (used by BROWSE and the Grid control).</summary>
@@ -992,6 +1163,11 @@ public sealed class AvaloniaUiHost : IUiHost
         }
         grid.ItemsSource = model.Rows;
         grid.Tag ??= model;
+        if (model.RowStyle != null)
+        {
+            grid.LoadingRow -= OnLoadingRow;
+            grid.LoadingRow += OnLoadingRow;
+        }
         grid.CellEditEnded += (_, e) =>
         {
             if (e.EditAction != DataGridEditAction.Commit || e.Row.DataContext is not BrowseRow row) return;
@@ -1013,6 +1189,11 @@ public sealed class AvaloniaUiHost : IUiHost
                 e.Handled = true;
             }
         };
+    }
+
+    private static void OnLoadingRow(object? sender, DataGridRowEventArgs e)
+    {
+        if (sender is DataGrid grid) ApplyRowStyles(grid, e.Row);
     }
 
     // ================================================================================

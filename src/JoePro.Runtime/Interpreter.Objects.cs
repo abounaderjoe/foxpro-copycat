@@ -217,6 +217,34 @@ public sealed partial class Interpreter
 
     private readonly Dictionary<VfpObject, DataSession> _formSessions = new(ReferenceEqualityComparer.Instance);
 
+    internal static bool IsToolbar(VfpObject o) => o.Class.BaseClass.Equals("Toolbar", StringComparison.OrdinalIgnoreCase);
+
+    private sealed class HyperlinkState
+    {
+        public List<string> Urls { get; } = new();
+        public int Index { get; set; } = -1;
+    }
+
+    private readonly Dictionary<VfpObject, HyperlinkState> _hyperlinkHistory = new(ReferenceEqualityComparer.Instance);
+    private HyperlinkState HyperlinkHistory(VfpObject o)
+    {
+        if (!_hyperlinkHistory.TryGetValue(o, out var state)) _hyperlinkHistory[o] = state = new();
+        return state;
+    }
+
+    /// <summary>Opens a URL or file in the system's default application (Hyperlink.NavigateTo). Hosts and tests may replace it.</summary>
+    public Action<string> UrlLauncher { get; set; } = url =>
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or PlatformNotSupportedException) { }
+    };
+
+    private void OpenUrl(string url)
+    {
+        if (url.Length == 0) throw VfpException.InvalidArgument();
+        UrlLauncher(url);
+    }
+
     internal static bool IsFormClass(VfpObject o) =>
         o.Class.BaseClass.Equals("Form", StringComparison.OrdinalIgnoreCase) || o.Class.BaseClass.Equals("FormSet", StringComparison.OrdinalIgnoreCase);
 
@@ -381,6 +409,8 @@ public sealed partial class Interpreter
         o.Released = true;
         RaiseEvent(o, "Destroy", []);
         foreach (var m in o.Members.ToList()) ReleaseObject(m);
+        if (IsToolbar(o)) Ui?.Release(o);
+        _hyperlinkHistory.Remove(o);
         if (o.Parent != null)
         {
             o.Parent.Members.Remove(o);
@@ -704,7 +734,7 @@ public sealed partial class Interpreter
                 int argStart = 2;
                 if (name.Equals("NEWOBJECT", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (args.Count > 2 && A(2).Kind == ValueKind.Character && A(2).AsString.Length > 0) module = LoadProgram(A(2).AsString);
+                    if (args.Count > 2 && A(2).Kind == ValueKind.Character && A(2).AsString.Length > 0) module = LoadLibrary(A(2).AsString);
                     argStart = 4;
                 }
                 var child = CreateObject(ResolveClass(className, module), args.Skip(argStart).ToList(), o, objName)
@@ -727,7 +757,7 @@ public sealed partial class Interpreter
                 return Value.True;
             case "SHOW":
                 if (o.FindProperty("Visible") != null) o.Set("Visible", Value.True);
-                if (IsFormClass(o))
+                if (IsFormClass(o) || IsToolbar(o))
                 {
                     if (Ui == null) Notify($"{o.Name}.Show(): no UI runtime is attached.");
                     else Ui.Show(o, A(0).Kind == ValueKind.Number && A(0).AsNumber == 1 || (o.FindProperty("WindowType")?.Value is { Kind: ValueKind.Number } wt && wt.AsNumber == 1));
@@ -736,8 +766,38 @@ public sealed partial class Interpreter
                 return Value.True;
             case "HIDE":
                 if (o.FindProperty("Visible") != null) o.Set("Visible", Value.False);
-                if (IsFormClass(o)) Ui?.Hide(o); else Ui?.PropertyChanged(o, "Visible");
+                if (IsFormClass(o) || IsToolbar(o)) Ui?.Hide(o); else Ui?.PropertyChanged(o, "Visible");
                 return Value.True;
+            case "DOCK" when IsToolbar(o):
+            {
+                // Dock(nLocation [, nX, nY]): -1 undocked (floating), 0 top, 1 left, 2 right, 3 bottom.
+                var position = args.Count > 0 && A(0).Kind == ValueKind.Number ? (int)A(0).AsNumber : 0;
+                o.Set("DockPosition", Value.Number(position));
+                o.Set("Docked", Value.Logical(position >= 0));
+                if (args.Count > 2) { o.Set("Left", A(1)); o.Set("Top", A(2)); }
+                RaiseEvent(o, position >= 0 ? "AfterDock" : "UnDock", []);
+                Ui?.PropertyChanged(o, "DockPosition");
+                return Value.True;
+            }
+            case "NAVIGATETO" when o.Class.BaseClass == "Hyperlink":
+            {
+                var url = A(0).AsString.Trim();
+                var state = HyperlinkHistory(o);
+                state.Urls.RemoveRange(state.Index + 1, state.Urls.Count - state.Index - 1);
+                state.Urls.Add(url);
+                state.Index = state.Urls.Count - 1;
+                OpenUrl(url);
+                return Value.True;
+            }
+            case "GOBACK" or "GOFORWARD" when o.Class.BaseClass == "Hyperlink":
+            {
+                var state = HyperlinkHistory(o);
+                var at = state.Index + (name.Equals("GOBACK", StringComparison.OrdinalIgnoreCase) ? -1 : 1);
+                if (at < 0 || at >= state.Urls.Count) return Value.False;
+                state.Index = at;
+                OpenUrl(state.Urls[at]);
+                return Value.True;
+            }
             case "REFRESH":
                 Ui?.Refresh(o);
                 return Value.True;

@@ -108,6 +108,25 @@ foreach (var (variant, file) in new[] { (ThemeVariant.Light, "ide-light.png"), (
         designer.Select(["txtName"]);
         Pump();
         Save(window, Path.Combine(output, "form-designer.png"));
+
+        window.Run("""
+            CREATE CLASS txtBase OF controls AS TextBox
+            CREATE CLASS txtDate OF controls AS txtBase
+            CREATE CLASS cntAddress OF controls AS Container
+            CREATE CLASS cmdOk OF controls AS CommandButton
+            """);
+        var lib = JoePro.Documents.ClassLibrary.Load(Path.Combine(dir, "controls.jpclass"));
+        var txtBase = lib.Find("txtBase")!;
+        txtBase.Properties["nMaxLength"] = "40";
+        txtBase.MemberDescriptions["nMaxLength"] = "Longest text allowed";
+        txtBase.Methods.Add(new JoePro.Documents.MethodDocument { Name = "Validate", Code = "RETURN LEN(ALLTRIM(This.Value)) <= This.nMaxLength" });
+        txtBase.Description = "Base text box for the application";
+        lib.Find("txtDate")!.Methods.Add(new JoePro.Documents.MethodDocument { Name = "Valid", Code = "RETURN This.Validate() AND !EMPTY(CTOD(This.Value))" });
+        JoePro.Documents.ClassFileWriter.Save(lib, Path.Combine(dir, "controls.jpclass"));
+        var browser = window.OpenClassBrowser(Path.Combine(dir, "controls.jpclass")).Browser;
+        browser.SelectClass("txtDate");
+        Pump();
+        Save(window, Path.Combine(output, "class-browser.png"));
     }
     window.Close();
 }

@@ -70,8 +70,11 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Property sheet: categories and search, stored values in bold, VFP typing rules (text is a value of the property's type, `=expr` is an expression, colors as `r,g,b`), reset to default, rename; Methods tab with the events of the base class and the methods with code | ✅ Done |
 | Code pane for method code, data environment (add table → drag fields as label + bound control, check box for logical, edit box for memo; table → grid), unlimited undo/redo as one step per gesture, save to canonical `.jpform`, Run | ✅ Done |
 | `CREATE FORM`, `MODIFY FORM` (legacy `.scx` opens converted; saving writes `.jpform`), `CREATE FORM … AS class FROM lib`, File → New Form, Form menu | ✅ Done |
-| Class Designer, Class Browser | ⛔ Not started |
-| Remaining controls: grid dynamic properties, InputMask/Format, Toolbar, FormSet, Hyperlink, OLE hosting | ⛔ Not started |
+| Class Designer: `MODIFY CLASS`/`CREATE CLASS … OF lib AS parent [FROM lib]`; container, control and non-visual classes; New Property (arrays, Access/Assign methods), New Method, Edit Property/Method (own and inherited members), Class Info (description, icons, OLE public); saving writes only that class into the library and the running session reloads it | ✅ Done |
+| Class Browser: hierarchy of a library, members (own and inherited, with descriptions), class code; new, rename (references in the library follow), remove, copy to another library, redefine the parent, create an instance, export code; legacy `.vcx` read-only until saved as `.jpclass` | ✅ Done |
+| Class library commands: `CREATE CLASSLIB`, `ADD CLASS … TO`, `RENAME CLASS`, `REMOVE CLASS`, `AVCXCLASSES()`; class and member descriptions and icons come over from VCX files | ✅ Done |
+| Controls: InputMask and Format (masks applied while typing, R/!/K/Z/$ codes, display format when not focused), `When` returning .F. refuses the focus, grid DynamicBackColor/ForeColor/FontBold/FontItalic, Toolbar (with Separator, Dock), FormSet, Hyperlink | ✅ Done |
+| OLE/ActiveX hosting | ⛔ Not planned for the cross-platform runtime; forms keep the object and report it in the migration report |
 
 ## Screenshots
 
@@ -85,14 +88,14 @@ Rendered headlessly by `tools/JoePro.Screenshots` (`dotnet run --project tools/J
 |---|---|
 | ![Editor](../images/ide-editor.png) | ![Form](../images/form-customer.png) |
 
-| Form Designer |
-|---|
-| ![Form Designer](../images/form-designer.png) |
+| Form Designer | Class Browser |
+|---|---|
+| ![Form Designer](../images/form-designer.png) | ![Class Browser](../images/class-browser.png) |
 
 ## Known gaps in the UI (Phase 1)
 
-- The form runtime covers the common controls. Not yet supported: OLE/ActiveX controls, Toolbar, FormSet windows,
-  InputMask/Format editing masks, grid dynamic properties (DynamicBackColor…), BINDEVENT, and refusing focus when `When` returns .F.
+- The form runtime covers the common controls. Not supported: OLE/ActiveX controls. Toolbars float in their own
+  window; `Dock()` records the position but does not dock the toolbar into another window yet.
 - `READ EVENTS` and modal forms use nested dispatcher loops. They have only been exercised headlessly, not yet on a real desktop.
 - The IDE has not been launched on a real Windows/macOS/Linux desktop in this environment; it is exercised by headless UI tests and rendered screenshots.
 

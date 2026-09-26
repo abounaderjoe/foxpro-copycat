@@ -114,7 +114,7 @@ public static class BaseClasses
             "DataSession", "DataSessionId", "ShowWindow", "Desktop", "Icon", "KeyPreview", "Movable", "ActiveControl", "ControlCount", "Controls",
             "Picture", "ScrollBars", "TitleBar", "AlwaysOnTop", "BufferMode", "ShowTips", "LockScreen"]),
         ["FormSet"] = (true, ["FormCount", "DataSession", "WindowType"]),
-        ["Toolbar"] = (true, ["Caption", "ControlBox", "Movable", "Sizable"]),
+        ["Toolbar"] = (true, ["Caption", "ControlBox", "Movable", "Sizable", "DockPosition", "Docked", "ControlCount", "Controls", "KeyPreview", "ShowWindow"]),
         ["Label"] = (true, ["Caption", "AutoSize", "Alignment", "WordWrap", "BackStyle", "BorderStyle"]),
         ["TextBox"] = (true, ["Value", "ControlSource", "InputMask", "Format", "ReadOnly", "MaxLength", "PasswordChar", "Alignment", "SelStart", "SelLength", "SelText", "BorderStyle", "SpecialEffect"]),
         ["EditBox"] = (true, ["Value", "ControlSource", "ReadOnly", "ScrollBars", "SelStart", "SelLength", "SelText", "MaxLength", "AllowTabs"]),
@@ -127,7 +127,7 @@ public static class BaseClasses
         ["ComboBox"] = (true, ["Value", "ControlSource", "RowSource", "RowSourceType", "BoundColumn", "ColumnCount", "ColumnWidths", "DisplayValue", "ListCount", "ListIndex", "Style", "Sorted", "IncrementalSearch"]),
         ["ListBox"] = (true, ["Value", "ControlSource", "RowSource", "RowSourceType", "BoundColumn", "ColumnCount", "ColumnWidths", "ListCount", "ListIndex", "MultiSelect", "Sorted", "IncrementalSearch"]),
         ["Grid"] = (true, ["RecordSource", "RecordSourceType", "ColumnCount", "Columns", "ReadOnly", "DeleteMark", "RecordMark", "GridLines", "HeaderHeight", "RowHeight", "AllowAddNew", "ActiveColumn", "ActiveRow", "LinkMaster", "ChildOrder", "RelationalExpr", "HighlightStyle", "ScrollBars"]),
-        ["Column"] = (true, ["ControlSource", "CurrentControl", "ReadOnly", "Sparse", "ColumnOrder", "DynamicBackColor", "DynamicForeColor", "DynamicFontBold", "InputMask", "Format", "Alignment", "Resizable", "Movable"]),
+        ["Column"] = (true, ["ControlSource", "CurrentControl", "ReadOnly", "Sparse", "ColumnOrder", "DynamicBackColor", "DynamicForeColor", "DynamicFontBold", "DynamicFontItalic", "DynamicAlignment", "DynamicFontName", "DynamicFontSize", "DynamicCurrentControl", "InputMask", "Format", "Alignment", "Resizable", "Movable"]),
         ["Header"] = (true, ["Caption", "Alignment", "Picture"]),
         ["Shape"] = (true, ["Curvature", "FillStyle", "FillColor", "BorderStyle", "BorderWidth", "BorderColor", "BackStyle", "SpecialEffect"]),
         ["Line"] = (true, ["LineSlant", "BorderStyle", "BorderWidth", "BorderColor"]),
@@ -205,6 +205,7 @@ public static class BaseClasses
             case "LABEL": o.Set("Caption", Value.String("Label1")); o.Set("BackStyle", Value.Number(1)); break;
             case "COMMANDBUTTON": o.Set("Caption", Value.String("Command1")); o.Set("Height", Value.Number(27)); o.Set("Width", Value.Number(84)); break;
             case "PAGEFRAME": o.Set("Width", Value.Number(241)); o.Set("Height", Value.Number(169)); break;
+            case "TOOLBAR": o.Set("Caption", Value.String("Toolbar1")); o.Set("DockPosition", Value.Number(-1)); o.Set("Docked", Value.False); o.Set("Visible", Value.False); break;
             case "GRID": o.Set("ColumnCount", Value.Number(-1)); o.Set("Width", Value.Number(320)); o.Set("Height", Value.Number(200)); break;
             case "CURSORADAPTER":
                 o.Set("BufferModeOverride", Value.Number(5));
