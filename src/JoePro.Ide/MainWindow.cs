@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using JoePro.Runtime;
+using DebugAction = JoePro.Runtime.DebugAction;
 using JoePro.Ui.Runtime;
 
 namespace JoePro.Ide;
@@ -36,6 +37,7 @@ public sealed class MainWindow : Window
         Documents.Items.Add(Screen);
         CommandWindow = new CommandWindow(session);
         DataSession = new DataSessionPanel(session, Run);
+        Debugger = new IdeDebugger(this, session);
 
         session.Host.Owner = this;
         session.Host.BrowseHandler = model => { OpenDocument(new BrowseTab(model, session.Host, AfterCommand)); return true; };
@@ -48,11 +50,19 @@ public sealed class MainWindow : Window
         BuildActions();
         Palette = new CommandPalette(_actions, Run);
 
-        var commandPane = new DockPanel();
+        var commandDock = new DockPanel();
         var commandHeader = new TextBlock { Text = "Command", FontWeight = FontWeight.SemiBold, Margin = new Thickness(6, 4) };
         DockPanel.SetDock(commandHeader, Dock.Top);
-        commandPane.Children.Add(commandHeader);
-        commandPane.Children.Add(CommandWindow);
+        commandDock.Children.Add(commandHeader);
+        commandDock.Children.Add(CommandWindow);
+        // Bottom: Command Window beside the debugger panes.
+        var commandPane = new Grid { ColumnDefinitions = new ColumnDefinitions("3*,Auto,2*") };
+        commandPane.Children.Add(commandDock);
+        var bottomSplit = new GridSplitter { Width = 5, ResizeDirection = GridResizeDirection.Columns, VerticalAlignment = VerticalAlignment.Stretch };
+        Grid.SetColumn(bottomSplit, 1);
+        commandPane.Children.Add(bottomSplit);
+        Grid.SetColumn(Debugger.Panel, 2);
+        commandPane.Children.Add(Debugger.Panel);
 
         // Center: documents over the Command Window, separated by a splitter.
         var center = new Grid { RowDefinitions = new RowDefinitions("3*,Auto,2*") };
@@ -108,6 +118,32 @@ public sealed class MainWindow : Window
     public CommandWindow CommandWindow { get; }
     public DataSessionPanel DataSession { get; }
     public CommandPalette Palette { get; }
+    public IdeDebugger Debugger { get; }
+
+    public void SetStatus(string text) => _status.Text = text;
+
+    /// <summary>Opens (if needed) the file where execution stopped and highlights the line.</summary>
+    public void ShowExecutionLine(string? file, int line)
+    {
+        ClearExecutionLine();
+        if (file == null || !File.Exists(file)) return;
+        var tab = OpenFile(file);
+        tab.ShowExecutionLine(line);
+    }
+
+    public void ClearExecutionLine()
+    {
+        foreach (var t in Documents.Items.OfType<CodeEditorTab>()) t.ShowExecutionLine(0);
+    }
+
+    private void ToggleBreakpoint()
+    {
+        if (ActiveEditor is not { FilePath: { } path } tab) { SetStatus("Save the program before setting breakpoints."); return; }
+        var line = tab.Editor.TextArea.Caret.Line;
+        var on = Debugger.Engine.ToggleLineBreakpoint(path, line);
+        tab.Breakpoints?.InvalidateVisual();
+        SetStatus(on ? $"Breakpoint set at line {line}." : $"Breakpoint cleared at line {line}.");
+    }
 
     private bool IsDark => ActualThemeVariant == ThemeVariant.Dark;
 
@@ -154,7 +190,7 @@ public sealed class MainWindow : Window
             Documents.SelectedItem = existing;
             return existing;
         }
-        var tab = new CodeEditorTab(path, IsDark);
+        var tab = new CodeEditorTab(path, IsDark, Debugger.Engine);
         OpenDocument(tab);
         tab.Editor.Focus();
         return tab;
@@ -231,7 +267,7 @@ public sealed class MainWindow : Window
     private void BuildActions()
     {
         void A(string title, string shortcut, Action run) => _actions.Add(new PaletteAction(title, shortcut, run));
-        A("New program", "Ctrl+N", () => OpenDocument(new CodeEditorTab(null, IsDark)));
+        A("New program", "Ctrl+N", () => OpenDocument(new CodeEditorTab(null, IsDark, Debugger.Engine)));
         A("Open…", "Ctrl+O", () => _ = OpenWithPicker());
         A("Save", "Ctrl+S", () => { if (ActiveEditor is { } t) { if (t.FilePath == null) _ = SaveAs(t); else t.Save(); } });
         A("Run program", "Ctrl+E", RunActive);
@@ -246,6 +282,14 @@ public sealed class MainWindow : Window
         A("Theme: dark", "", () => SetTheme(ThemeVariant.Dark));
         A("Theme: follow system", "", () => SetTheme(ThemeVariant.Default));
         A("About Joe Pro", "", () => Run("? VERSION()"));
+        A("Debug: continue", "F5", () => Debugger.Resume(DebugAction.Continue));
+        A("Debug: step over", "F10", () => Debugger.Resume(DebugAction.StepOver));
+        A("Debug: step into", "F11", () => Debugger.Resume(DebugAction.StepInto));
+        A("Debug: step out", "Shift+F11", () => Debugger.Resume(DebugAction.StepOut));
+        A("Debug: stop", "Shift+F5", () => Debugger.Resume(DebugAction.Cancel));
+        A("Debug: toggle breakpoint", "F9", ToggleBreakpoint);
+        A("Debug: break on errors", "", () => { Debugger.Engine.BreakOnErrors = !Debugger.Engine.BreakOnErrors; SetStatus($"Break on unhandled errors: {(Debugger.Engine.BreakOnErrors ? "on" : "off")}"); });
+        A("Debug: step into program", "", () => { Debugger.Engine.RequestPause(); RunActive(); });
     }
 
     private static void SetTheme(ThemeVariant v)
@@ -299,6 +343,18 @@ public sealed class MainWindow : Window
                     Item("_Run", "Run program", "Ctrl+E"),
                     Item("Clear _Screen", "Clear screen"),
                 } },
+                new MenuItem { Header = "_Debug", Items =
+                {
+                    Item("_Continue", "Debug: continue", "F5"),
+                    Item("Step _Over", "Debug: step over", "F10"),
+                    Item("Step _Into", "Debug: step into", "F11"),
+                    Item("Step O_ut", "Debug: step out", "Shift+F11"),
+                    Item("_Stop", "Debug: stop", "Shift+F5"),
+                    new Separator(),
+                    Item("Toggle _Breakpoint", "Debug: toggle breakpoint", "F9"),
+                    Item("Break on _Errors", "Debug: break on errors"),
+                    Item("Step Into _Program", "Debug: step into program"),
+                } },
                 new MenuItem { Header = "_Help", Items = { Item("_About Joe Pro", "About Joe Pro") } },
             },
         };
@@ -315,7 +371,12 @@ public sealed class MainWindow : Window
             (true, false, Key.O) => Action("Open…").Run,
             (true, false, Key.S) => Action("Save").Run,
             (true, false, Key.E) => RunActive,
-            (false, false, Key.F5) => RunActive,
+            (false, false, Key.F5) => Debugger.IsPaused ? () => Debugger.Resume(DebugAction.Continue) : RunActive,
+            (false, true, Key.F5) => () => Debugger.Resume(DebugAction.Cancel),
+            (false, false, Key.F10) => () => Debugger.Resume(DebugAction.StepOver),
+            (false, false, Key.F11) => () => Debugger.Resume(DebugAction.StepInto),
+            (false, true, Key.F11) => () => Debugger.Resume(DebugAction.StepOut),
+            (false, false, Key.F9) => ToggleBreakpoint,
             (true, false, Key.F2) => () => CommandWindow.Editor.Focus(),
             (true, false, Key.W) => Action("Close document").Run,
             _ => null,

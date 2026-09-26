@@ -247,8 +247,6 @@ public sealed class Debugger
 
     private bool StepShouldStop(Frame frame, Stmt stmt)
     {
-        // A statement on the same line in the same frame (e.g. the body of a one-line IF) is not a new step.
-        if (frame == _stepFrame && stmt.Line == _stepLine) return false;
         return _mode switch
         {
             DebugAction.StepInto => true,

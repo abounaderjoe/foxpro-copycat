@@ -169,6 +169,9 @@ public sealed partial class Interpreter : IExpressionHost
 
     private void RunTop(Action body)
     {
+        // Restore the frame we started in (not the root): commands typed while a program is suspended
+        // in the debugger run inside the suspended program's frame and must leave it intact.
+        var entry = _frame;
         try
         {
             body();
@@ -182,7 +185,7 @@ public sealed partial class Interpreter : IExpressionHost
         }
         finally
         {
-            while (_frame.Parent != null) _frame = _frame.Parent;
+            _frame = entry;
         }
     }
 

@@ -41,7 +41,7 @@ public sealed class CodeEditorTab : DocumentTab
 {
     private bool _dirty;
 
-    public CodeEditorTab(string? path, bool dark)
+    public CodeEditorTab(string? path, bool dark, JoePro.Runtime.Debugger? debugger = null)
     {
         FilePath = path;
         Editor = new TextEditor
@@ -56,8 +56,28 @@ public sealed class CodeEditorTab : DocumentTab
         Editor.Options.IndentationSize = 3;
         if (path != null && File.Exists(path)) Editor.Text = File.ReadAllText(path);
         Editor.TextChanged += (_, _) => { _dirty = true; UpdateTitle(); };
+        if (debugger != null)
+        {
+            Breakpoints = new BreakpointMargin(() => FilePath, debugger);
+            Editor.TextArea.LeftMargins.Insert(0, Breakpoints);
+        }
+        Editor.TextArea.TextView.BackgroundRenderers.Add(ExecutionLine);
         Content = Editor;
         UpdateTitle();
+    }
+
+    public BreakpointMargin? Breakpoints { get; }
+    public ExecutionLineRenderer ExecutionLine { get; } = new();
+
+    public void ShowExecutionLine(int line)
+    {
+        ExecutionLine.Line = line;
+        if (line > 0 && line <= Editor.Document.LineCount)
+        {
+            Editor.TextArea.Caret.Line = line;
+            Editor.ScrollToLine(line);
+        }
+        Editor.TextArea.TextView.InvalidateLayer(AvaloniaEdit.Rendering.KnownLayer.Background);
     }
 
     public string? FilePath { get; private set; }
