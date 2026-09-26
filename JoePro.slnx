@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/JoePro.Cli/JoePro.Cli.csproj" />
+    <Project Path="src/JoePro.Core/JoePro.Core.csproj" />
+    <Project Path="src/JoePro.Data/JoePro.Data.csproj" />
+    <Project Path="src/JoePro.Language/JoePro.Language.csproj" />
+    <Project Path="src/JoePro.Legacy.Formats/JoePro.Legacy.Formats.csproj" />
+    <Project Path="src/JoePro.Migration/JoePro.Migration.csproj" />
+    <Project Path="src/JoePro.Runtime/JoePro.Runtime.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/JoePro.Tests/JoePro.Tests.csproj" />
+  </Folder>
+</Solution>
