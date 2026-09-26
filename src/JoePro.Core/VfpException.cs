@@ -55,4 +55,10 @@ public static class ErrorCodes
     public const int UniquenessViolated = 1884;
     public const int FileAccessDenied = 1705;
     public const int ProcedureNotFound = 1;
+    public const int RecordOutOfRange = 5;
+    public const int NoTransaction = 1592;
+    public const int FieldRuleViolated = 1582;
+    public const int TableRuleViolated = 1583;
+    public const int TriggerFailed = 1539;
+    public const int NullNotAllowed = 1581;
 }
