@@ -46,7 +46,11 @@ public static class DbfWriter
         int fieldCount = fields.Count + (nullFlagsLen > 0 ? 1 : 0);
         int headerLen = 32 + fieldCount * 32 + 1 + 263;
 
-        var memoPath = System.IO.Path.ChangeExtension(path, ".fpt");
+        var ext = System.IO.Path.GetExtension(path).ToUpperInvariant();
+        var memoPath = System.IO.Path.ChangeExtension(path, ext switch
+        {
+            ".SCX" => ".sct", ".VCX" => ".vct", ".FRX" => ".frt", ".LBX" => ".lbt", ".MNX" => ".mnt", ".PJX" => ".pjt", ".DBC" => ".dct", _ => ".fpt",
+        });
         using var memo = hasMemo ? new FptBuilder(memoPath, DefaultMemoBlockSize) : null;
         var recordList = new List<byte[]>();
         foreach (var (deleted, values) in records)
@@ -82,7 +86,7 @@ public static class DbfWriter
         BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), recordList.Count);
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(8), (ushort)headerLen);
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(10), (ushort)recLen);
-        header[28] = (byte)(hasMemo ? 0x02 : 0x00);
+        header[28] = (byte)((hasMemo ? 0x02 : 0x00) | (ext == ".DBC" ? 0x04 : 0x00));
         header[29] = CodePages.ToMark(codePage);
         int p = 32;
         for (int i = 0; i < fields.Count; i++)

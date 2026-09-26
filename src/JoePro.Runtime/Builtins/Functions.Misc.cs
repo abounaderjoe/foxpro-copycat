@@ -151,7 +151,7 @@ public static partial class Library
             return N((flags & 0xF) switch { 1 => 1, 2 => 3, 3 or 4 => 6, 5 => 4, _ => 1 });
         });
         Add("INPUTBOX", c => S(c.Has(2) ? c.Str(2) : ""));
-        Add(["INKEY", "LASTKEY", "ROW", "COL", "PROW", "PCOL", "RECCOUNT_"], _ => N(0));
+        Add(["INKEY", "LASTKEY", "ROW", "COL", "PROW", "PCOL"], _ => N(0));
         Add("CHRSAW", _ => Value.False);
         Add("SROWS", _ => N(25));
         Add("SCOLS", _ => N(80));

@@ -92,7 +92,7 @@ public sealed partial class Interpreter : IExpressionHost
         if (Options.Talk) Status?.Invoke(message);
     }
 
-    internal void Notify(string message) => Status?.Invoke(message);
+    public void Notify(string message) => Status?.Invoke(message);
 
     // ================================================================================
     // Public API

@@ -1,7 +1,9 @@
 # 02 — Proposed Architecture
 
-> Status: **Draft for review**. Decisions marked **🔷 Decision needed** are listed again in
-> the [plan index](README.md) for sign-off.
+> Status: **Approved.** Where the implementation deliberately differs from this document, an ADR
+> records why: [0002](../adr/0002-tree-walking-interpreter-first.md) (interpreter before VM),
+> [0003](../adr/0003-in-memory-sql-executor-first.md) (in-memory SQL before pushdown),
+> [0004](../adr/0004-index-keys-as-maintained-columns.md) (index keys as maintained columns).
 
 ## 1. Stack decision
 

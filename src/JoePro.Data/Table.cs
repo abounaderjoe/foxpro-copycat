@@ -240,6 +240,15 @@ public sealed partial class Table
         if (Schema.Tags.Any(t => (t.Expression + t.ForExpression).Contains("RECNO", StringComparison.OrdinalIgnoreCase))) Reindex();
     }
 
+    /// <summary>Sets the next value of an autoincrement field (used when importing legacy tables).</summary>
+    public void SetAutoIncrementNext(string field, long next)
+    {
+        var i = Schema.FieldIndex(field);
+        if (i < 0 || Fields[i].AutoIncNext == null) return;
+        Store.Exec("UPDATE _jp_fields SET autoinc_next=$n WHERE tbl=$t AND name=$f", ("$n", next), ("$t", Name), ("$f", Fields[i].Name));
+        Schema.Fields[i] = Fields[i] with { AutoIncNext = next };
+    }
+
     /// <summary>Removes all records (ZAP).</summary>
     public void Zap() => Store.Exec($"DELETE FROM \"{SqlName}\"");
 

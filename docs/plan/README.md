@@ -5,8 +5,9 @@ engine plus the whole classic IDE, with modern UX, text-based source-control-fri
 artifacts, a safer multi-user model, and a migration and two-way sync layer for existing
 FoxPro applications.
 
-**Status: proposal awaiting review. No application code will be written until this plan
-is approved.**
+**Status: approved ("start do all"). The recommended options were adopted; see
+[ADR 0001](../adr/0001-adopt-recommended-plan-decisions.md). Progress is tracked in
+[docs/status](../status/README.md).**
 
 | Document | Contents |
 |---|---|
