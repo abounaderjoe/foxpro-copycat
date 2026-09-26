@@ -64,6 +64,10 @@ public sealed class VfpObject
     public List<(string? Key, Value Value)>? Items { get; set; }
     /// <summary>Host-specific state (for example, the UI control rendering a visual object).</summary>
     public object? Native { get; set; }
+    /// <summary>Items added with AddItem() to a ListBox or ComboBox (RowSourceType 0).</summary>
+    public List<string>? ListItems { get; set; }
+    /// <summary>ADD OBJECT … NOINIT: Init is not fired.</summary>
+    public bool SkipInit { get; set; }
 
     public string Name => Properties.TryGetValue("Name", out var v) && v.Value.Kind == ValueKind.Character ? v.Value.AsString : Class.Name;
 
@@ -149,12 +153,16 @@ public static class BaseClasses
             or "ANCHOR" or "SELSTART" or "SELLENGTH" or "MAXLENGTH" or "LISTINDEX" or "LISTCOUNT" or "CURVATURE" or "FILLSTYLE"
             or "WINDOWSTATE" or "WINDOWTYPE" or "SHOWWINDOW" or "SPECIALEFFECT" or "INTERVAL" or "COUNT" or "KEYSORT"
             or "CONTROLCOUNT" or "FORMCOUNT" or "PAGEORDER" or "ERRORNO" or "LINENO" or "STACKLEVEL" or "ROWSOURCETYPE"
-            or "RECORDSOURCETYPE" or "COLUMNCOUNT" or "BUTTONCOUNT" or "PAGECOUNT" or "ACTIVEPAGE" or "BORDERWIDTH" or "STYLE"
+            or "RECORDSOURCETYPE" or "COLUMNCOUNT" or "ACTIVEPAGE" or "BORDERWIDTH" or "STYLE"
             or "DATASESSIONID" or "BUFFERMODE" or "BUFFERMODEOVERRIDE" or "SCROLLBARS" or "DELETEMARK" or "GRIDLINES" => Value.Number(0),
         "WIDTH" => Value.Number(100),
         "HEIGHT" => Value.Number(25),
         "FONTSIZE" => Value.Number(9),
         "DATASESSION" or "BOUNDCOLUMN" or "INCREMENT" => Value.Number(1),
+        "PAGECOUNT" or "BUTTONCOUNT" => Value.Number(2),
+        "ROWHEIGHT" or "HEADERHEIGHT" => Value.Number(19),
+        "SPINNERHIGHVALUE" or "KEYBOARDHIGHVALUE" => Value.Number(2147483647),
+        "SPINNERLOWVALUE" or "KEYBOARDLOWVALUE" => Value.Number(-2147483647),
         "FORECOLOR" or "BORDERCOLOR" => Value.Number(0),
         "BACKCOLOR" => Value.Number(15790320),
         "VISIBLE" or "ENABLED" or "TABSTOP" or "CONTROLBOX" or "CLOSABLE" or "MAXBUTTON" or "MINBUTTON" or "MOVABLE" or "TITLEBAR"
@@ -174,5 +182,20 @@ public static class BaseClasses
         if (baseClass.Equals("Collection", StringComparison.OrdinalIgnoreCase)) o.Items = new();
         if (baseClass.Equals("Empty", StringComparison.OrdinalIgnoreCase)) o.Properties.Clear();
         if (visual) o.Set("Visible", Value.Logical(!baseClass.Equals("Form", StringComparison.OrdinalIgnoreCase) && !baseClass.Equals("FormSet", StringComparison.OrdinalIgnoreCase)));
+        switch (baseClass.ToUpperInvariant())
+        {
+            case "FORM":
+                o.Set("Width", Value.Number(375));
+                o.Set("Height", Value.Number(250));
+                o.Set("Caption", Value.String("Form1"));
+                o.Set("MaxButton", Value.True);
+                break;
+            case "SPINNER" or "OPTIONGROUP" or "COMMANDGROUP": o.Set("Value", Value.Number(baseClass.Equals("Spinner", StringComparison.OrdinalIgnoreCase) ? 0 : 1)); break;
+            case "CHECKBOX" or "OPTIONBUTTON": o.Set("Value", Value.Number(0)); break;
+            case "LABEL": o.Set("Caption", Value.String("Label1")); o.Set("BackStyle", Value.Number(1)); break;
+            case "COMMANDBUTTON": o.Set("Caption", Value.String("Command1")); o.Set("Height", Value.Number(27)); o.Set("Width", Value.Number(84)); break;
+            case "PAGEFRAME": o.Set("Width", Value.Number(241)); o.Set("Height", Value.Number(169)); break;
+            case "GRID": o.Set("ColumnCount", Value.Number(-1)); o.Set("Width", Value.Number(320)); o.Set("Height", Value.Number(200)); break;
+        }
     }
 }

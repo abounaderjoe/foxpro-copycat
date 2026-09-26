@@ -738,12 +738,19 @@ public sealed partial class Parser
         {
             var form = NameArg("NAME", "WITH", "LINKED", "NOSHOW", "TO", "NOREAD");
             var args = new List<Expr>();
+            string? nameVar = null, toVar = null;
+            bool linked = false, noShow = false;
             while (!AtEnd)
             {
-                if (AcceptKw("WITH")) args = ExprList();
-                else _p++;
+                if (AcceptKw("WITH")) args = ArgList();
+                else if (AcceptKw("NAME")) { nameVar = Ident(); while (AcceptOp(".")) nameVar += "." + Ident(); }
+                else if (AcceptKw("LINKED")) linked = true;
+                else if (AcceptKw("NOSHOW")) noShow = true;
+                else if (AcceptKw("NOREAD")) { }
+                else if (AcceptKw("TO")) toVar = Ident();
+                else throw Error($"Unrecognized DO FORM clause '{Peek()}'.");
             }
-            return new DoStmt(new CallExpr("__DOFORM", [form]), null, args);
+            return new DoFormStmt(form, args, nameVar, linked, noShow, toVar);
         }
         var target = NameArg("IN", "WITH");
         string? inFile = null;

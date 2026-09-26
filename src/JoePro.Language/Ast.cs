@@ -67,6 +67,7 @@ public sealed record ExitStmt : Stmt;
 public sealed record LoopStmt : Stmt;
 public sealed record ReturnStmt(Expr? Value, bool ToMaster = false) : Stmt;
 public sealed record DoStmt(Expr Target, string? InFile, List<Expr> Args) : Stmt;
+public sealed record DoFormStmt(Expr Form, List<Expr> Args, string? NameVar, bool Linked, bool NoShow, string? ToVar) : Stmt;
 public sealed record ParametersStmt(List<string> Names, bool Local) : Stmt;
 public sealed record TryStmt(List<Stmt> Body, string? CatchVar, Expr? When, List<Stmt>? Catch, List<Stmt>? Finally) : Stmt;
 public sealed record ThrowStmt(Expr? Value) : Stmt;

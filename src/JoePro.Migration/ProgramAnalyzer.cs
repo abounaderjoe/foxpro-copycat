@@ -129,9 +129,10 @@ public sealed class ProgramAnalyzer
                 Add(FindingStatus.NeedsReview, "CODE.ON.EVENT", file, obj, member, line, lines,
                     "ON KEY LABEL / ON SHUTDOWN / ON ESCAPE handlers are ignored until the UI runtime ships (Phase 3).");
                 break;
-            case DoStmt { Target: CallExpr { Name: "__DOFORM" } }:
+            case DoFormStmt:
                 Add(FindingStatus.NeedsReview, "CODE.UI.FORM", file, obj, member, line, lines,
-                    "DO FORM needs the form runtime (Phase 3).", "Convert the .SCX when the Form Designer ships.");
+                    "DO FORM runs forms stored as .jpform; legacy .SCX forms need the form converter (Phase 3).",
+                    "Convert the .SCX when the form converter ships, or rewrite the form as a .jpform class.");
                 break;
             case SetStmt { Option: "__REPORT" or "__LABEL" }:
                 Add(FindingStatus.NeedsReview, "CODE.UI.REPORT", file, obj, member, line, lines,

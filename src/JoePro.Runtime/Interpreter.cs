@@ -81,6 +81,8 @@ public sealed partial class Interpreter : IExpressionHost
     /// <summary>Host hook for MESSAGEBOX(): (text, title, flags) → button result.</summary>
     public Func<string, string, int, int>? MessageBox { get; set; }
     public string? OnErrorCommand { get; private set; }
+    /// <summary>The attached user-interface host, if any.</summary>
+    public IUiHost? Ui { get; set; }
     public int LastErrorNumber { get; private set; }
     public string LastErrorMessage { get; private set; } = "";
     public int LastErrorLine { get; private set; }
@@ -332,13 +334,15 @@ public sealed partial class Interpreter : IExpressionHost
             Unit = unit ?? _frame.Unit,
             This = self,
             MethodClass = methodClass,
-            MethodName = methodClass != null ? proc.Name : null,
+            MethodName = methodClass != null ? proc.Name[(proc.Name.LastIndexOf('.') + 1)..] : null,
             ParameterCount = args.Count,
             ReturnValue = Value.True,
         };
         frame.Line = proc.Line;
         _pendingArgs = args;
         var saved = _frame;
+        var savedSession = Session;
+        if (self != null) Session = SessionFor(self);
         _frame = frame;
         _callDepth++;
         try
@@ -351,8 +355,13 @@ public sealed partial class Interpreter : IExpressionHost
         {
             _callDepth--;
             _frame = saved;
+            Session = savedSession;
+            LastNoDefault = frame.NoDefault;
         }
     }
+
+    /// <summary>True if the most recently finished method executed NODEFAULT (used by event dispatch).</summary>
+    public bool LastNoDefault { get; private set; }
 
     private List<Arg> _pendingArgs = new();
 
@@ -602,7 +611,12 @@ public sealed partial class Interpreter : IExpressionHost
             case QuitStmt q:
                 throw new QuitException(q.Cancel);
             case ReadEventsStmt re:
-                if (!re.Clear) Notify("READ EVENTS: no UI runtime is attached; continuing.");
+                if (re.Clear) Ui?.ClearEvents();
+                else if (Ui != null) Ui.ReadEvents();
+                else Notify("READ EVENTS: no UI runtime is attached; continuing.");
+                return Flow.Normal;
+            case DoFormStmt df:
+                ExecDoForm(df);
                 return Flow.Normal;
             case ClearStmt cl:
                 ExecClear(cl);
@@ -837,10 +851,6 @@ public sealed partial class Interpreter : IExpressionHost
 
     private void ExecDo(DoStmt d)
     {
-        if (d.Target is CallExpr { Name: "__DOFORM" } form)
-        {
-            throw VfpException.NotSupported($"DO FORM {NameValue(form.Args[0])} (the form runtime arrives in Phase 3)");
-        }
         var name = NameValue(d.Target);
         var args = EvalArgs(d.Args, byRefVariables: true);
         if (d.InFile != null)
@@ -857,6 +867,41 @@ public sealed partial class Interpreter : IExpressionHost
         }
         var file = ResolveProgramFile(name) ?? throw VfpException.FileNotFound(Path.HasExtension(name) ? name : name + ".prg");
         CallUnitMain(LoadProgram(file), args);
+    }
+
+    /// <summary>
+    /// DO FORM name: loads name.jpform (a form stored as DEFINE CLASS text), instantiates its form
+    /// class and shows it. Legacy .SCX forms need the form converter (Phase 3).
+    /// </summary>
+    private void ExecDoForm(DoFormStmt df)
+    {
+        var name = NameValue(df.Form);
+        var path = ResolveProgramFile(name, ".jpform");
+        if (path == null || !path.EndsWith(".jpform", StringComparison.OrdinalIgnoreCase))
+        {
+            if (ResolveProgramFile(name, ".scx") is { } scx && scx.EndsWith(".scx", StringComparison.OrdinalIgnoreCase))
+                throw VfpException.NotSupported($"DO FORM {Path.GetFileName(scx)}: .SCX forms must be converted to .jpform first (form converter, Phase 3)");
+            throw VfpException.FileNotFound(Path.HasExtension(name) ? name : name + ".jpform");
+        }
+        var unit = LoadProgram(path);
+        var def = unit.Classes.Values.FirstOrDefault(c => ResolveClass(c.Name, unit).BaseClass is "Form" or "FormSet")
+                  ?? throw new VfpException(1733, $"{Path.GetFileName(path)} does not define a Form class.");
+        var args = EvalArgs(df.Args, byRefVariables: false);
+        var form = CreateObject(ResolveClass(def.Name, unit), args);
+        if (form == null) return; // Load or Init returned .F.
+        var varName = df.NameVar ?? Path.GetFileNameWithoutExtension(path);
+        if (df.NameVar != null || !df.Linked) SetVariable(varName, Value.Object(form));
+        if (df.NoShow) return;
+        var modal = df.ToVar != null || (form.FindProperty("WindowType")?.Value is { Kind: ValueKind.Number } wt && wt.AsNumber == 1);
+        if (Ui == null)
+        {
+            Notify($"DO FORM {Path.GetFileName(path)}: no UI runtime is attached; the form object was created but not shown.");
+            return;
+        }
+        form.Set("Visible", Value.True);
+        Ui.Show(form, modal);
+        if (df.ToVar != null)
+            SetVariable(df.ToVar, UnloadResults.TryGetValue(form, out var r) ? r : Value.True);
     }
 
     // ================================================================================

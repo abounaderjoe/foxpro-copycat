@@ -137,6 +137,9 @@ public sealed partial class Interpreter
                 else if (tr.Kind == "END") Session.EndTransaction();
                 else Session.Rollback();
                 return true;
+            case BrowseStmt br when Ui != null && AreaOf(br.Scope.In) is { InUse: true } bwa
+                                    && Ui.Browse(bwa, br.Fields?.Select(f => ExprPrinter.Print(f)).ToList()):
+                return true;
             case BrowseStmt br:
                 ExecList(new ListStmt(false, br.Fields, br.Scope.Kind == "DEFAULT" ? br.Scope with { Kind = "ALL" } : br.Scope, false, false));
                 return true;
@@ -756,6 +759,19 @@ public sealed partial class Interpreter
             case "FLUSH" or "UNLOCK" or "DOEVENTS" or "EXTERNAL" or "SLEEP" or "LOCK" or "VALIDATE" or "ASSERT":
                 if (verb == "UNLOCK") foreach (var w in Session.OpenWorkAreas()) w.Unlock();
                 break;
+            case "MODIFY" or "MODI":
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(rest, @"^(COMM\w*|FILE)\s+(.+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (m.Success && Ui != null)
+                {
+                    var file = m.Groups[2].Value.Trim().Trim('"', '\'');
+                    var isCommand = m.Groups[1].Value.StartsWith("COMM", StringComparison.OrdinalIgnoreCase);
+                    var path = Path.Combine(Options.Default_, isCommand && !Path.HasExtension(file) ? file + ".prg" : file);
+                    if (Ui.ModifyFile(DataSession.FindIgnoringCase(path) ?? path)) break;
+                }
+                Notify($"MODIFY {rest}: this designer is not available in this build (see roadmap).");
+                break;
+            }
             case "DEBUGOUT":
                 Notify("DEBUGOUT " + rest);
                 break;

@@ -3,12 +3,15 @@
     <Project Path="src/JoePro.Cli/JoePro.Cli.csproj" />
     <Project Path="src/JoePro.Core/JoePro.Core.csproj" />
     <Project Path="src/JoePro.Data/JoePro.Data.csproj" />
+    <Project Path="src/JoePro.Ide/JoePro.Ide.csproj" />
     <Project Path="src/JoePro.Language/JoePro.Language.csproj" />
     <Project Path="src/JoePro.Legacy.Formats/JoePro.Legacy.Formats.csproj" />
     <Project Path="src/JoePro.Migration/JoePro.Migration.csproj" />
     <Project Path="src/JoePro.Runtime/JoePro.Runtime.csproj" />
+    <Project Path="src/JoePro.Ui.Runtime/JoePro.Ui.Runtime.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/JoePro.Tests/JoePro.Tests.csproj" />
+    <Project Path="tests/JoePro.Ui.Tests/JoePro.Ui.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,3 +1,4 @@
+using JoePro.Data;
 using JoePro.Core;
 using JoePro.Language;
 
@@ -40,8 +41,18 @@ public sealed partial class Interpreter
     internal VfpObject CreateObjectByName(string className, List<Arg> args, ProgramUnit? module = null) =>
         CreateObject(ResolveClass(className, module), args) ?? throw new VfpException(1733, "Object could not be created.");
 
-    /// <summary>Instantiates a class: native defaults, class-level member values base→derived, member objects, then Init.</summary>
+    /// <summary>
+    /// Instantiates a class. Order follows VFP: native defaults, class-level property values (base → derived),
+    /// Load (forms), member objects, then Init innermost-first with the container's Init last.
+    /// </summary>
     internal VfpObject? CreateObject(ClassInfo cls, List<Arg> args, VfpObject? parent = null, string? name = null, bool noInit = false)
+    {
+        var o = Build(cls, parent, name);
+        if (noInit) return o;
+        return InitTree(o, args) ? o : null;
+    }
+
+    private VfpObject Build(ClassInfo cls, VfpObject? parent, string? name)
     {
         var o = new VfpObject(cls) { Parent = parent };
         BaseClasses.InitializeNative(o, cls.BaseClass);
@@ -54,16 +65,17 @@ public sealed partial class Interpreter
         }
 
         var saved = _frame;
+        var savedSession = Session;
         _frame = new Frame(cls.Name.ToUpperInvariant() + ".INIT", saved) { This = o, Unit = cls.Unit ?? saved.Unit };
         try
         {
-            foreach (var level in cls.Hierarchy().Reverse())
+            var levels = cls.Hierarchy().Reverse().Where(l => l.Definition != null).ToList();
+            // Pass 1: property values.
+            foreach (var level in levels)
             {
-                if (level.Definition == null) continue;
-                var deferred = new List<MemberDef>();
-                foreach (var m in level.Definition.Members)
+                foreach (var m in level.Definition!.Members)
                 {
-                    if (m.Name.Contains('.')) { deferred.Add(m); continue; }
+                    if (m.Name.Contains('.')) continue;
                     if (m.Dims != null)
                     {
                         var dims = m.Dims.Select(d => (int)Eval(d).AsNumber).ToList();
@@ -73,31 +85,175 @@ public sealed partial class Interpreter
                     }
                     else o.Set(m.Name, Eval(m.Value!));
                 }
-                foreach (var ao in level.Definition.Objects)
+            }
+            // Forms: private data session, then Load (before any member object exists).
+            if (IsFormClass(o))
+            {
+                if (o.FindProperty("DataSession")?.Value is { Kind: ValueKind.Number } ds && ds.AsNumber == 2)
+                {
+                    var session = new DataSession(Options.Clone(), this);
+                    Sessions.Add(session);
+                    _formSessions[o] = session;
+                    o.Set("DataSessionId", Value.Number(session.Id));
+                    Session = session;
+                }
+                else o.Set("DataSessionId", Value.Number(Session.Id));
+                var loaded = RaiseEvent(o, "Load", []);
+                if (loaded.Kind == ValueKind.Logical && !loaded.AsBool) o.Set("__LoadFailed", Value.True);
+            }
+            SyncAutoChildren(o);
+            // Pass 2: member objects (their Init runs later, in InitTree).
+            foreach (var level in levels)
+            {
+                foreach (var ao in level.Definition!.Objects)
                 {
                     var path = ao.Name.Split('.');
                     var container = o;
                     for (int i = 0; i < path.Length - 1; i++)
                         container = container.FindProperty(path[i])?.Value is { Kind: ValueKind.Object } cv ? (VfpObject)cv.AsObject : throw VfpObject.PropertyNotFound(path[i]);
                     var childClass = ResolveClass(ao.Class, level.Unit);
-                    var child = CreateObject(childClass, [], container, path[^1], noInit: true)!;
+                    var existing = container.FindProperty(path[^1])?.Value is { Kind: ValueKind.Object } ev ? (VfpObject)ev.AsObject : null;
+                    if (existing != null) container.Members.Remove(existing);
+                    var child = Build(childClass, container, path[^1]);
+                    child.SkipInit = ao.NoInit;
                     foreach (var (prop, expr) in ao.Properties) SetPath(child, prop, Eval(expr));
+                    SyncAutoChildren(child);
                     container.Members.Add(child);
                     container.Set(path[^1], Value.Object(child));
-                    if (!ao.NoInit) RaiseEvent(child, "Init", []);
                 }
-                foreach (var m in deferred) SetPath(o, m.Name, Eval(m.Value!));
+                foreach (var m in level.Definition.Members.Where(m => m.Name.Contains('.'))) SetPath(o, m.Name, Eval(m.Value!));
             }
         }
         finally
         {
             _frame = saved;
+            Session = savedSession;
         }
-
-        if (noInit) return o;
-        var ok = RaiseEvent(o, "Init", args);
-        if (ok.Kind == ValueKind.Logical && !ok.AsBool) return null;
         return o;
+    }
+
+    /// <summary>Fires Init for member objects (innermost first), then for the object. A member whose Init returns .F. is removed.</summary>
+    private bool InitTree(VfpObject o, List<Arg> args)
+    {
+        if (o.FindProperty("__LoadFailed") != null)
+        {
+            ReleaseForm(o);
+            return false;
+        }
+        foreach (var m in o.Members.ToList())
+        {
+            if (m.SkipInit) continue;
+            if (!InitTree(m, []))
+            {
+                o.Members.Remove(m);
+                o.Properties.Remove(m.Name);
+            }
+        }
+        var ok = RaiseEvent(o, "Init", args);
+        if (ok.Kind == ValueKind.Logical && !ok.AsBool)
+        {
+            if (IsFormClass(o)) ReleaseForm(o);
+            return false;
+        }
+        return true;
+    }
+
+    private readonly Dictionary<VfpObject, DataSession> _formSessions = new(ReferenceEqualityComparer.Instance);
+
+    internal static bool IsFormClass(VfpObject o) =>
+        o.Class.BaseClass.Equals("Form", StringComparison.OrdinalIgnoreCase) || o.Class.BaseClass.Equals("FormSet", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The form that contains <paramref name="o"/> (or <paramref name="o"/> itself), if any.</summary>
+    public static VfpObject? OwningForm(VfpObject? o)
+    {
+        for (; o != null; o = o.Parent)
+            if (IsFormClass(o)) return o;
+        return null;
+    }
+
+    /// <summary>The data session an object's code runs in (a form's private session, or the current one).</summary>
+    public DataSession SessionFor(VfpObject? o)
+    {
+        var form = OwningForm(o);
+        return form != null && _formSessions.TryGetValue(form, out var s) ? s : Session;
+    }
+
+    /// <summary>Runs <paramref name="action"/> in the data session of the form that owns <paramref name="o"/>.</summary>
+    public T InObjectContext<T>(VfpObject o, Func<T> action)
+    {
+        var saved = Session;
+        Session = SessionFor(o);
+        var savedFrame = _frame;
+        _frame = new Frame(o.Name.ToUpperInvariant(), savedFrame) { This = o, Unit = o.Class.Unit ?? savedFrame.Unit };
+        try { return action(); }
+        finally
+        {
+            _frame = savedFrame;
+            Session = saved;
+        }
+    }
+
+    /// <summary>Creates the implicit children of groups, page frames and grids (Option1…, Page1…, Column1…).</summary>
+    internal void SyncAutoChildren(VfpObject o)
+    {
+        string? prefix = null, childClass = null, countProp = null;
+        switch (o.Class.BaseClass.ToUpperInvariant())
+        {
+            case "PAGEFRAME": (prefix, childClass, countProp) = ("Page", "Page", "PageCount"); break;
+            case "OPTIONGROUP": (prefix, childClass, countProp) = ("Option", "OptionButton", "ButtonCount"); break;
+            case "COMMANDGROUP": (prefix, childClass, countProp) = ("Command", "CommandButton", "ButtonCount"); break;
+            case "GRID": (prefix, childClass, countProp) = ("Column", "Column", "ColumnCount"); break;
+        }
+        if (prefix == null) return;
+        var count = o.FindProperty(countProp!)?.Value is { Kind: ValueKind.Number } n ? (int)n.AsNumber : 0;
+        var existing = o.Members.Where(m => m.Class.BaseClass.Equals(childClass, StringComparison.OrdinalIgnoreCase)).ToList();
+        for (int i = existing.Count + 1; i <= count; i++)
+        {
+            var child = Build(ResolveClass(childClass!), o, prefix + i);
+            switch (childClass)
+            {
+                case "Page":
+                    child.Set("Caption", Value.String("Page" + i));
+                    child.Set("PageOrder", Value.Number(i));
+                    break;
+                case "OptionButton":
+                    child.Set("Caption", Value.String("Option" + i));
+                    child.Set("Left", Value.Number(5));
+                    child.Set("Top", Value.Number(5 + (i - 1) * 22));
+                    child.Set("Width", Value.Number(80));
+                    child.Set("Height", Value.Number(17));
+                    child.Set("Value", Value.Number(0));
+                    break;
+                case "CommandButton":
+                    child.Set("Caption", Value.String("Command" + i));
+                    child.Set("Left", Value.Number(5));
+                    child.Set("Top", Value.Number(5 + (i - 1) * 30));
+                    child.Set("Width", Value.Number(84));
+                    child.Set("Height", Value.Number(27));
+                    break;
+                case "Column":
+                {
+                    child.Set("Width", Value.Number(75));
+                    child.Set("ColumnOrder", Value.Number(i));
+                    var header = Build(ResolveClass("Header"), child, "Header1");
+                    header.Set("Caption", Value.String("Header1"));
+                    child.Members.Add(header);
+                    child.Set("Header1", Value.Object(header));
+                    var text = Build(ResolveClass("TextBox"), child, "Text1");
+                    child.Members.Add(text);
+                    child.Set("Text1", Value.Object(text));
+                    child.Set("CurrentControl", Value.String("Text1"));
+                    break;
+                }
+            }
+            o.Members.Add(child);
+            o.Set(prefix + i, Value.Object(child));
+        }
+        for (int i = existing.Count; i > Math.Max(count, 0); i--)
+        {
+            var extra = o.FindProperty(prefix + i)?.Value;
+            if (extra is { Kind: ValueKind.Object } ev) { o.Members.Remove((VfpObject)ev.AsObject); o.Properties.Remove(prefix + i); }
+        }
     }
 
     private void SetPath(VfpObject o, string path, Value value)
@@ -111,14 +267,48 @@ public sealed partial class Interpreter
     /// <summary>Runs an event or method if the class defines it; returns .T. otherwise.</summary>
     internal Value RaiseEvent(VfpObject o, string name, List<Arg> args)
     {
-        var m = o.Class.FindMethod(name);
+        var m = FindHandler(o, name);
         if (m == null) return Value.True;
         return Invoke(m.Value.Method, m.Value.Owner.Unit, args, self: o, methodClass: m.Value.Owner);
+    }
+
+    /// <summary>
+    /// Finds the code for an object's event or method. Code written in a container for one of its members
+    /// (PROCEDURE txtName.Valid inside a form class) overrides the member's own class code; the outermost
+    /// container wins, as in VFP. DODEFAULT() from such code runs the member class's method.
+    /// </summary>
+    internal (ProcedureDef Method, ClassInfo Owner)? FindHandler(VfpObject o, string name)
+    {
+        var chain = new List<(VfpObject Container, string Path)>();
+        var path = o.Name;
+        for (var p = o.Parent; p != null; p = p.Parent)
+        {
+            chain.Add((p, path));
+            path = p.Name + "." + path;
+        }
+        for (int i = chain.Count - 1; i >= 0; i--)
+        {
+            var (container, rel) = chain[i];
+            var found = container.Class.FindMethod(rel + "." + name);
+            if (found != null)
+            {
+                // A per-instance class level whose parent is the member's own class (for DODEFAULT).
+                var instance = new ClassInfo(o.Class.Name, o.Class.BaseClass, o.Class, null, found.Value.Owner.Unit);
+                return (found.Value.Method, instance);
+            }
+        }
+        return o.Class.FindMethod(name);
     }
 
     internal void ReleaseObject(VfpObject o)
     {
         if (o.Released) return;
+        if (IsFormClass(o))
+        {
+            // Release() skips QueryUnload; the UI host raises QueryUnload when the user closes the window.
+            ReleaseForm(o);
+            return;
+        }
         o.Released = true;
         RaiseEvent(o, "Destroy", []);
         foreach (var m in o.Members.ToList()) ReleaseObject(m);
@@ -126,6 +316,29 @@ public sealed partial class Interpreter
         {
             o.Parent.Members.Remove(o);
             o.Parent.Properties.Remove(o.Name);
+        }
+    }
+
+    /// <summary>Last value returned by a form's Unload event (DO FORM … TO var).</summary>
+    internal readonly Dictionary<VfpObject, Value> UnloadResults = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Form teardown: Destroy (form, then members), Unload, close the private data session.</summary>
+    internal void ReleaseForm(VfpObject form)
+    {
+        if (form.Released) return;
+        form.Released = true;
+        InObjectContext(form, () =>
+        {
+            RaiseEvent(form, "Destroy", []);
+            foreach (var m in form.Members.ToList()) ReleaseObject(m);
+            UnloadResults[form] = RaiseEvent(form, "Unload", []);
+            return true;
+        });
+        Ui?.Release(form);
+        if (_formSessions.Remove(form, out var session))
+        {
+            Sessions.Remove(session);
+            session.Dispose();
         }
     }
 
@@ -223,6 +436,10 @@ public sealed partial class Interpreter
         var p = o.FindProperty(name) ?? throw VfpObject.PropertyNotFound(name);
         if (p.IsArray) p.Array!.Fill(value);
         else p.Value = value;
+        if (name.Equals("PageCount", StringComparison.OrdinalIgnoreCase) || name.Equals("ButtonCount", StringComparison.OrdinalIgnoreCase)
+            || (name.Equals("ColumnCount", StringComparison.OrdinalIgnoreCase) && o.Class.BaseClass.Equals("Grid", StringComparison.OrdinalIgnoreCase)))
+            SyncAutoChildren(o);
+        Ui?.PropertyChanged(o, name);
     }
 
     // ================================================================================
@@ -242,7 +459,7 @@ public sealed partial class Interpreter
 
     internal Value InvokeMethod(VfpObject o, string name, List<Arg> args)
     {
-        var m = o.Class.FindMethod(name);
+        var m = FindHandler(o, name);
         if (m != null) return Invoke(m.Value.Method, m.Value.Owner.Unit, args, self: o, methodClass: m.Value.Owner);
         return NativeMethod(o, name, args);
     }
@@ -264,9 +481,9 @@ public sealed partial class Interpreter
         Value A(int i) => i < args.Count ? args[i].Value : Value.False;
         switch (name.ToUpperInvariant())
         {
-            case "INIT" or "DESTROY" or "ERROR" or "LOAD" or "UNLOAD" or "ACTIVATE" or "DEACTIVATE" or "REFRESH" or "CLICK" or "DBLCLICK"
+            case "INIT" or "DESTROY" or "ERROR" or "LOAD" or "UNLOAD" or "ACTIVATE" or "DEACTIVATE" or "CLICK" or "DBLCLICK"
                 or "GOTFOCUS" or "LOSTFOCUS" or "VALID" or "WHEN" or "INTERACTIVECHANGE" or "PROGRAMMATICCHANGE" or "QUERYUNLOAD"
-                or "RESIZE" or "TIMER" or "KEYPRESS" or "MOUSEDOWN" or "MOUSEUP" or "MOUSEMOVE" or "SETFOCUS" or "DRAW" or "MOVED"
+                or "RESIZE" or "TIMER" or "KEYPRESS" or "MOUSEDOWN" or "MOUSEUP" or "MOUSEMOVE" or "DRAW" or "MOVED"
                 or "BEFOREOPENTABLES" or "AFTERCLOSETABLES" or "OPENTABLES" or "CLOSETABLES":
                 return Value.True;
             case "ADDPROPERTY":
@@ -314,9 +531,53 @@ public sealed partial class Interpreter
             case "RESETTODEFAULT":
                 o.Set(A(0).AsString, BaseClasses.DefaultValue(A(0).AsString));
                 return Value.True;
-            case "SHOW" or "HIDE":
-                if (o.FindProperty("Visible") != null) o.Set("Visible", Value.Logical(name.Equals("SHOW", StringComparison.OrdinalIgnoreCase)));
+            case "SHOW":
+                if (o.FindProperty("Visible") != null) o.Set("Visible", Value.True);
+                if (IsFormClass(o))
+                {
+                    if (Ui == null) Notify($"{o.Name}.Show(): no UI runtime is attached.");
+                    else Ui.Show(o, A(0).Kind == ValueKind.Number && A(0).AsNumber == 1 || (o.FindProperty("WindowType")?.Value is { Kind: ValueKind.Number } wt && wt.AsNumber == 1));
+                }
+                else Ui?.PropertyChanged(o, "Visible");
                 return Value.True;
+            case "HIDE":
+                if (o.FindProperty("Visible") != null) o.Set("Visible", Value.False);
+                if (IsFormClass(o)) Ui?.Hide(o); else Ui?.PropertyChanged(o, "Visible");
+                return Value.True;
+            case "REFRESH":
+                Ui?.Refresh(o);
+                return Value.True;
+            case "SETFOCUS":
+                Ui?.SetFocus(o);
+                return Value.True;
+            case "ADDITEM" or "ADDLISTITEM":
+            {
+                o.ListItems ??= new();
+                var text = A(0).Kind == ValueKind.Character ? A(0).AsString : Builtins.Library.TransformDefault(A(0), Options);
+                var at = args.Count > 1 && A(1).Kind == ValueKind.Number ? (int)A(1).AsNumber : 0;
+                if (at >= 1 && at <= o.ListItems.Count) o.ListItems.Insert(at - 1, text); else o.ListItems.Add(text);
+                if (o.FindProperty("ListCount") != null) o.Set("ListCount", Value.Number(o.ListItems.Count));
+                Ui?.PropertyChanged(o, "RowSource");
+                return Value.True;
+            }
+            case "REMOVEITEM" or "REMOVELISTITEM":
+            {
+                var at = (int)A(0).AsNumber;
+                if (o.ListItems != null && at >= 1 && at <= o.ListItems.Count) o.ListItems.RemoveAt(at - 1);
+                if (o.FindProperty("ListCount") != null) o.Set("ListCount", Value.Number(o.ListItems?.Count ?? 0));
+                Ui?.PropertyChanged(o, "RowSource");
+                return Value.True;
+            }
+            case "CLEAR" when o.Class.BaseClass is "ListBox" or "ComboBox":
+                o.ListItems?.Clear();
+                o.Set("ListCount", Value.Number(0));
+                Ui?.PropertyChanged(o, "RowSource");
+                return Value.True;
+            case "LIST" or "LISTITEM" when o.Class.BaseClass is "ListBox" or "ComboBox":
+            {
+                var at = (int)A(0).AsNumber;
+                return Value.String(o.ListItems != null && at >= 1 && at <= o.ListItems.Count ? o.ListItems[at - 1] : "");
+            }
             case "READEXPRESSION" or "READMETHOD" or "WRITEEXPRESSION" or "WRITEMETHOD" or "SAVEASCLASS" or "SETALL":
                 if (name.Equals("SETALL", StringComparison.OrdinalIgnoreCase))
                 {
