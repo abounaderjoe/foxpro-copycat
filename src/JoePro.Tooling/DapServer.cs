@@ -41,7 +41,7 @@ public sealed class DapServer : IDebugHost, IConsoleOutput
             var command = (string?)msg["command"];
             // While paused, inspection and resume requests run on the program thread.
             if (_stop != null && command is "stackTrace" or "scopes" or "variables" or "evaluate" or "setVariable"
-                    or "continue" or "next" or "stepIn" or "stepOut" or "disconnect" or "terminate")
+                    or "continue" or "next" or "stepIn" or "stepOut" or "disconnect" or "terminate" or "gotoTargets" or "goto")
             {
                 _pausedRequests.Add(msg);
                 if (command is "disconnect" or "terminate") { _worker?.Join(2000); Respond(msg, null); return 0; }
@@ -73,6 +73,7 @@ public sealed class DapServer : IDebugHost, IConsoleOutput
                     ["supportsEvaluateForHovers"] = true,
                     ["supportsSetVariable"] = true,
                     ["supportsTerminateRequest"] = true,
+                    ["supportsGotoTargetsRequest"] = true,
                 });
                 Event("initialized");
                 return false;
@@ -175,6 +176,7 @@ public sealed class DapServer : IDebugHost, IConsoleOutput
                 StopReason.Step => "step",
                 StopReason.Exception => "exception",
                 StopReason.Pause => "pause",
+                StopReason.Goto => "goto",
                 _ => "pause",
             },
             ["description"] = stop.Message,
@@ -258,6 +260,26 @@ public sealed class DapServer : IDebugHost, IConsoleOutput
                 }
                 catch (VfpException ex) { Respond(req, null, success: false, message: ex.Message); }
                 return null;
+            }
+            case "gotoTargets":
+            {
+                var line = (int)args!["line"]!;
+                var targets = new JsonArray();
+                if (stop.GotoTargets().Contains(line))
+                    targets.Add(new JsonObject { ["id"] = line, ["label"] = $"Line {line}", ["line"] = line });
+                Respond(req, new JsonObject { ["targets"] = targets });
+                return null;
+            }
+            case "goto":
+            {
+                var target = (int)args!["targetId"]!;
+                if (!stop.SetNextStatement(target))
+                {
+                    Respond(req, null, success: false, message: $"Line {target} is not a statement in a block that is running now.");
+                    return null;
+                }
+                Respond(req, null);
+                return DebugAction.Goto;
             }
             case "continue":
                 Respond(req, new JsonObject { ["allThreadsContinued"] = true });

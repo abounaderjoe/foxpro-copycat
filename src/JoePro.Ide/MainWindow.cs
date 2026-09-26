@@ -214,6 +214,13 @@ public sealed class MainWindow : Window
 
     private CodeEditorTab? ActiveEditor => Documents.SelectedItem as CodeEditorTab;
 
+    private void SetNextStatement()
+    {
+        if (!Debugger.IsPaused || ActiveEditor is not { } tab) return;
+        var line = tab.Editor.TextArea.Caret.Line;
+        if (!Debugger.SetNextStatement(line)) SetStatus($"Line {line} is not a statement in a block that is running now.");
+    }
+
     /// <summary>Saves the active program and runs it (DO for .prg, DO FORM for .jpform).</summary>
     public void RunActive()
     {
@@ -305,6 +312,7 @@ public sealed class MainWindow : Window
         A("Debug: step into", "F11", () => Debugger.Resume(DebugAction.StepInto));
         A("Debug: step out", "Shift+F11", () => Debugger.Resume(DebugAction.StepOut));
         A("Debug: stop", "Shift+F5", () => Debugger.Resume(DebugAction.Cancel));
+        A("Debug: set next statement", "Ctrl+Shift+F10", SetNextStatement);
         A("Debug: toggle breakpoint", "F9", ToggleBreakpoint);
         A("Debug: break on errors", "", () => { Debugger.Engine.BreakOnErrors = !Debugger.Engine.BreakOnErrors; SetStatus($"Break on unhandled errors: {(Debugger.Engine.BreakOnErrors ? "on" : "off")}"); });
         A("Debug: step into program", "", () => { Debugger.Engine.RequestPause(); RunActive(); });
@@ -368,6 +376,7 @@ public sealed class MainWindow : Window
                     Item("Step _Into", "Debug: step into", "F11"),
                     Item("Step O_ut", "Debug: step out", "Shift+F11"),
                     Item("_Stop", "Debug: stop", "Shift+F5"),
+                    Item("Set _Next Statement", "Debug: set next statement", "Ctrl+Shift+F10"),
                     new Separator(),
                     Item("Toggle _Breakpoint", "Debug: toggle breakpoint", "F9"),
                     Item("Break on _Errors", "Debug: break on errors"),
@@ -392,6 +401,7 @@ public sealed class MainWindow : Window
             (false, false, Key.F5) => Debugger.IsPaused ? () => Debugger.Resume(DebugAction.Continue) : RunActive,
             (false, true, Key.F5) => () => Debugger.Resume(DebugAction.Cancel),
             (false, false, Key.F10) => () => Debugger.Resume(DebugAction.StepOver),
+            (true, true, Key.F10) => SetNextStatement,
             (false, false, Key.F11) => () => Debugger.Resume(DebugAction.StepInto),
             (false, true, Key.F11) => () => Debugger.Resume(DebugAction.StepOut),
             (false, false, Key.F9) => ToggleBreakpoint,

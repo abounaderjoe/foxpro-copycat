@@ -198,4 +198,39 @@ public class DebuggerTests : RuntimeHarness
         Assert.True(cov.Length >= 2);
         Assert.All(cov, l => Assert.Equal(6, l.Split(',').Length));
     }
+
+    [Fact]
+    public void Set_next_statement_skips_forward_and_jumps_out_of_a_loop()
+    {
+        var path = WriteProgram("jump.prg", """
+            x = 1
+            x = 2
+            x = 3
+            FOR i = 1 TO 5
+               x = x + 10
+            ENDFOR
+            ? x, i
+            """);
+        var reasons = new List<string>();
+        var dbg = new Debugger(Rt)
+        {
+            Host = new ScriptedHost(stop =>
+            {
+                reasons.Add($"{stop.Reason}@{stop.Top.Line}");
+                if (stop.Top.Line == 2) { Assert.True(stop.SetNextStatement(4)); return DebugAction.Goto; } // skip x = 2 and x = 3
+                if (stop.Top.Line == 5 && stop.Reason == StopReason.Breakpoint)
+                {
+                    Assert.False(stop.SetNextStatement(99)); // not a statement
+                    Assert.True(stop.SetNextStatement(7));   // leave the loop after one pass
+                    return DebugAction.Goto;
+                }
+                return DebugAction.Continue;
+            }),
+        };
+        dbg.AddLineBreakpoint(path, 2);
+        dbg.AddLineBreakpoint(path, 5);
+        var o = Run($"DO \"{path}\"");
+        Assert.Equal("         1          1", o); // lines 2, 3 and the loop body never ran
+        Assert.Equal(["Breakpoint@2", "Goto@4", "Breakpoint@5", "Goto@7"], reasons);
+    }
 }

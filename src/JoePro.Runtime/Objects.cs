@@ -105,7 +105,9 @@ public static class BaseClasses
         ["DataEnvironment"] = (false, ["AutoOpenTables", "AutoCloseTables", "InitialSelectedAlias", "DataSource", "DataSourceType"]),
         ["Cursor"] = (false, ["Alias", "CursorSource", "Database", "Filter", "Order", "ReadOnly", "BufferModeOverride", "Exclusive", "NoDataOnLoad"]),
         ["Relation"] = (false, ["ParentAlias", "ChildAlias", "ChildOrder", "RelationalExpr", "OneToMany"]),
-        ["CursorAdapter"] = (false, ["Alias", "SelectCmd", "DataSourceType", "DataSource", "Tables", "KeyFieldList", "UpdatableFieldList", "UpdateNameList", "BufferModeOverride"]),
+        ["CursorAdapter"] = (false, ["Alias", "SelectCmd", "DataSourceType", "DataSource", "Tables", "KeyFieldList", "UpdatableFieldList", "UpdateNameList",
+            "BufferModeOverride", "SendUpdates", "WhereType", "UpdateType", "CursorSchema", "UseCursorSchema", "FetchSize", "MaxRecords", "CursorStatus",
+            "AllowUpdate", "AllowInsert", "AllowDelete", "FetchMemo", "NoData", "UpdateCmd", "InsertCmd", "DeleteCmd", "UseTransactions"]),
         ["ReportListener"] = (false, ["ListenerType", "OutputType", "PageNo", "PageTotal", "QuietMode"]),
         ["ProjectHook"] = (false, ["Visible"]),
         ["Form"] = (true, ["Caption", "AutoCenter", "BorderStyle", "ControlBox", "Closable", "MaxButton", "MinButton", "WindowType", "WindowState",
@@ -196,6 +198,16 @@ public static class BaseClasses
             case "COMMANDBUTTON": o.Set("Caption", Value.String("Command1")); o.Set("Height", Value.Number(27)); o.Set("Width", Value.Number(84)); break;
             case "PAGEFRAME": o.Set("Width", Value.Number(241)); o.Set("Height", Value.Number(169)); break;
             case "GRID": o.Set("ColumnCount", Value.Number(-1)); o.Set("Width", Value.Number(320)); o.Set("Height", Value.Number(200)); break;
+            case "CURSORADAPTER":
+                o.Set("BufferModeOverride", Value.Number(5));
+                o.Set("WhereType", Value.Number(3));
+                o.Set("UpdateType", Value.Number(1));
+                o.Set("FetchSize", Value.Number(100));
+                o.Set("MaxRecords", Value.Number(-1));
+                o.Set("CursorStatus", Value.Number(0));
+                foreach (var p in new[] { "AllowUpdate", "AllowInsert", "AllowDelete", "FetchMemo", "UseTransactions" }) o.Set(p, Value.True);
+                foreach (var p in new[] { "SendUpdates", "UseCursorSchema", "NoData" }) o.Set(p, Value.False);
+                break;
         }
     }
 }

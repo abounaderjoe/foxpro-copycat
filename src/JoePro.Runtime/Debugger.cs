@@ -33,9 +33,11 @@ public sealed class Breakpoint
     internal bool Primed { get; set; }
 }
 
-public enum StopReason { Breakpoint, Step, Pause, Suspend, Exception, Entry }
+public enum StopReason { Breakpoint, Step, Pause, Suspend, Exception, Entry, Goto }
 
-public enum DebugAction { Continue, StepInto, StepOver, StepOut, Cancel }
+public enum DebugAction { Continue, StepInto, StepOver, StepOut, Cancel,
+    /// <summary>Resume at the line given to <see cref="DebugStop.SetNextStatement"/>, then stop there.</summary>
+    Goto }
 
 /// <summary>One activation in the call stack, as shown by the debugger (innermost first).</summary>
 public sealed record StackFrameInfo(int Id, string Name, string? File, int Line, int Level);
@@ -99,6 +101,17 @@ public sealed class DebugStop
         {
             return new VariableInfo(expression, $"Error {ex.Number}: {ex.Message}", "U", "Watch", 0);
         }
+    }
+
+    /// <summary>Lines execution can be moved to: statements in the blocks now executing in the top frame.</summary>
+    public IReadOnlyList<int> GotoTargets() => _debugger.Runtime.GotoTargets(_frames[0]);
+
+    /// <summary>Set Next Statement: the line to run next when the host returns <see cref="DebugAction.Goto"/>.</summary>
+    public bool SetNextStatement(int line)
+    {
+        if (!GotoTargets().Contains(line)) return false;
+        _debugger.PendingGoto = line;
+        return true;
     }
 
     /// <summary>Changes a variable while paused (Locals window editing).</summary>
@@ -194,6 +207,20 @@ public sealed class Debugger
     /// <summary>Asks the running program to stop at the next statement (Pause button, ESC).</summary>
     public void RequestPause() => _pauseRequested = true;
 
+    internal int? PendingGoto { get; set; }
+    private bool _stopAfterGoto;
+
+    /// <summary>The runtime asks after each stop whether to jump; the jump then stops at its target.</summary>
+    internal int? TakeGoto()
+    {
+        if (PendingGoto is not { } line) return null;
+        PendingGoto = null;
+        _stopAfterGoto = true;
+        return line;
+    }
+
+    internal void StopAfterGoto() => _stopAfterGoto = true;
+
     // ---- Coverage ----------------------------------------------------------------------
 
     /// <summary>SET COVERAGE TO file: logs every executed line (VFP-style comma-separated format).</summary>
@@ -237,7 +264,12 @@ public sealed class Debugger
 
         StopReason? reason = null;
         Breakpoint? hit = null;
-        if (_pauseRequested)
+        if (_stopAfterGoto)
+        {
+            _stopAfterGoto = false;
+            reason = StopReason.Goto;
+        }
+        else if (_pauseRequested)
         {
             _pauseRequested = false;
             reason = StopReason.Pause;
@@ -339,6 +371,11 @@ public sealed class Debugger
         finally
         {
             IsPaused = false;
+        }
+        if (action == DebugAction.Goto)
+        {
+            if (PendingGoto == null) action = DebugAction.StepInto; // no valid target was set: behave like a step
+            else { _mode = DebugAction.Continue; action = DebugAction.Continue; }
         }
         _mode = action;
         _stepLevel = frame.Level;

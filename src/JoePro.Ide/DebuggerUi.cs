@@ -76,6 +76,14 @@ public sealed class IdeDebugger : IDebugHost
         _frame.Continue = false;
     }
 
+    /// <summary>Set Next Statement (Ctrl+Shift+F10): runs <paramref name="line"/> next, if it is in a block now executing.</summary>
+    public bool SetNextStatement(int line)
+    {
+        if (CurrentStop == null || !CurrentStop.SetNextStatement(line)) return false;
+        Resume(DebugAction.Goto);
+        return true;
+    }
+
     public void SelectFrame(int index)
     {
         if (CurrentStop == null || index < 0 || index >= CurrentStop.Frames.Count) return;
@@ -96,9 +104,10 @@ public sealed class IdeDebugger : IDebugHost
             StopReason.Step => "Step",
             StopReason.Suspend => "Suspended",
             StopReason.Exception => stop.Message ?? "Error",
+            StopReason.Goto => "Moved",
             _ => "Paused",
         };
-        _window.SetStatus($"{reason} in {top.Name}, line {top.Line}. F5 continue · F10 step over · F11 step into · Shift+F11 step out · Shift+F5 stop");
+        _window.SetStatus($"{reason} in {top.Name}, line {top.Line}. F5 continue · F10 step over · F11 step into · Shift+F11 step out · Ctrl+Shift+F10 set next statement · Shift+F5 stop");
         Panel.ShowStack(stop.Frames);
         Panel.ShowVariables(Locals(), WatchNodes());
         StateChanged?.Invoke();

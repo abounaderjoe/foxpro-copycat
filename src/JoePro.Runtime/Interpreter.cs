@@ -479,38 +479,75 @@ public sealed partial class Interpreter : IExpressionHost
     // Statements
     // ================================================================================
 
+    // The statement lists being executed, innermost last, for the debugger's Set Next Statement.
+    private readonly List<(List<Stmt> Stmts, Frame Frame)> _activeLists = new();
+
+    /// <summary>Lines the debugger may move execution to: statements in the blocks now executing in <paramref name="frame"/>.</summary>
+    internal IReadOnlyList<int> GotoTargets(Frame frame) =>
+        _activeLists.Where(a => a.Frame == frame).SelectMany(a => a.Stmts).Select(s => s.Line).Where(l => l > 0).Distinct().Order().ToList();
+
     internal Flow Exec(List<Stmt> stmts)
     {
-        foreach (var s in stmts)
+        _activeLists.Add((stmts, _frame));
+        try
         {
-            _frame.Line = s.Line;
-            Debugger?.OnStatement(_frame, s);
-            Flow f;
-            try
+            int i = 0;
+            while (i < stmts.Count)
             {
-                f = ExecStmt(s);
-            }
-            catch (VfpException ex) when (Annotate(ex) && ReportToDebugger(ex)) { throw; }
-            catch (VfpException ex) when (_tryDepth == 0 && OnErrorCommand != null)
-            {
-                RecordError(ex);
-                RunOnError();
-                continue;
-            }
-            catch (Exception ex) when (ex is not VfpException and not QuitException and not ReturnToMasterException and not InternalFlowException and not CancelProgramException)
-            {
-                var vex = Wrap(ex);
-                if (_tryDepth == 0 && OnErrorCommand != null)
+                var s = stmts[i];
+                _frame.Line = s.Line;
+                if (Debugger != null)
                 {
-                    RecordError(vex);
-                    RunOnError();
+                    Debugger.OnStatement(_frame, s);
+                    if (Debugger.TakeGoto() is int target)
+                    {
+                        // Set Next Statement: jump within this block, or unwind to the enclosing block that has the line.
+                        var idx = stmts.FindIndex(x => x.Line == target);
+                        if (idx < 0) throw new GotoException(target, _frame);
+                        i = idx;
+                        continue;
+                    }
+                }
+                Flow f;
+                try
+                {
+                    f = ExecStmt(s);
+                }
+                catch (GotoException g) when (g.Frame == _frame && stmts.FindIndex(x => x.Line == g.Line) is var at && at >= 0)
+                {
+                    i = at;
+                    Debugger?.StopAfterGoto();
                     continue;
                 }
-                throw vex;
+                catch (VfpException ex) when (Annotate(ex) && ReportToDebugger(ex)) { throw; }
+                catch (VfpException ex) when (_tryDepth == 0 && OnErrorCommand != null)
+                {
+                    RecordError(ex);
+                    RunOnError();
+                    i++;
+                    continue;
+                }
+                catch (Exception ex) when (ex is not VfpException and not QuitException and not ReturnToMasterException and not InternalFlowException and not CancelProgramException and not GotoException)
+                {
+                    var vex = Wrap(ex);
+                    if (_tryDepth == 0 && OnErrorCommand != null)
+                    {
+                        RecordError(vex);
+                        RunOnError();
+                        i++;
+                        continue;
+                    }
+                    throw vex;
+                }
+                if (f != Flow.Normal) return f;
+                i++;
             }
-            if (f != Flow.Normal) return f;
+            return Flow.Normal;
         }
-        return Flow.Normal;
+        finally
+        {
+            _activeLists.RemoveAt(_activeLists.Count - 1);
+        }
     }
 
     private readonly HashSet<VfpException> _reportedToDebugger = new(ReferenceEqualityComparer.Instance);
@@ -805,7 +842,7 @@ public sealed partial class Interpreter : IExpressionHost
             try { result = Exec(t.Body); }
             finally { _tryDepth--; }
         }
-        catch (Exception ex) when (t.Catch != null && ex is not QuitException and not ReturnToMasterException and not InternalFlowException and not CancelProgramException)
+        catch (Exception ex) when (t.Catch != null && ex is not QuitException and not ReturnToMasterException and not InternalFlowException and not CancelProgramException and not GotoException)
         {
             if (!CatchMatches(t, ex)) throw;
             result = Exec(t.Catch);
@@ -1034,3 +1071,10 @@ public sealed class UserThrowException(Value payload, int line) : VfpException(2
 }
 
 internal sealed class InternalFlowException : Exception;
+
+/// <summary>Set Next Statement to a line in an enclosing block: unwinds to the Exec loop that owns the line.</summary>
+internal sealed class GotoException(int line, Frame frame) : Exception
+{
+    public int Line { get; } = line;
+    public Frame Frame { get; } = frame;
+}

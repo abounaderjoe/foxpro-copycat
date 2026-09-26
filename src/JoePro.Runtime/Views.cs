@@ -27,6 +27,8 @@ public sealed class ViewCursor : IDisposable
     public Dictionary<string, string> UpdateNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public int WhereType { get; set; } = 3;
     public int UpdateType { get; set; } = 1;
+    /// <summary>The CursorAdapter that owns this cursor; its update properties are read at TABLEUPDATE time.</summary>
+    public VfpObject? Adapter { get; set; }
 
     public void Dispose()
     {
@@ -158,7 +160,7 @@ internal static class Views
         return row;
     }
 
-    private static ResultSet Fetch(Interpreter rt, ViewCursor state, bool noData)
+    internal static ResultSet Fetch(Interpreter rt, ViewCursor state, bool noData)
     {
         var view = state.Definition;
         if (!view.Remote)
@@ -204,6 +206,7 @@ internal static class Views
     public static int Requery(Interpreter rt, WorkArea wa)
     {
         if (wa.ViewState is not ViewCursor state) throw new VfpException(1491, "REQUERY() can only be used with a view.");
+        if (state.Adapter != null) CursorAdapters.SyncSelect(state, state.Adapter);
         if (wa.HasPendingChanges) throw new VfpException(1545, "Table buffer contains uncommitted changes.");
         var set = Fetch(rt, state, noData: false);
         var schema = wa.Table.Schema;
@@ -213,7 +216,7 @@ internal static class Views
 
     // ---- Updates ---------------------------------------------------------------------------------
 
-    private static List<string> SplitList(string s) =>
+    internal static List<string> SplitList(string s) =>
         s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
 
     private static (string Table, string Field) SplitUpdateName(string un)
@@ -229,12 +232,14 @@ internal static class Views
     }
 
     /// <summary>Sends buffered view changes to the base tables. Returns false on an update conflict.</summary>
-    private static bool SendChanges(Interpreter rt, WorkArea wa, ViewCursor state, IReadOnlyList<BufferedChange> changes, bool force)
+    internal static bool SendChanges(Interpreter rt, WorkArea wa, ViewCursor state, IReadOnlyList<BufferedChange> changes, bool force)
     {
+        if (state.Adapter != null) CursorAdapters.SyncUpdateProperties(state, state.Adapter);
         if (!state.SendUpdates) return true;
         if (state.Tables.Count == 0) throw new VfpException(1492, "No update tables are specified. Use the Tables cursor property.");
         if (state.KeyFields.Count == 0) throw new VfpException(1491, "No key columns are specified for the update table. Use the KeyFieldList cursor property.");
         var fields = wa.Table.Fields;
+        if (state.Adapter != null) CursorAdapters.CheckAllowed(state.Adapter, changes);
 
         // One plan per update table: which view columns map to which base columns.
         var plans = new List<(string Table, List<(int Index, string Column, bool Key, bool Updatable)> Cols)>();

@@ -185,6 +185,15 @@ public sealed partial class Interpreter
         return form != null && _formSessions.TryGetValue(form, out var s) ? s : Session;
     }
 
+    /// <summary>Runs <paramref name="action"/> with the data session of the form that owns <paramref name="o"/> selected.</summary>
+    internal void InSessionOf(VfpObject o, Action action)
+    {
+        var saved = Session;
+        Session = SessionFor(o);
+        try { action(); }
+        finally { Session = saved; }
+    }
+
     /// <summary>Runs <paramref name="action"/> in the data session of the form that owns <paramref name="o"/>.</summary>
     public T InObjectContext<T>(VfpObject o, Func<T> action)
     {
@@ -603,7 +612,8 @@ public sealed partial class Interpreter
             case "INIT" or "DESTROY" or "ERROR" or "LOAD" or "UNLOAD" or "ACTIVATE" or "DEACTIVATE" or "CLICK" or "DBLCLICK"
                 or "GOTFOCUS" or "LOSTFOCUS" or "VALID" or "WHEN" or "INTERACTIVECHANGE" or "PROGRAMMATICCHANGE" or "QUERYUNLOAD"
                 or "RESIZE" or "TIMER" or "KEYPRESS" or "MOUSEDOWN" or "MOUSEUP" or "MOUSEMOVE" or "DRAW" or "MOVED"
-                or "BEFOREOPENTABLES" or "AFTERCLOSETABLES" or "OPENTABLES" or "CLOSETABLES":
+                or "BEFOREOPENTABLES" or "AFTERCLOSETABLES" or "OPENTABLES" or "CLOSETABLES"
+                or "BEFORECURSORFILL" or "AFTERCURSORFILL" or "BEFORECURSORREFRESH" or "AFTERCURSORREFRESH":
                 return Value.True;
             case "ADDPROPERTY":
             {
@@ -666,6 +676,10 @@ public sealed partial class Interpreter
             case "REFRESH":
                 Ui?.Refresh(o);
                 return Value.True;
+            case "CURSORFILL" when o.Class.BaseClass == "CursorAdapter": return CursorAdapters.CursorFill(this, o, args);
+            case "CURSORREFRESH" when o.Class.BaseClass == "CursorAdapter": return CursorAdapters.CursorRefresh(this, o);
+            case "CURSORATTACH" when o.Class.BaseClass == "CursorAdapter": return CursorAdapters.CursorAttach(this, o, args);
+            case "CURSORDETACH" when o.Class.BaseClass == "CursorAdapter": return CursorAdapters.CursorDetach(this, o);
             case "SETFOCUS":
                 Ui?.SetFocus(o);
                 return Value.True;

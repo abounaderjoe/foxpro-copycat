@@ -48,9 +48,9 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Local views: `CREATE SQL VIEW`, parameters (`?name`, `?(expr)`), `USE … NODATA`, `REQUERY()`, `DBSETPROP`/`CURSORSETPROP`, updates to base tables with WhereType conflict detection | ✅ Done |
 | SQL pass-through: `SQLSTRINGCONNECT`/`SQLCONNECT`/`SQLEXEC`/`SQLPREPARE`/`SQLMORERESULTS`/`SQLCOMMIT`/`SQLROLLBACK`/`SQLTABLES`/`SQLCOLUMNS`/`SQLGETPROP`/`SQLSETPROP`, named connections | ✅ Done over ADO.NET: built-in SQLite provider, ODBC for `Driver=`/`DSN=` strings, and a provider registry for others |
 | Remote views (`CREATE SQL VIEW … REMOTE CONNECTION`) with updates | ✅ Done |
-| CursorAdapter | ⛔ Not started |
+| CursorAdapter: `CursorFill`/`CursorRefresh`/`CursorAttach`/`CursorDetach`, CursorSchema, fill/refresh events, updates via its current properties | ✅ NATIVE and ODBC data sources. ADO and XML need COM: not supported |
 | Language server: diagnostics, completion, hover, go to definition, symbols, **find references, rename, signature help** | ✅ Done (LSP + IDE). Semantic highlighting: not yet |
-| Debugger (engine, IDE, DAP): breakpoints (conditional, break-when-true, break-on-change), stepping, call stack, locals, watch, debug output, event tracking, coverage, `SET STEP ON`/`SUSPEND` | ✅ Done. Set next statement: not yet |
+| Debugger (engine, IDE, DAP): breakpoints (conditional, break-when-true, break-on-change), stepping, **set next statement** (within the running blocks of the current procedure), call stack, locals, watch, debug output, event tracking, coverage, `SET STEP ON`/`SUSPEND` | ✅ Done |
 | VS Code extension (LSP + DAP client, grammar) | 🟡 Written; not yet tried in VS Code |
 | Migration slice 2: PRG analyzer findings in the report | 🟡 Analyzer and report section done; automatic fixes not yet |
 | Performance: record navigation, batching, prepared statements | ✅ 10–60× faster navigation and bulk commands ([benchmarks](benchmarks.md)) |

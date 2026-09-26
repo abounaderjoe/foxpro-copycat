@@ -192,6 +192,9 @@ public sealed class DataSession : IDisposable
         return (db, name[(bang + 1)..].Trim());
     }
 
+    /// <summary>The in-memory store that holds this session's cursors.</summary>
+    public Store CursorStore => _cursorStore ??= Store.CreateInMemory();
+
     /// <summary>CREATE CURSOR: a temporary table in the session's in-memory store.</summary>
     public WorkArea CreateCursor(TableSchema schema, int? area = null)
     {
