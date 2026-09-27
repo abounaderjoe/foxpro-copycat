@@ -16,6 +16,13 @@ public sealed record FieldDef(string Name, char Type, int Width = 0, int Decimal
     public string? RuleExpr { get; init; }
     public string? RuleText { get; init; }
     public string? Caption { get; init; }
+    public string? Comment { get; init; }
+    /// <summary>Format and InputMask a control bound to the field gets (DBGETPROP "Format", "InputMask").</summary>
+    public string? Format { get; init; }
+    public string? InputMask { get; init; }
+    /// <summary>The class (and library) the Form Designer uses for the field (DBGETPROP "DisplayClass").</summary>
+    public string? DisplayClass { get; init; }
+    public string? DisplayClassLibrary { get; init; }
 
     public static readonly string ValidTypes = "CVMNFBIYDTLGWQ";
 

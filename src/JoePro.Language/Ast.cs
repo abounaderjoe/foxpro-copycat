@@ -179,6 +179,30 @@ public sealed record ReportFormStmt(bool Label, Expr? Name, Scope Scope) : Stmt
 /// <summary>REMOVE TABLE name [DELETE]: takes a table out of the current database (as a free table unless DELETE).</summary>
 public sealed record RemoveTableStmt(Expr Name, bool Delete) : Stmt;
 public sealed record CreateDatabaseStmt(Expr Name) : Stmt;
+/// <summary>APPEND PROCEDURES FROM file [OVERWRITE] / COPY PROCEDURES TO file [ADDITIVE]: the current database's stored procedures.</summary>
+public sealed record ProceduresFileStmt(bool Append, Expr File, bool Replace) : Stmt;
+/// <summary>CREATE TRIGGER ON table FOR DELETE|INSERT|UPDATE AS expr, or DELETE TRIGGER (Expression null).</summary>
+public sealed record TriggerStmt(Expr Table, string Kind, string? Expression) : Stmt;
+/// <summary>
+/// ALTER TABLE clauses that change rules and keys rather than fields: SET CHECK / DROP CHECK (table rule), ADD/DROP
+/// PRIMARY KEY, ADD/DROP UNIQUE, ADD/DROP FOREIGN KEY (persistent relations, with ON UPDATE/DELETE/INSERT rules),
+/// and ALTER COLUMN name SET DEFAULT / DROP DEFAULT / SET CHECK / DROP CHECK / NULL / NOT NULL.
+/// Expressions are kept as text, the way the database stores them.
+/// </summary>
+public sealed record AlterTableRuleStmt(Expr Table, string Action) : Stmt
+{
+    public string? Column { get; init; }
+    public string? Expression { get; init; }
+    public string? ForExpression { get; init; }
+    public string? ErrorText { get; init; }
+    public string? Tag { get; init; }
+    public string? References { get; init; }
+    public string? ReferencesTag { get; init; }
+    public bool Save { get; init; }
+    public string? RiUpdate { get; init; }
+    public string? RiDelete { get; init; }
+    public string? RiInsert { get; init; }
+}
 public sealed record OpenDatabaseStmt(Expr Name, bool Exclusive) : Stmt;
 public sealed record SetDatabaseStmt(Expr? Name) : Stmt;
 public sealed record ListStmt(bool Display, List<Expr>? Fields, Scope Scope, bool Structure, bool Off) : Stmt;

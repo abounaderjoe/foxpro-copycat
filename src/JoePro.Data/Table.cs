@@ -388,6 +388,29 @@ public sealed partial class Table
         Schema.Fields[i] = Fields[i] with { AutoIncNext = next };
     }
 
+    /// <summary>The records (not deleted) whose key for <paramref name="tag"/> (one of this table's tags) equals <paramref name="key"/>.</summary>
+    public List<RowData> RowsWithKey(TagDef tag, Value key)
+    {
+        var keyBytes = EncodeKey(tag, key);
+        var list = new List<RowData>();
+        foreach (var row in Scan(tag, forward: true, new Position(keyBytes, int.MinValue), inclusive: true, skipDeleted: true))
+        {
+            var rowKey = ReadKey(tag, row.RecNo) ?? [];
+            if (!rowKey.AsSpan().SequenceEqual(keyBytes)) break;
+            if (!row.Deleted) list.Add(row);
+        }
+        return list;
+    }
+
+    /// <summary>Makes a field autoincrementing from <paramref name="next"/> (a rebuilt table gets its rows first, then its counters).</summary>
+    public void EnableAutoIncrement(string field, long next, int step)
+    {
+        var i = Schema.FieldIndex(field);
+        if (i < 0) return;
+        Store.Exec("UPDATE _jp_fields SET autoinc_next=$n, autoinc_step=$s WHERE tbl=$t AND name=$f", ("$n", next), ("$s", step), ("$t", Name), ("$f", Fields[i].Name));
+        Schema.Fields[i] = Fields[i] with { AutoIncNext = next, AutoIncStep = step };
+    }
+
     /// <summary>Removes all records (ZAP).</summary>
     public void Zap() => Store.Exec($"DELETE FROM \"{SqlName}\"");
 

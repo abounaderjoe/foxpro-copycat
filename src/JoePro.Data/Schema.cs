@@ -43,6 +43,30 @@ public sealed class TableSchema
         Tags.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
 }
 
-/// <summary>A persistent relation between two tables of a database (drawn in the Database Designer).</summary>
+/// <summary>
+/// A persistent relation between two tables of a database (drawn in the Database Designer), with its referential
+/// integrity rules: CASCADE, RESTRICT or IGNORE for updates and deletes of the parent and inserts into the child.
+/// </summary>
 public sealed record RelationDef(string ParentTable, string ParentTag, string ChildTable, string ChildTag,
-    string RiUpdate = "IGNORE", string RiDelete = "IGNORE", string RiInsert = "IGNORE");
+    string RiUpdate = "IGNORE", string RiDelete = "IGNORE", string RiInsert = "IGNORE")
+{
+    public static readonly string[] Rules = ["IGNORE", "CASCADE", "RESTRICT"];
+
+    /// <summary>Upper-case names and full rule words ("C" → CASCADE, "R" → RESTRICT, anything else → IGNORE).</summary>
+    public RelationDef Normalize() => new(ParentTable.ToUpperInvariant(), ParentTag.ToUpperInvariant(), ChildTable.ToUpperInvariant(), ChildTag.ToUpperInvariant(),
+        Rule(RiUpdate), Rule(RiDelete), Rule(RiInsert));
+
+    public static string Rule(string? r) => (r ?? "").Trim().ToUpperInvariant() switch
+    {
+        "C" or "CASCADE" => "CASCADE",
+        "R" or "RESTRICT" => "RESTRICT",
+        _ => "IGNORE",
+    };
+
+    /// <summary>The three-letter RI code ADBOBJECTS() reports (update, delete, insert), e.g. "CRI".</summary>
+    public string RiCode => $"{Rule(RiUpdate)[0]}{Rule(RiDelete)[0]}{Rule(RiInsert)[0]}";
+
+    public bool SameLink(RelationDef o) =>
+        ParentTable.Equals(o.ParentTable, StringComparison.OrdinalIgnoreCase) && ParentTag.Equals(o.ParentTag, StringComparison.OrdinalIgnoreCase)
+        && ChildTable.Equals(o.ChildTable, StringComparison.OrdinalIgnoreCase) && ChildTag.Equals(o.ChildTag, StringComparison.OrdinalIgnoreCase);
+}

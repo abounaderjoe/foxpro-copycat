@@ -11,6 +11,8 @@ internal sealed class SqlSourceBinding
     public required List<FieldDef> Fields { get; init; }
     public Dictionary<string, int> Index { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<Value[]> Rows { get; init; } = new();
+    /// <summary>Rows of a table source that are marked deleted (by reference), for DELETED() in the query.</summary>
+    public HashSet<Value[]>? DeletedRows { get; set; }
 
     public void BuildIndex()
     {
@@ -62,6 +64,18 @@ internal sealed class SqlRowContext
         if (Outer != null) return Outer.TryResolve(alias, field, out value);
         value = default;
         return false;
+    }
+
+    /// <summary>DELETED() in a query: whether the current row of the (only, or named) table source is deleted.</summary>
+    public bool? IsDeleted(string? alias)
+    {
+        for (int s = 0; s < Sources.Count; s++)
+        {
+            if (alias != null && !Sources[s].Alias.Equals(alias, StringComparison.OrdinalIgnoreCase)) continue;
+            if (alias == null && Sources.Count > 1) return Outer?.IsDeleted(alias);
+            return Current[s] is { } row && Sources[s].DeletedRows?.Contains(row) == true;
+        }
+        return Outer?.IsDeleted(alias);
     }
 
     public Value EvalAggregate(Interpreter rt, CallExpr c)
@@ -314,7 +328,11 @@ internal static class SqlEngine
         var withRecno = recnoAlias != null && aliasName.Equals(recnoAlias, StringComparison.OrdinalIgnoreCase);
         var binding = new SqlSourceBinding { Alias = aliasName, Fields = withRecno ? [.. table.Fields, new FieldDef(RecnoColumn, 'I')] : table.Fields.ToList() };
         foreach (var row in table.Scan(null, forward: true, skipDeleted: rt.Options.Deleted))
-            binding.Rows.Add(withRecno ? [.. row.Values, Value.Number(row.RecNo)] : row.Values);
+        {
+            var values = withRecno ? [.. row.Values, Value.Number(row.RecNo)] : row.Values;
+            binding.Rows.Add(values);
+            if (row.Deleted) (binding.DeletedRows ??= new HashSet<Value[]>(ReferenceEqualityComparer.Instance)).Add(values);
+        }
         binding.BuildIndex();
         return binding;
     }
@@ -1065,7 +1083,8 @@ internal static class SqlEngine
                 foreach (var r in recs)
                 {
                     wa.Go(r);
-                    wa.Delete();
+                    if (wa.Deleted) continue;   // already deleted by a cascade
+                    rt.DeleteWithRules(wa);
                     count++;
                 }
             });

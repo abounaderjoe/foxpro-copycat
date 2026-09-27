@@ -29,6 +29,7 @@ public static partial class Library
         Add("FOUND", c => L(c.Area(0).Found));
         Add("DELETED", c =>
         {
+            if (c.Rt.SqlContext?.IsDeleted(c.Has(0) && c[0].Kind == ValueKind.Character ? c.Str(0).Trim() : null) is { } sqlDeleted) return L(sqlDeleted);
             if (!c.Has(0) && c.Rt.RecordContext is { } rec) return L(rec.Deleted);
             return L(c.Area(0).Deleted);
         });
@@ -287,7 +288,9 @@ public static partial class Library
                 return prop switch
                 {
                     "CAPTION" => S(f.Caption ?? ""), "DEFAULTVALUE" => S(f.DefaultExpr ?? ""), "RULEEXPRESSION" => S(f.RuleExpr ?? ""),
-                    "RULETEXT" => S(f.RuleText ?? ""), _ => Value.EmptyString,
+                    "RULETEXT" => S(f.RuleText ?? ""), "COMMENT" => S(f.Comment ?? ""), "FORMAT" => S(f.Format ?? ""), "INPUTMASK" => S(f.InputMask ?? ""),
+                    "DISPLAYCLASS" => S(f.DisplayClass ?? ""), "DISPLAYCLASSLIBRARY" => S(f.DisplayClassLibrary ?? ""),
+                    _ => Value.EmptyString,
                 };
             }
             return prop switch
@@ -353,6 +356,48 @@ public static partial class Library
                     db.SaveConnection(conn);
                     return Value.True;
                 }
+                case "TABLE":
+                {
+                    if (!prop.Equals("Comment", StringComparison.OrdinalIgnoreCase))
+                        throw new VfpException(1559, $"Property {prop.ToUpperInvariant()} is read-only (set rules with ALTER TABLE and triggers with CREATE TRIGGER).");
+                    var t = db.OpenTable(name, c.Rt);
+                    var schema = new TableSchema(t.Schema.Name, t.Schema.Fields)
+                    {
+                        Comment = value.AsString, RuleExpr = t.Schema.RuleExpr, RuleText = t.Schema.RuleText,
+                        InsertTrigger = t.Schema.InsertTrigger, UpdateTrigger = t.Schema.UpdateTrigger, DeleteTrigger = t.Schema.DeleteTrigger,
+                    };
+                    db.UpdateTableProperties(schema);
+                    return Value.True;
+                }
+                case "FIELD" when dot > 0:
+                {
+                    var t = db.OpenTable(name[..dot], c.Rt);
+                    var i = t.Schema.FieldIndex(name[(dot + 1)..]);
+                    if (i < 0) throw VfpException.FieldNotFound(name[(dot + 1)..]);
+                    var text = value.AsString;
+                    var f = t.Fields[i];
+                    f = prop.ToUpperInvariant() switch
+                    {
+                        "CAPTION" => f with { Caption = text },
+                        "COMMENT" => f with { Comment = text },
+                        "FORMAT" => f with { Format = text },
+                        "INPUTMASK" => f with { InputMask = text },
+                        "DISPLAYCLASS" => f with { DisplayClass = text },
+                        "DISPLAYCLASSLIBRARY" => f with { DisplayClassLibrary = text },
+                        "DEFAULTVALUE" or "RULEEXPRESSION" or "RULETEXT" =>
+                            throw new VfpException(1559, $"Property {prop.ToUpperInvariant()} is read-only (set it with ALTER TABLE … ALTER COLUMN).") ,
+                        _ => throw new VfpException(1559, $"Property {prop.ToUpperInvariant()} is invalid."),
+                    };
+                    var fields = t.Fields.ToList();
+                    fields[i] = f;
+                    var schema = new TableSchema(t.Schema.Name, fields)
+                    {
+                        Comment = t.Schema.Comment, RuleExpr = t.Schema.RuleExpr, RuleText = t.Schema.RuleText,
+                        InsertTrigger = t.Schema.InsertTrigger, UpdateTrigger = t.Schema.UpdateTrigger, DeleteTrigger = t.Schema.DeleteTrigger,
+                    };
+                    db.UpdateTableProperties(schema);
+                    return Value.True;
+                }
                 default:
                     throw VfpException.NotSupported($"DBSETPROP() for {type.ToLowerInvariant()} properties");
             }
@@ -370,7 +415,7 @@ public static partial class Library
                 {
                     ra[i + 1, 1] = S(rels[i].ChildTable.ToUpperInvariant()); ra[i + 1, 2] = S(rels[i].ParentTable.ToUpperInvariant());
                     ra[i + 1, 3] = S(rels[i].ChildTag.ToUpperInvariant()); ra[i + 1, 4] = S(rels[i].ParentTag.ToUpperInvariant());
-                    ra[i + 1, 5] = S(rels[i].RiUpdate + rels[i].RiDelete + rels[i].RiInsert);
+                    ra[i + 1, 5] = S(rels[i].RiCode);
                 }
                 return N(rels.Count);
             }

@@ -291,6 +291,18 @@ public sealed class DataSession : IDisposable
         return wa;
     }
 
+    /// <summary>Closes the work areas that use a free table's file and releases the file (so it can be rebuilt).</summary>
+    public void ReleaseStore(string path)
+    {
+        path = Path.GetFullPath(path);
+        if (!_stores.Remove(path, out var store)) return;
+        foreach (var wa in OpenWorkAreas().Where(w => w.Table.Store == store).ToList()) wa.Close();
+        store.Dispose();
+    }
+
+    /// <summary>The store of an open database or free table file, opening it if needed.</summary>
+    public Store StoreOf(string path) => GetStore(path);
+
     public void CloseTables()
     {
         foreach (var wa in OpenWorkAreas().ToList()) wa.Close();

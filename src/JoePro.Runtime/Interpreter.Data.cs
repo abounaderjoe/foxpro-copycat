@@ -123,6 +123,9 @@ public sealed partial class Interpreter
                 return true;
             case CreateTableStmt ct: ExecCreateTable(ct); return true;
             case AlterTableStmt at: ExecAlterTable(at); return true;
+            case AlterTableRuleStmt ar: ExecAlterTableRule(ar); return true;
+            case TriggerStmt ts: ExecTrigger(ts); return true;
+            case ProceduresFileStmt pf: ExecProceduresFile(pf); return true;
             case CreateDatabaseStmt cd:
                 Session.CreateDatabase(NameValue(cd.Name));
                 return true;
@@ -647,12 +650,20 @@ public sealed partial class Interpreter
     internal void ReplaceWithRules(WorkArea wa, List<(int, Value)> assignments)
     {
         var before = wa.Current?.Clone();
-        wa.Replace(assignments);
-        try
+        var keys = RiKeys(wa);
+        void Change()
         {
+            wa.Replace(assignments);
             foreach (var (idx, _) in assignments) CheckFieldRule(wa, idx);
             CheckRecordRule(wa);
             RunTrigger(wa, wa.Table.Schema.UpdateTrigger, "Update");
+            if (keys.Count > 0) EnforceRiUpdate(wa, keys);
+        }
+        try
+        {
+            // Referential integrity may change other tables: the whole change is undone together.
+            if (keys.Count > 0) wa.Table.Store.Atomic(Change);
+            else Change();
         }
         catch
         {
@@ -710,6 +721,7 @@ public sealed partial class Interpreter
         {
             CheckRecordRule(wa);
             RunTrigger(wa, wa.Table.Schema.InsertTrigger, "Insert");
+            EnforceRiInsert(wa);
         }
         catch
         {
@@ -724,12 +736,8 @@ public sealed partial class Interpreter
         if (!wa.InUse) throw VfpException.NoTableOpen();
         var count = ForEachInScope(wa, d.Scope, "NEXT1", () =>
         {
-            wa.Delete(!d.Recall);
-            if (!d.Recall)
-            {
-                try { RunTrigger(wa, wa.Table.Schema.DeleteTrigger, "Delete"); }
-                catch { wa.Delete(false); throw; }
-            }
+            if (d.Recall) wa.Delete(false);
+            else DeleteWithRules(wa);
         }, snapshot: true);
         Talk($"{count} record{(count == 1 ? "" : "s")} {(d.Recall ? "recalled" : "deleted")}.");
     }
@@ -1023,6 +1031,9 @@ public sealed partial class Interpreter
                 if (File.Exists(p)) File.Delete(p);
                 break;
             }
+            case "RENAME" when rest.TrimStart().StartsWith("TABLE ", StringComparison.OrdinalIgnoreCase):
+                RenameTableCommand(rest.TrimStart()[6..]);
+                break;
             case "RENAME" when rest.TrimStart().StartsWith("CLASS ", StringComparison.OrdinalIgnoreCase):
                 RenameClassCommand(rest.TrimStart()[6..]);
                 break;
@@ -1098,7 +1109,7 @@ public sealed partial class Interpreter
     private bool TryOpenDesigner(bool create, string rest)
     {
         var m = System.Text.RegularExpressions.Regex.Match(rest.Trim(),
-            @"^(?<kind>FORM|CLASSLIB|CLASS|REPO\w*|LABE?L?|MENU|QUER\w*|PROJ\w*|DATA\w*|SCREEN)\b\s*(?<rest>.*)$",
+            @"^(?<kind>FORM|CLASSLIB|CLASS|REPO\w*|LABE?L?|MENU|QUER\w*|PROJ\w*|DATA\w*|SCREEN|STRU\w*|PROC\w*)\b\s*(?<rest>.*)$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
         if (!m.Success) return false;
         var kindWord = m.Groups["kind"].Value.ToUpperInvariant();
@@ -1122,6 +1133,21 @@ public sealed partial class Interpreter
             var created = CreateClassCommand(m.Groups["rest"].Value);
             if (Ui != null) Ui.OpenDesigner(created);
             return true;
+        }
+        if (!create && (kindWord.StartsWith("STRU") || kindWord.StartsWith("PROC")))
+        {
+            if (Ui == null) return false;
+            if (kindWord.StartsWith("PROC"))
+            {
+                var db = Session.CurrentDatabase ?? throw new VfpException(1520, "No database is open or set as the current database.");
+                return Ui.OpenDesigner(new DesignerRequest("PROCEDURE", db.Path, false));
+            }
+            // MODIFY STRUCTURE: the table in the current work area, in the Table Designer.
+            var wa = Session.Current;
+            if (!wa.InUse) throw VfpException.NoTableOpen();
+            if (wa.IsCursor) throw new VfpException(ErrorCodes.InvalidArgument, "A cursor's structure cannot be modified.");
+            var store = wa.Table.Store;
+            return Ui.OpenDesigner(new DesignerRequest("TABLE", store.Path, false, wa.Table.Name));
         }
         if (Ui == null) return false;
         var kind = m.Groups["kind"].Value.ToUpperInvariant() switch
@@ -1160,6 +1186,8 @@ public sealed partial class Interpreter
             if (lib.Length == 0) throw VfpException.Syntax($"{(create ? "CREATE" : "MODIFY")} CLASS needs OF classlibrary.");
             request = new DesignerRequest(kind, Resolve(lib, exts), create, name, Clause("AS"), Clause("FROM") is { } from ? Resolve(from, exts) : null);
         }
+        else if (kind == "DATABASE" && name.Length == 0 && !create && Session.CurrentDatabase is { } current)
+            request = new DesignerRequest(kind, current.Path, false);
         else request = new DesignerRequest(kind, Resolve(name, exts), create, BaseClass: Clause("AS"), BaseLibrary: Clause("FROM") is { } f ? Resolve(f, DesignerExtensions["CLASS"]) : null);
         return Ui.OpenDesigner(request);
     }
@@ -1485,7 +1513,10 @@ public sealed partial class Interpreter
         var fields = table.Fields.ToList();
         switch (at.Action)
         {
-            case "ADD": fields.Add(ToFieldDef(at.Field!)); break;
+            case "ADD":
+                if (fields.Any(f => f.Name.Equals(at.Field!.Name, StringComparison.OrdinalIgnoreCase))) throw new VfpException(ErrorCodes.SyntaxError, $"Field {at.Field!.Name.ToUpperInvariant()} already exists.");
+                fields.Add(ToFieldDef(at.Field!));
+                break;
             case "DROP":
                 if (fields.RemoveAll(f => f.Name.Equals(at.DropField, StringComparison.OrdinalIgnoreCase)) == 0) throw VfpException.FieldNotFound(at.DropField!);
                 break;
@@ -1493,48 +1524,45 @@ public sealed partial class Interpreter
             {
                 var i = fields.FindIndex(f => f.Name.Equals(at.Field!.Name, StringComparison.OrdinalIgnoreCase));
                 if (i < 0) throw VfpException.FieldNotFound(at.Field!.Name);
-                fields[i] = ToFieldDef(at.Field!);
+                // A new definition keeps the field's default, rule, caption and other properties unless it gives them.
+                var def = ToFieldDef(at.Field!);
+                var old = fields[i];
+                fields[i] = def with
+                {
+                    DefaultExpr = def.DefaultExpr ?? old.DefaultExpr, RuleExpr = def.RuleExpr ?? old.RuleExpr, RuleText = def.RuleExpr != null ? def.RuleText : old.RuleText,
+                    Caption = old.Caption, Comment = old.Comment, Format = old.Format, InputMask = old.InputMask,
+                    DisplayClass = old.DisplayClass, DisplayClassLibrary = old.DisplayClassLibrary,
+                    AutoIncNext = def.AutoIncNext ?? (at.Field!.Type == old.Type ? old.AutoIncNext : null),
+                    AutoIncStep = def.AutoIncNext != null ? def.AutoIncStep : old.AutoIncStep,
+                };
                 break;
             }
             case "RENAME":
             {
                 var i = fields.FindIndex(f => f.Name.Equals(at.RenameFrom, StringComparison.OrdinalIgnoreCase));
                 if (i < 0) throw VfpException.FieldNotFound(at.RenameFrom!);
+                if (fields.Any(f => f.Name.Equals(at.RenameTo, StringComparison.OrdinalIgnoreCase))) throw new VfpException(ErrorCodes.SyntaxError, $"Field {at.RenameTo!.ToUpperInvariant()} already exists.");
                 fields[i] = fields[i] with { Name = at.RenameTo! };
                 break;
             }
         }
         // Rebuild: copy rows into a new table with the new structure (same approach as VFP's temporary copy).
-        var rows = new List<(Dictionary<string, Value>, bool)>();
-        foreach (var r in table.Scan(null, true))
-            rows.Add((table.Fields.Select((f, i) => (at.Action == "RENAME" && f.Name.Equals(at.RenameFrom, StringComparison.OrdinalIgnoreCase) ? at.RenameTo! : f.Name, r.Values[i]))
-                .ToDictionary(x => x.Item1, x => x.Item2, StringComparer.OrdinalIgnoreCase), r.Deleted));
-        var tags = table.Schema.Tags.Where(t => at.Action != "DROP" || !t.Expression.Contains(at.DropField!, StringComparison.OrdinalIgnoreCase)).ToList();
-        var store = table.Store;
-        var alias = wa.Alias;
-        var source = wa.Source;
-        var number = wa.Number;
-        wa.Close();
-        var schema = new TableSchema(table.Name, fields);
-        if (store.Kind == StoreKind.FreeTable)
-        {
-            var path = source;
-            Session.CloseAll();
-            File.Delete(path);
-            var t = Session.CreateTable(schema, free: true, path);
-            foreach (var (row, del) in rows) t.Append(fields.Select(f => row.TryGetValue(f.Name, out var v) ? ConvertForField(f.Normalize(), v) : f.Normalize().BlankValue()).ToArray(), del);
-            foreach (var tag in tags) t.CreateTag(tag with { KeyColumn = "" });
-            Session.Use(path, number, alias);
-        }
-        else
-        {
-            store.DropTable(table.Name);
-            var t = store.CreateTable(schema, this);
-            foreach (var (row, del) in rows) t.Append(fields.Select(f => row.TryGetValue(f.Name, out var v) ? ConvertForField(f.Normalize(), v) : f.Normalize().BlankValue()).ToArray(), del);
-            foreach (var tag in tags) t.CreateTag(tag with { KeyColumn = "" });
-            Session.Use(store.Name + "!" + table.Name, number, alias);
-        }
+        var schema = CopySchemaWith(table.Schema, fields);
+        var dropped = at.Action == "DROP" ? at.DropField! : null;
+        schema.Tags.AddRange(table.Schema.Tags
+            .Where(t => dropped == null || !System.Text.RegularExpressions.Regex.IsMatch(t.Expression + " " + t.ForExpression, $@"\b{System.Text.RegularExpressions.Regex.Escape(dropped)}\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            .Select(t => at.Action == "RENAME" ? t with { Expression = RenameInExpression(t.Expression, at.RenameFrom!, at.RenameTo!), ForExpression = t.ForExpression == null ? null : RenameInExpression(t.ForExpression, at.RenameFrom!, at.RenameTo!) } : t));
+        RebuildTable(table, schema, f => at.Action == "RENAME" && f.Name.Equals(at.RenameTo, StringComparison.OrdinalIgnoreCase) ? at.RenameFrom : f.Name);
     }
+
+    private static TableSchema CopySchemaWith(TableSchema s, List<FieldDef> fields) => new(s.Name, fields)
+    {
+        Comment = s.Comment, RuleExpr = s.RuleExpr, RuleText = s.RuleText,
+        InsertTrigger = s.InsertTrigger, UpdateTrigger = s.UpdateTrigger, DeleteTrigger = s.DeleteTrigger,
+    };
+
+    private static string RenameInExpression(string expr, string from, string to) =>
+        System.Text.RegularExpressions.Regex.Replace(expr, $@"(?<![\w.]){System.Text.RegularExpressions.Regex.Escape(from)}\b", to.ToUpperInvariant(), System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     // ---- LIST / DISPLAY ------------------------------------------------------------------
 

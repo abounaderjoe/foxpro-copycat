@@ -42,6 +42,13 @@ public sealed partial class Parser
         if (V("REPLACE")) return Replace();
         if (V("APPEND"))
         {
+            if (AcceptKw("PROCEDURES"))
+            {
+                ExpectKw("FROM");
+                var file = NameArg("AS", "OVERWRITE");
+                if (AcceptKw("AS")) Expression();   // code page
+                return new ProceduresFileStmt(true, file, AcceptKw("OVERWRITE"));
+            }
             if (AcceptKw("BLANK")) return new AppendBlankStmt(AcceptKw("IN") ? AliasArg() : null);
             if (AcceptKw("FROM"))
             {
@@ -63,6 +70,7 @@ public sealed partial class Parser
         }
         if (V("DELETE"))
         {
+            if (AcceptKw("TRIGGER")) return Trigger(delete: true);
             if (AcceptKw("VIEW")) return new DeleteDbObjectStmt("VIEW", NameArg());
             if (AcceptKw("CONNECTION")) return new DeleteDbObjectStmt("CONNECTION", NameArg());
             if (AcceptKw("TAG"))
@@ -172,6 +180,13 @@ public sealed partial class Parser
         }
         if (V("COPY"))
         {
+            if (AcceptKw("PROCEDURES"))
+            {
+                ExpectKw("TO");
+                var file = NameArg("AS", "ADDITIVE");
+                if (AcceptKw("AS")) Expression();
+                return new ProceduresFileStmt(false, file, AcceptKw("ADDITIVE"));
+            }
             if (AcceptKw("FILE"))
             {
                 var src = NameArg("TO");
@@ -439,6 +454,7 @@ public sealed partial class Parser
     private Stmt Create()
     {
         if (AcceptKw("DATABASE")) return new CreateDatabaseStmt(NameArg());
+        if (AcceptKw("TRIGGER")) return Trigger(delete: false);
         if (Kw("SQL") && _p + 1 < _t.Count && _t[_p + 1].Text.Equals("VIEW", StringComparison.OrdinalIgnoreCase))
         {
             _p += 2;
@@ -625,15 +641,118 @@ public sealed partial class Parser
         return ("", e);
     }
 
+    /// <summary>
+    /// Parses an expression and returns it as the source text it was written with (rules, defaults, triggers and
+    /// keys are stored as typed), falling back to printing it when the line's text is not available.
+    /// </summary>
+    private string ExpressionSource()
+    {
+        var start = _p;
+        var e = Expression();
+        if (_li < _lines.Count && _lines[_li].Tokens == _t && start < _t.Count)
+        {
+            var text = _lines[_li].Text;
+            var from = _t[start].Column;
+            var to = _p < _t.Count ? _t[_p].Column : text.Length;
+            if (from >= 0 && to <= text.Length && from < to)
+            {
+                var slice = text[from..to].Trim();
+                if (slice.EndsWith(';')) slice = slice[..^1].TrimEnd();
+                if (slice.Length > 0) return slice;
+            }
+        }
+        return ExprPrinter.Print(e);
+    }
+
+    /// <summary>CREATE TRIGGER ON table FOR DELETE|INSERT|UPDATE AS expr / DELETE TRIGGER ON table FOR kind.</summary>
+    private Stmt Trigger(bool delete)
+    {
+        ExpectKw("ON");
+        var table = NameArg("FOR");
+        ExpectKw("FOR");
+        var kind = Ident().ToUpperInvariant();
+        if (kind is not ("DELETE" or "INSERT" or "UPDATE")) throw Error("A trigger is FOR DELETE, INSERT or UPDATE.");
+        if (delete) return new TriggerStmt(table, kind, null);
+        ExpectKw("AS");
+        return new TriggerStmt(table, kind, ExpressionSource());
+    }
+
+    private string? ErrorClause() => AcceptKw("ERROR") ? Expression() is LiteralExpr { Value.Kind: ValueKind.Character } l ? l.Value.AsString : null : null;
+
+    private bool AtAlterClause => AtEnd || Kw("ADD") || Kw("DROP") || Kw("ALTER") || Kw("RENAME") || Kw("SET") || Kw("NOVALIDATE");
+
+    /// <summary>ON UPDATE|DELETE|INSERT CASCADE|RESTRICT|IGNORE after ADD FOREIGN KEY (a Joe Pro extension for the RI rules).</summary>
+    private AlterTableRuleStmt RiClauses(AlterTableRuleStmt s)
+    {
+        while (Kw("ON"))
+        {
+            _p++;
+            var what = Ident().ToUpperInvariant();
+            var rule = Ident().ToUpperInvariant();
+            if (rule is not ("CASCADE" or "RESTRICT" or "IGNORE")) throw Error("A referential integrity rule is CASCADE, RESTRICT or IGNORE.");
+            s = what switch
+            {
+                "UPDATE" => s with { RiUpdate = rule },
+                "DELETE" => s with { RiDelete = rule },
+                "INSERT" => s with { RiInsert = rule },
+                _ => throw Error("Expected ON UPDATE, ON DELETE or ON INSERT."),
+            };
+        }
+        return s;
+    }
+
     private Stmt AlterTable()
     {
         ExpectKw("TABLE");
-        var name = NameArg("ADD", "DROP", "ALTER", "RENAME");
+        var name = NameArg("ADD", "DROP", "ALTER", "RENAME", "SET");
         // Several clauses may follow: ALTER TABLE t ADD COLUMN a I ADD COLUMN b C(10)
         var clauses = new List<Stmt>();
         while (!AtEnd)
         {
-            if (AcceptKw("ADD"))
+            if (AcceptKw("NOVALIDATE")) continue;
+            if (Kw("SET") && Kw(1, "CHECK"))
+            {
+                _p += 2;
+                var check = ExpressionSource();
+                clauses.Add(new AlterTableRuleStmt(name, "SETCHECK") { Expression = check, ErrorText = ErrorClause() });
+            }
+            else if (Kw("DROP") && Kw(1, "CHECK")) { _p += 2; clauses.Add(new AlterTableRuleStmt(name, "DROPCHECK")); }
+            else if (Kw("ADD") && (Kw(1, "PRIMARY") || Kw(1, "UNIQUE")))
+            {
+                _p++;
+                var primary = AcceptKw("PRIMARY");
+                if (primary) ExpectKw("KEY"); else ExpectKw("UNIQUE");
+                var key = ExpressionSource();
+                string? forExpr = AcceptKw("FOR") ? ExpressionSource() : null;
+                string? tag = AcceptKw("TAG") ? Ident() : null;
+                if (AcceptKw("COLLATE")) Expression();
+                clauses.Add(new AlterTableRuleStmt(name, primary ? "ADDPRIMARY" : "ADDUNIQUE") { Expression = key, ForExpression = forExpr, Tag = tag });
+            }
+            else if (Kw("DROP") && Kw(1, "PRIMARY")) { _p += 2; ExpectKw("KEY"); clauses.Add(new AlterTableRuleStmt(name, "DROPPRIMARY")); }
+            else if (Kw("DROP") && Kw(1, "UNIQUE")) { _p += 2; ExpectKw("TAG"); clauses.Add(new AlterTableRuleStmt(name, "DROPUNIQUE") { Tag = Ident() }); }
+            else if (Kw("ADD") && Kw(1, "FOREIGN"))
+            {
+                _p += 2;
+                ExpectKw("KEY");
+                string? key = Kw("TAG") ? null : ExpressionSource();
+                string? forExpr = AcceptKw("FOR") ? ExpressionSource() : null;
+                ExpectKw("TAG");
+                var tag = Ident();
+                if (AcceptKw("COLLATE")) Expression();
+                ExpectKw("REFERENCES");
+                var parent = Ident();
+                string? parentTag = AcceptKw("TAG") ? Ident() : null;
+                clauses.Add(RiClauses(new AlterTableRuleStmt(name, "ADDFOREIGN") { Expression = key, ForExpression = forExpr, Tag = tag, References = parent, ReferencesTag = parentTag }));
+            }
+            else if (Kw("DROP") && Kw(1, "FOREIGN"))
+            {
+                _p += 2;
+                ExpectKw("KEY");
+                ExpectKw("TAG");
+                var tag = Ident();
+                clauses.Add(new AlterTableRuleStmt(name, "DROPFOREIGN") { Tag = tag, Save = AcceptKw("SAVE") });
+            }
+            else if (AcceptKw("ADD"))
             {
                 AcceptKw("COLUMN");
                 clauses.Add(new AlterTableStmt(name, "ADD", FieldSpecification(), null, null, null));
@@ -647,7 +766,30 @@ public sealed partial class Parser
             else if (AcceptKw("ALTER"))
             {
                 AcceptKw("COLUMN");
-                clauses.Add(new AlterTableStmt(name, "ALTER", FieldSpecification(), null, null, null));
+                // ALTER COLUMN name SET DEFAULT … | DROP DEFAULT | SET CHECK … | DROP CHECK | NULL | NOT NULL
+                if (Peek(1) is { } after && (KwMatch(after, "SET") || KwMatch(after, "DROP")) && Peek(2) is { } what && (KwMatch(what, "DEFAULT") || KwMatch(what, "CHECK")))
+                {
+                    var column = Ident();
+                    var set = AcceptKw("SET");
+                    if (!set) ExpectKw("DROP");
+                    var isDefault = AcceptKw("DEFAULT");
+                    if (!isDefault) ExpectKw("CHECK");
+                    if (!set) clauses.Add(new AlterTableRuleStmt(name, isDefault ? "DROPDEFAULT" : "DROPCOLUMNCHECK") { Column = column });
+                    else if (isDefault) clauses.Add(new AlterTableRuleStmt(name, "SETDEFAULT") { Column = column, Expression = ExpressionSource() });
+                    else
+                    {
+                        var check = ExpressionSource();
+                        clauses.Add(new AlterTableRuleStmt(name, "SETCOLUMNCHECK") { Column = column, Expression = check, ErrorText = ErrorClause() });
+                    }
+                }
+                else if (Peek(1) is { } n1 && (n1.Kind == TokenKind.Null || KwMatch(n1, "NULL") || (KwMatch(n1, "NOT") && Peek(2) is { } n2 && (n2.Kind == TokenKind.Null || KwMatch(n2, "NULL")))) && AtAlterClauseAfterNull())
+                {
+                    var column = Ident();
+                    var notNull = AcceptKw("NOT");
+                    _p++;
+                    clauses.Add(new AlterTableRuleStmt(name, notNull ? "NOTNULL" : "NULL") { Column = column });
+                }
+                else clauses.Add(new AlterTableStmt(name, "ALTER", FieldSpecification(), null, null, null));
             }
             else
             {
@@ -659,8 +801,22 @@ public sealed partial class Parser
                 clauses.Add(new AlterTableStmt(name, "RENAME", null, null, from, to) { RenameFromExpr = fromExpr, RenameToExpr = toExpr });
             }
         }
-        if (clauses.Count == 0) throw Error("ALTER TABLE needs ADD, DROP, ALTER or RENAME.");
+        if (clauses.Count == 0) throw Error("ALTER TABLE needs ADD, DROP, ALTER, RENAME or SET.");
         return clauses.Count == 1 ? clauses[0] : new BlockStmt(clauses);
+    }
+
+    // ALTER COLUMN name NULL | NOT NULL with nothing else (a type after the name means a full field definition).
+    private bool AtAlterClauseAfterNull()
+    {
+        var save = _p;
+        try
+        {
+            _p++;
+            if (AcceptKw("NOT")) { }
+            _p++;
+            return AtAlterClause;
+        }
+        finally { _p = save; }
     }
 
     // ---- Aggregates, SCATTER/GATHER, COPY ------------------------------------------------
