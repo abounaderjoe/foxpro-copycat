@@ -110,6 +110,18 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Packages: library projects packed and published to a static registry (folder or http(s)), dependencies with version ranges from the registry, a folder or git, `packages.lock.json` pinning versions and hashes, `joepro add/remove/restore/publish/pack`, Project Manager Packages dialog; packages join SET PATH and ship with builds (see [packages](../reference/packages.md)) | ✅ Done |
 | Single-file Windows EXE, code signing, MSIX installer, toolbar designer | ⛔ Not yet: builds are a `.jpapp` plus launchers that start the Joe Pro runtime |
 
+## Phase 6 — Data Server and two-way sync
+
+| Item | Status |
+|---|---|
+| Engine connection interface: the engine runs on SQLite directly (embedded) or through the Data Server, with no change to application code | ✅ Done |
+| Change journal: every insert, update, delete and recall, with old and new values and an origin tag, in the same transaction (`DBSETPROP(db, "DATABASE", "Journal", .T.)`) | ✅ Done |
+| Data Server (`joepro-server`): TCP with optional TLS; users with hashed passwords and per-database read/write/admin permissions; a SQLite connection per client per database; lease-based locks released when a client disconnects or goes quiet; change notifications; online backup; integrity check; status; admin CLI (see [data server](../reference/data-server.md)) | ✅ Done. Tested with concurrent clients in-process. The 24-hour, 50-user soak and service integration (Windows service, systemd) are still to do |
+| Client side: `OPEN DATABASE joepro://user@host/db`, or unchanged `OPEN DATABASE name` through `joepro-data.json`; RLOCK/FLOCK/ISRLOCKED on the server | ✅ Done |
+| Two-way sync with legacy DBF/DBC data: snapshot or trigger-log capture, journal capture, key matching, field-level three-way merge, system-of-record authority, update-beats-delete, conflict log and review queue (CLI and IDE dashboard), blocked rows on rule failures, loop prevention by origin, cutover (see [sync](../reference/sync.md)) | ✅ Done. Verified against a stand-in for VFP |
+| Legacy writes: done by VFP itself through a generated agent program (`joesync_agent.prg`) that applies batch files and refuses rows changed underneath; trigger installer/uninstaller programs | ✅ Done. This replaces the planned 32-bit OLE DB adapter process; still to be run against real VFP 9 |
+| PostgreSQL kernel | ⏳ Deferred (optional in the plan) |
+
 ## Screenshots
 
 Rendered headlessly by `tools/JoePro.Screenshots` (`dotnet run --project tools/JoePro.Screenshots -- docs/images`).
