@@ -273,7 +273,12 @@ public static partial class Library
             if (funcs.Contains('Z') && d == 0) return new string(' ', Math.Max(mask.Length, 1));
             if (mask.Length > 0) result = NumberMask(d, mask, funcs.Contains('L'), o);
             else result = TransformDefault(v, o);
-            if (funcs.Contains('$')) result = "$" + result.TrimStart();
+            if (funcs.Contains('$'))
+            {
+                // SET CURRENCY: the symbol, before (LEFT, the default) or after (RIGHT) the number.
+                var symbol = o.Values.GetValueOrDefault("CURRENCY_SYMBOL") ?? "$";
+                result = o.Values.GetValueOrDefault("CURRENCY") == "RIGHT" ? result.Trim() + symbol : symbol + result.TrimStart();
+            }
             if (funcs.Contains('(') && d < 0) result = "(" + result.Replace("-", "").Trim() + ")";
         }
         else if (v.Kind == ValueKind.Character)

@@ -174,7 +174,15 @@ public sealed class DataServerClient : IDisposable
             _cts.Cancel();
             throw new VfpException(1526, "Connectivity error: the connection to the Data Server was lost.");
         }
-        if (!tcs.Task.Wait(timeout ?? Timeout))
+        bool answered;
+        // A failed request (the server closed the connection, say) faults the task; report its own exception, not a wrapper.
+        try { answered = tcs.Task.Wait(timeout ?? Timeout); }
+        catch (AggregateException ae) when (ae.InnerException != null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ae.InnerException).Throw();
+            throw;
+        }
+        if (!answered)
         {
             _pending.TryRemove(id, out _);
             throw new VfpException(1526, $"Connectivity error: the Data Server did not answer {op} in time.");

@@ -59,8 +59,13 @@ public sealed partial class Interpreter
         string text;
         if (st.Expr != null)
         {
-            try { text = Formatter.ToDisplay(Eval(st.Expr), Options).Trim(); }
-            catch (VfpException) { text = st.Value ?? ""; }
+            // SET UDFPARMS TO REFERENCE: a keyword, not a variable (a variable of that name still wins, as in VFP).
+            if (st.Expr is NameExpr kw && FindVariable(kw.Name) == null) text = kw.Name.ToUpperInvariant();
+            else
+            {
+                try { text = Formatter.ToDisplay(Eval(st.Expr), Options).Trim(); }
+                catch (VfpException) { text = st.Value ?? ""; }
+            }
         }
         else text = st.Value ?? "";
         if (text.Length > 0) Options.Values[st.Option] = text;

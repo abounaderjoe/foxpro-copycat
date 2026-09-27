@@ -179,7 +179,8 @@ public sealed partial class Interpreter
             return SqlContext.EvalAggregate(this, c);
         if (Builtins.Library.TryGet(c.Name, out var fn))
             return fn(new Builtins.CallContext(this, c.Args, c.Name));
-        var result = TryCallUserFunction(c.Name, EvalArgs(c.Args, byRefVariables: false));
+        // SET UDFPARMS TO REFERENCE: variables passed to user functions go by reference, as DO … WITH does.
+        var result = TryCallUserFunction(c.Name, EvalArgs(c.Args, byRefVariables: Options.Values.TryGetValue("UDFPARMS", out var udf) && udf.StartsWith("REF", StringComparison.OrdinalIgnoreCase)));
         if (result != null) return result.Value;
         throw new VfpException(1, $"File '{c.Name.ToLowerInvariant()}.prg' does not exist.", c.Name);
     }

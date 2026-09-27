@@ -15,6 +15,25 @@ public static partial class Library
         return idx;
     }
 
+    /// <summary>
+    /// SET REPROCESS: how long a lock attempt keeps trying. n &gt; 0 tries n times, "n SECONDS" for n seconds, -1 until it
+    /// succeeds; 0 and AUTOMATIC try once (VFP's interactive retry prompt has no equivalent in a program).
+    /// </summary>
+    private static bool Reprocess(CallContext c, Func<bool> attempt)
+    {
+        if (attempt()) return true;
+        var setting = c.Options.Values.GetValueOrDefault("REPROCESS")?.Trim().ToUpperInvariant() ?? "0";
+        var seconds = setting.EndsWith("SECONDS");
+        if (!double.TryParse(seconds ? setting[..^7].Trim() : setting, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n) || n == 0) return false;
+        var deadline = seconds ? DateTime.UtcNow.AddSeconds(n) : DateTime.MaxValue;
+        for (long tries = 1; n < 0 || seconds ? DateTime.UtcNow < deadline : tries < n; tries++)
+        {
+            Thread.Sleep(50);
+            if (attempt()) return true;
+        }
+        return false;
+    }
+
     private static void RegisterData()
     {
         Add("RECNO", c =>
@@ -211,14 +230,14 @@ public static partial class Library
             if (c.Has(0) && c[0].Kind == ValueKind.Character && !c.Has(1))
             {
                 var waA = c.Rt.Session.ResolveAlias(c.Str(0));
-                return L(waA.RLock());
+                return L(Reprocess(c, () => waA.RLock()));
             }
             var wa = c.Area(1);
-            if (!c.Has(0)) return L(wa.RLock());
+            if (!c.Has(0)) return L(Reprocess(c, () => wa.RLock()));
             var recs = c.Str(0).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            return L(recs.All(r => wa.RLock(int.Parse(r))));
+            return L(recs.All(r => Reprocess(c, () => wa.RLock(int.Parse(r)))));
         });
-        Add("FLOCK", c => L(c.Area(0).FLock()));
+        Add("FLOCK", c => { var wa = c.Area(0); return L(Reprocess(c, () => wa.FLock())); });
         Add("ISRLOCKED", c => { var wa = c.Area(1); return L(c.Rt.Session.Locks.IsLocked(wa, c.Int(0, wa.RecNo))); });
         Add("ISFLOCKED", c => L(false));
         Add("ISEXCLUSIVE", c => L(c.Area(0).Exclusive));

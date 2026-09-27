@@ -194,9 +194,9 @@ public static class VfpCatalog
         ["INDEX"] = (SetStatus.NoEffect, "Every index tag of a table is always open."), ["LOCK"] = (SetStatus.NoEffect, "Reads never take locks; each sees committed data."),
         ["REFRESH"] = (SetStatus.NoEffect, "Changes by other users are visible at once."), ["ODOMETER"] = (SetStatus.NoEffect, CharMode),
 
-        ["COMPATIBLE"] = (SetStatus.Missing, null), ["CURRENCY"] = (SetStatus.Missing, null), ["KEY"] = (SetStatus.Missing, null),
-        ["REPROCESS"] = (SetStatus.Missing, null), ["SKIP"] = (SetStatus.Missing, null), ["STRICTDATE"] = (SetStatus.Missing, null),
-        ["UDFPARMS"] = (SetStatus.Missing, null), ["VARCHARMAPPING"] = (SetStatus.Missing, null), ["AUTOINCERROR"] = (SetStatus.Missing, null),
+        ["CURRENCY"] = (SetStatus.Supported, null), ["REPROCESS"] = (SetStatus.Supported, null), ["UDFPARMS"] = (SetStatus.Supported, null),
+        ["COMPATIBLE"] = (SetStatus.Missing, null), ["KEY"] = (SetStatus.Missing, null),
+        ["SKIP"] = (SetStatus.Missing, null), ["STRICTDATE"] = (SetStatus.Missing, null), ["VARCHARMAPPING"] = (SetStatus.Missing, null), ["AUTOINCERROR"] = (SetStatus.Missing, null),
         ["SYSFORMATS"] = (SetStatus.Missing, null),
 
         ["PRINTER"] = (SetStatus.Unsupported, "Direct printer streaming is not supported; print through REPORT FORM."),

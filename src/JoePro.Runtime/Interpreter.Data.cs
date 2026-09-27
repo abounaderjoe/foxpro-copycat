@@ -1051,6 +1051,11 @@ public sealed partial class Interpreter
             case "ALTERNATE":
                 SetAlternate(st, st.Expr != null ? Text() : st.Value);
                 break;
+            case "CURRENCY":
+                // SET CURRENCY TO cSymbol, or SET CURRENCY LEFT | RIGHT.
+                if (st.Value is "LEFT" or "RIGHT") Options.Values["CURRENCY"] = st.Value;
+                else Options.Values["CURRENCY_SYMBOL"] = st.Expr != null || st.Value != null ? Text().Trim('"', '\'') : "$";
+                break;
             case "MESSAGE":
                 // SET MESSAGE TO [cText]: the status bar message.
                 StoreSetting(st);
@@ -1059,7 +1064,7 @@ public sealed partial class Interpreter
             case "MULTILOCKS" or "REPROCESS" or "STATUS" or "ECHO" or "ESCAPE" or "BELL" or "NOTIFY"
                 or "CPDIALOG" or "STRICTDATE" or "FIXED" or "UDFPARMS" or "COMPATIBLE" or "HELP"
                 or "RESOURCE" or "CURSOR" or "TYPEAHEAD" or "CARRY" or "CONFIRM" or "FULLPATH" or "UNIQUE" or "LOCK"
-                or "REFRESH" or "CURRENCY" or "CLOCK" or "ROLLOVER" or "BLOCKSIZE" or "VARCHARMAPPING"
+                or "REFRESH" or "CLOCK" or "ROLLOVER" or "BLOCKSIZE" or "VARCHARMAPPING"
                 or "TABLEVALIDATE" or "LIBRARY"
                 or "AUTOINCERROR" or "INDEX" or "KEY" or "SKIP" or "DEBUG" or "PRINTER" or "DEVICE" or "LOGERRORS"
                 or "SYSFORMATS" or "NOCPTRANS" or "OLEOBJECT" or "SQLBUFFERING" or "SPACE" or "HEADINGS" or "":

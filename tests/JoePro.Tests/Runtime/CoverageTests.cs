@@ -241,7 +241,7 @@ public class CoverageTests : RuntimeHarness
             """);
         var lines = o.Trim().Split('\n').Select(l => string.Join(" ", l.Split(' ', StringSplitOptions.RemoveEmptyEntries))).ToArray();
         Assert.Equal("OFF 0 VALUE", lines[0]);
-        Assert.Equal("ON 5 EUR", lines[1]);
+        Assert.Equal("ON 5 LEFT", lines[1]);
         Assert.Equal("(none)", lines[2]);
         Assert.Equal("3 three four 10", lines[3]);
         Assert.Equal("1 2", lines[4]);
@@ -277,6 +277,35 @@ public class CoverageTests : RuntimeHarness
         Assert.DoesNotContain("screen only", alt);
         Assert.Single(StatusMessages, m => m.Contains("custom failure"));
         Assert.Throws<JoePro.Core.VfpException>(() => Run("SET DATASESSION TO 999"));
+    }
+
+    [Fact]
+    public void Set_udfparms_currency_and_reprocess()
+    {
+        File.WriteAllText(Path.Combine(Dir, "bump.prg"), "LPARAMETERS n\nn = n + 1\nRETURN n");
+        var o = Run("""
+            x = 1
+            = bump(x)
+            ? x
+            SET UDFPARMS TO REFERENCE
+            = bump(x)
+            ? x
+            SET UDFPARMS TO VALUE
+            ? TRANSFORM(12.5, "@$ 99.99")
+            SET CURRENCY TO "EUR"
+            SET CURRENCY RIGHT
+            ? TRANSFORM(12.5, "@$ 99.99"), SET("CURRENCY"), SET("CURRENCY", 1)
+            SET REPROCESS TO 3
+            CREATE CURSOR lk (a I)
+            APPEND BLANK
+            ? RLOCK(), SET("REPROCESS")
+            """);
+        var lines = o.Trim().Split('\n').Select(l => string.Join(" ", l.Split(' ', StringSplitOptions.RemoveEmptyEntries))).ToArray();
+        Assert.Equal("1", lines[0]);
+        Assert.Equal("2", lines[1]);
+        Assert.Equal("$12.50", lines[2]);
+        Assert.Equal("12.50EUR RIGHT EUR", lines[3]);
+        Assert.Equal(".T. 3", lines[4]);
     }
 
     [Fact]
