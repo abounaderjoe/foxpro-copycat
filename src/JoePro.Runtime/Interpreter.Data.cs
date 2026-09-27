@@ -1090,7 +1090,7 @@ public sealed partial class Interpreter
         ["LABEL"] = [".jplabel", ".lbx"],
         ["MENU"] = [".jpmenu", ".mnx"],
         ["QUERY"] = [".jpquery", ".qpr"],
-        ["PROJECT"] = [".jpproject", ".pjx"],
+        ["PROJECT"] = [".jpproj", ".pjx"],
         ["DATABASE"] = [".jpdb", ".dbc"],
     };
 

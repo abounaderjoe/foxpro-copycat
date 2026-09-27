@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/JoePro.AppHost/JoePro.AppHost.csproj" />
     <Project Path="src/JoePro.Cli/JoePro.Cli.csproj" />
     <Project Path="src/JoePro.Core/JoePro.Core.csproj" />
     <Project Path="src/JoePro.Data/JoePro.Data.csproj" />

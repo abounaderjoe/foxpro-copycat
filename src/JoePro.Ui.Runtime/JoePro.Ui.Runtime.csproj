@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\JoePro.Runtime\JoePro.Runtime.csproj" />
+    <ProjectReference Include="..\JoePro.Reports\JoePro.Reports.csproj" />
   </ItemGroup>
 
 </Project>

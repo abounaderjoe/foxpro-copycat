@@ -258,6 +258,9 @@ public sealed class MainWindow : Window
             case "MENU":
                 OpenMenu(request.Path.Length == 0 ? null : request.Path);
                 return true;
+            case "PROJECT" when request.Path.Length > 0:
+                OpenProject(request.Path);
+                return true;
             default:
                 return false;
         }
@@ -318,6 +321,29 @@ public sealed class MainWindow : Window
                 foreach (var b in Documents.Items.OfType<ClassBrowserTab>().Where(b => SamePath(b.Browser.LibraryPath, designer.FilePath))) b.Browser.Reload();
             }
         };
+    }
+
+    /// <summary>CREATE/MODIFY PROJECT: the Project Manager (a legacy .pjx opens converted; saving writes .jpproj).</summary>
+    public ProjectManagerTab OpenProject(string path)
+    {
+        var target = System.IO.Path.GetExtension(path).Equals(".pjx", StringComparison.OrdinalIgnoreCase) ? System.IO.Path.ChangeExtension(path, ".jpproj") : path;
+        var existing = Documents.Items.OfType<ProjectManagerTab>().FirstOrDefault(t => SamePath(t.Manager.ProjectPath, target));
+        if (existing != null) { Documents.SelectedItem = existing; return existing; }
+        var pm = new ProjectManager(path, _session);
+        pm.Status += SetStatus;
+        pm.RunRequested += Run;
+        pm.OpenRequested += file =>
+        {
+            var hash = file.LastIndexOf('#');
+            var line = hash > 0 && int.TryParse(file[(hash + 1)..], out var l) ? l : 0;
+            var p = hash > 0 ? file[..hash] : file;
+            if (line > 0) { var tab = OpenFile(p); tab.ShowExecutionLine(line); tab.ExecutionLine.Line = 0; }
+            else OpenAny(p);
+        };
+        if (!File.Exists(path)) pm.Save();
+        var t = new ProjectManagerTab(pm);
+        OpenDocument(t);
+        return t;
     }
 
     private MenuDesigner? ActiveMenuDesigner => (Documents.SelectedItem as MenuDesignerTab)?.Designer;
@@ -552,7 +578,7 @@ public sealed class MainWindow : Window
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.scx", "*.jpclass", "*.vcx", "*.jpreport", "*.frx", "*.jplabel", "*.lbx", "*.jpmenu", "*.mnx", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
+                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.scx", "*.jpclass", "*.vcx", "*.jpreport", "*.frx", "*.jplabel", "*.lbx", "*.jpmenu", "*.mnx", "*.jpproj", "*.pjx", "*.jpapp", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
                 new FilePickerFileType("All files") { Patterns = ["*"] },
             ],
         });
@@ -581,6 +607,12 @@ public sealed class MainWindow : Window
                 break;
             case ".jpmenu" or ".mnx":
                 OpenMenu(path);
+                break;
+            case ".jpproj" or ".pjx":
+                OpenProject(path);
+                break;
+            case ".jpapp":
+                Run($"DO \"{path}\"");
                 break;
             default:
                 OpenFile(path);
