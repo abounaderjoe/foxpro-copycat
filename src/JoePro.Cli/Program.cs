@@ -24,6 +24,7 @@ public static class Program
                 "exec" when args.Length >= 2 => Exec(string.Join(" ", args.Skip(1))),
                 "import" when args.Length >= 2 => Import(args.Skip(1).ToArray()),
                 "add" or "remove" or "restore" or "publish" or "pack" => Packages(cmd, args.Skip(1).ToArray()),
+                "sync" => Sync(args.Skip(1).ToArray()),
                 "version" or "--version" => Version(),
                 "functions" => Functions(),
                 "lsp" => new JoePro.Tooling.LspServer(Console.OpenStandardInput(), Console.OpenStandardOutput()).Run(),
@@ -176,6 +177,83 @@ public static class Program
         return 0;
     }
 
+    /// <summary>joepro sync config|init|run|status|conflicts|resolve|dismiss|cutover: two-way sync with a legacy VFP application.</summary>
+    private static int Sync(string[] args)
+    {
+        string configPath = "joesync.json";
+        var rest = new List<string>();
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] is "--config" or "-c" && i + 1 < args.Length) configPath = args[++i];
+            else rest.Add(args[i]);
+        }
+        string? Opt(string name) { var i = rest.IndexOf(name); return i >= 0 && i + 1 < rest.Count ? rest[i + 1] : null; }
+        var sub = rest.Count > 0 ? rest[0].ToLowerInvariant() : "status";
+        if (sub == "config")
+        {
+            // joepro sync config --legacy <folder> --database <db> --table customer:cust_id [--table …] [--dbc app.dbc]
+            var config = new JoePro.Runtime.Sync.SyncConfig
+            {
+                Legacy = Opt("--legacy") ?? throw new VfpException(ErrorCodes.InvalidArgument, "--legacy <folder> is required."),
+                Database = Opt("--database") ?? throw new VfpException(ErrorCodes.InvalidArgument, "--database <db> is required."),
+                LegacyDatabase = Opt("--dbc"),
+                Capture = Opt("--dbc") != null ? JoePro.Runtime.Sync.CaptureMode.Triggers : JoePro.Runtime.Sync.CaptureMode.Snapshot,
+            };
+            for (int i = 0; i < rest.Count - 1; i++)
+                if (rest[i] == "--table" && rest[i + 1].Split(':') is [var name, var key])
+                    config.Tables.Add(new JoePro.Runtime.Sync.SyncTable { Name = name, Key = key });
+            if (config.Tables.Count == 0) throw new VfpException(ErrorCodes.InvalidArgument, "Give at least one --table name:keyfield.");
+            config.Save(configPath);
+            Console.WriteLine($"Wrote {configPath} ({config.Capture.ToString().ToLowerInvariant()} capture, {config.Tables.Count} table(s)). Next: joepro sync init");
+            return 0;
+        }
+        using var engine = new JoePro.Runtime.Sync.SyncEngine(configPath);
+        void Print(JoePro.Runtime.Sync.SyncCycle c) =>
+            Console.WriteLine($"{c.TimeUtc.ToLocalTime():HH:mm:ss}  legacy changes {c.LegacyChanges}, Joe Pro changes {c.JoeChanges}; applied to Joe Pro {c.AppliedToJoe}, to legacy {c.AppliedToLegacy}; conflicts {c.Conflicts}, errors {c.Errors} ({c.Milliseconds} ms)");
+        switch (sub)
+        {
+            case "init":
+                Print(engine.Initialize());
+                Console.WriteLine($"Wrote joesync_agent.prg{(engine.Config.Capture == JoePro.Runtime.Sync.CaptureMode.Triggers ? ", joesync_install.prg and joesync_uninstall.prg" : "")} into {engine.Config.Legacy}. Run the agent in VFP 9.");
+                return 0;
+            case "run":
+            {
+                var watch = Opt("--watch") is { } w ? int.Parse(w) : 0;
+                do
+                {
+                    Print(engine.RunCycle());
+                    if (watch > 0) Thread.Sleep(TimeSpan.FromSeconds(watch));
+                } while (watch > 0);
+                return 0;
+            }
+            case "status":
+            {
+                var st = engine.Status();
+                Console.WriteLine($"Last cycle: {(st.LastCycleUtc is { } t ? t.ToLocalTime().ToString("g") + $" ({st.Lag!.Value.TotalSeconds:0} s ago)" : "never")}");
+                Console.WriteLine($"Waiting for the VFP agent: {st.PendingBatches} batch(es), {st.PendingRows} row(s). Blocked rows: {st.Blocked}. Open conflicts: {st.OpenConflicts}.{(st.CutOver ? " Cut over: Joe Pro is the system of record." : "")}");
+                foreach (var c in st.Recent.Take(5)) Print(c);
+                return 0;
+            }
+            case "conflicts":
+                foreach (var c in engine.State.Conflicts())
+                    Console.WriteLine($"#{c.Id} {c.TimeUtc.ToLocalTime():g} {c.Table} key {c.Key} {c.Field} ({c.Kind}): legacy [{c.LegacyValue}] Joe Pro [{c.JoeValue}] → {c.Winner.ToString().ToLowerInvariant()} won");
+                foreach (var (t, k, reason) in engine.State.Blocked()) Console.WriteLine($"blocked: {t} key {k}: {reason}");
+                return 0;
+            case "resolve":
+                engine.Resolve(long.Parse(rest[1].TrimStart('#')), rest.Count > 2 && rest[2].Equals("legacy", StringComparison.OrdinalIgnoreCase) ? JoePro.Runtime.Sync.SyncSide.Legacy : JoePro.Runtime.Sync.SyncSide.Joe);
+                Console.WriteLine("Re-applied to both sides.");
+                return 0;
+            case "dismiss":
+                engine.Dismiss(long.Parse(rest[1].TrimStart('#')));
+                return 0;
+            case "cutover":
+                foreach (var step in engine.Cutover()) Console.WriteLine(step);
+                return 0;
+            default:
+                throw new VfpException(ErrorCodes.InvalidArgument, "joepro sync config|init|run [--watch s]|status|conflicts|resolve <id> legacy|joe|dismiss <id>|cutover");
+        }
+    }
+
     private static int Functions()
     {
         foreach (var n in JoePro.Runtime.Builtins.Library.Names.Where(n => !n.StartsWith("__")).OrderBy(n => n)) Console.WriteLine(n);
@@ -207,6 +285,8 @@ public static class Program
               joepro publish [--registry <folder>]
                                           Publish the project as a package to a registry
               joepro pack                 Write the project's package (.jppkg)
+              joepro sync config|init|run|status|conflicts|resolve|cutover
+                                          Two-way sync with a legacy VFP application during a transition
               joepro functions            List the built-in functions implemented so far
               joepro lsp                  Run the Language Server Protocol server on stdio (editor integration)
               joepro dap                  Run the Debug Adapter Protocol server on stdio (debugging in VS Code)

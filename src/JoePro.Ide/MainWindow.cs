@@ -218,6 +218,7 @@ public sealed class MainWindow : Window
     public void CloseDocument(DocumentTab tab)
     {
         if (!tab.CanClose()) return;
+        if (tab is SyncDashboardTab sync) sync.Dashboard.Dispose();
         if (tab is CodeEditorTab { IsDirty: true, FilePath: not null } code) code.Save();
         if (tab is FormDesignerTab { Designer: { FilePath: not null, Session.IsDirty: true } designer }) designer.Save();
         Documents.Items.Remove(tab);
@@ -627,6 +628,11 @@ public sealed class MainWindow : Window
     /// <summary>Opens a file the way VFP would: programs in the editor, tables with USE + BROWSE, databases with OPEN DATABASE.</summary>
     public void OpenAny(string path)
     {
+        if (Path.GetFileName(path).Equals("joesync.json", StringComparison.OrdinalIgnoreCase))
+        {
+            OpenSyncDashboard(path);
+            return;
+        }
         if (Path.GetFileName(path).Equals("migration-report.json", StringComparison.OrdinalIgnoreCase))
         {
             OpenMigrationReport(JoePro.Migration.MigrationReport.FromJson(File.ReadAllText(path)));
@@ -870,6 +876,29 @@ public sealed class MainWindow : Window
         return designer;
     }
 
+    /// <summary>The two-way sync dashboard for a joesync.json.</summary>
+    public SyncDashboard OpenSyncDashboard(string configPath)
+    {
+        var existing = Documents.Items.OfType<SyncDashboardTab>().FirstOrDefault(t => SameFile(t.Dashboard.ConfigPath, configPath));
+        if (existing != null) { Documents.SelectedItem = existing; existing.Dashboard.Refresh(); return existing.Dashboard; }
+        var tab = new SyncDashboardTab(new SyncDashboard(configPath));
+        OpenDocument(tab);
+        return tab.Dashboard;
+    }
+
+    private async Task OpenSyncWithPicker()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Sync configuration", FileTypeFilter = [new FilePickerFileType("Joe Pro sync") { Patterns = ["joesync.json"] }],
+        });
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path)
+        {
+            try { OpenSyncDashboard(path); }
+            catch (Exception ex) when (ex is VfpException or IOException) { SetStatus(ex.Message); }
+        }
+    }
+
     /// <summary>A generated script in an unsaved code editor.</summary>
     public CodeEditorTab OpenScript(string name, string text)
     {
@@ -930,6 +959,7 @@ public sealed class MainWindow : Window
         A("New label", "", () => OpenReport(null, label: true));
         A("New menu", "", () => OpenMenu(null));
         A("New query", "", () => OpenQuery(null));
+        A("Sync dashboard…", "", () => _ = OpenSyncWithPicker());
         A("New database…", "", () => _ = NewDatabaseWithPicker());
         A("Modify database…", "", () => _ = OpenDatabaseWithPicker());
         A("Modify structure", "", () => Run("MODIFY STRUCTURE"));

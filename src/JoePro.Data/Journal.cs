@@ -23,13 +23,24 @@ public sealed record JournalEntry(long Seq, DateTime TimeUtc, string Table, int 
 public sealed partial class Store
 {
     private bool? _journal;
+    private (long Schema, long Data) _journalChecked = (-1, -1);
 
     /// <summary>Tags the changes this connection makes (loop prevention in sync: the applier's changes are not captured again).</summary>
     public string Origin { get; set; } = "local";
 
     public bool JournalEnabled
     {
-        get => _journal ??= GetMeta("journal") == "on";
+        get
+        {
+            // Another session (or process) may turn the journal on: re-read when the database changes.
+            var now = (SchemaVersion, DataVersion());
+            if (_journal == null || now != _journalChecked)
+            {
+                _journal = GetMeta("journal") == "on";
+                _journalChecked = now;
+            }
+            return _journal.Value;
+        }
         set
         {
             if (value)
@@ -39,6 +50,7 @@ public sealed partial class Store
                     """);
             SetMeta("journal", value ? "on" : "off");
             _journal = value;
+            SchemaChanged();
         }
     }
 
