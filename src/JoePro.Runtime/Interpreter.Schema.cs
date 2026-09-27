@@ -498,3 +498,23 @@ public sealed partial class Interpreter
             throw new VfpException(ErrorCodes.TriggerFailed, $"Trigger failed in {table.Name}: no {parent.Name} record has the key {Formatter.ToDisplay(key, Options).Trim()} (insert is restricted).", "Insert");
     }
 }
+
+public sealed partial class Interpreter
+{
+    /// <summary>
+    /// Creates or replaces a view of a database from its SELECT (the View Designer's save): the query is checked and
+    /// each column's source recorded, as CREATE SQL VIEW does. Returns the new definition for its update criteria.
+    /// </summary>
+    public ViewDefinition DefineView(Store db, string name, string sql, bool remote = false, string? connection = null, bool share = false)
+    {
+        var saved = Session.CurrentDatabase;
+        Session.SetDatabase(db.Name);
+        try
+        {
+            Views.Create(this, new CreateViewStmt(new LiteralExpr(Value.String(name)), remote,
+                connection == null ? null : new LiteralExpr(Value.String(connection)), share, sql));
+        }
+        finally { Session.SetDatabase(saved?.Name); }
+        return db.GetView(name)!;
+    }
+}

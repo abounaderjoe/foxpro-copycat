@@ -907,6 +907,12 @@ public sealed partial class Interpreter
         int Num() => st.Expr != null ? (int)Eval(st.Expr).AsNumber : int.Parse(st.Value ?? "0", CultureInfo.InvariantCulture);
         string Text() => st.Expr != null ? Formatter.ToDisplay(Eval(st.Expr), Options).Trim() : (st.Value ?? "");
         var o = Options;
+        if (st.Option == "__CREATE" && st.Value == "VIEW")
+        {
+            // CREATE SQL VIEW without a definition: the View Designer.
+            if (!TryOpenDesigner(true, "VIEW")) throw VfpException.NotSupported("CREATE SQL VIEW without AS (the View Designer)");
+            return;
+        }
         switch (st.Option)
         {
             case "CLASSLIB":
@@ -1109,7 +1115,7 @@ public sealed partial class Interpreter
     private bool TryOpenDesigner(bool create, string rest)
     {
         var m = System.Text.RegularExpressions.Regex.Match(rest.Trim(),
-            @"^(?<kind>FORM|CLASSLIB|CLASS|REPO\w*|LABE?L?|MENU|QUER\w*|PROJ\w*|DATA\w*|SCREEN|STRU\w*|PROC\w*)\b\s*(?<rest>.*)$",
+            @"^(?<kind>FORM|CLASSLIB|CLASS|REPO\w*|LABE?L?|MENU|QUER\w*|PROJ\w*|DATA\w*|SCREEN|STRU\w*|PROC\w*|VIEW)\b\s*(?<rest>.*)$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
         if (!m.Success) return false;
         var kindWord = m.Groups["kind"].Value.ToUpperInvariant();
@@ -1133,6 +1139,16 @@ public sealed partial class Interpreter
             var created = CreateClassCommand(m.Groups["rest"].Value);
             if (Ui != null) Ui.OpenDesigner(created);
             return true;
+        }
+        if (kindWord == "VIEW")
+        {
+            // CREATE VIEW / MODIFY VIEW name: a view of the current database in the View Designer.
+            if (Ui == null) return false;
+            var db = Session.CurrentDatabase ?? throw new VfpException(1520, "No database is open or set as the current database.");
+            var viewName = TokenizeDesignerArgs(m.Groups["rest"].Value).FirstOrDefault(w => !IsDesignerClause(w)) ?? "";
+            if (viewName.StartsWith('(') && viewName.EndsWith(')')) viewName = Eval(Parser.ParseExpression(viewName)).AsString.Trim();
+            if (!create && db.GetView(viewName) == null) throw new VfpException(1562, $"Cannot find object {viewName.ToUpperInvariant()} in the database.");
+            return Ui.OpenDesigner(new DesignerRequest("VIEW", db.Path, create, viewName.Length > 0 ? viewName : null));
         }
         if (!create && (kindWord.StartsWith("STRU") || kindWord.StartsWith("PROC")))
         {

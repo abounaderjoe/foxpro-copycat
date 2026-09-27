@@ -345,6 +345,8 @@ public sealed partial class Interpreter : IExpressionHost
         {
             ".jpmenu" => JoePro.Documents.Menus.MenuGenerator.Generate(JoePro.Documents.Menus.MenuDocument.Load(resolved), resolved),
             ".mnx" => JoePro.Documents.Menus.MenuGenerator.Generate(JoePro.Documents.Menus.LegacyMenuConverter.Convert(resolved).Document, resolved),
+            // Queries run their SELECT (DO query.jpquery).
+            ".jpquery" => JoePro.Documents.Queries.QueryDocument.Load(resolved).RunCode(),
             _ => File.ReadAllText(resolved),
         };
         var unit = Parser.ParseProgram(text, Path.GetFileNameWithoutExtension(resolved).ToUpperInvariant(), resolved,
@@ -381,10 +383,14 @@ public sealed partial class Interpreter : IExpressionHost
         CallUnitMain(LoadProgram(Path.Combine(folder, manifest.Main.Replace('/', Path.DirectorySeparatorChar))), args ?? []);
     }
 
-    /// <summary>DO main.mpr when only the menu definition exists: runs main.jpmenu, or a legacy main.mnx.</summary>
+    /// <summary>
+    /// DO main.mpr when only the menu definition exists: runs main.jpmenu, or a legacy main.mnx. DO query.qpr runs a
+    /// migrated query.jpquery the same way.
+    /// </summary>
     private string? MenuFallback(string name)
     {
         var ext = Path.GetExtension(name).ToLowerInvariant();
+        if (ext is ".qpr" or ".qpx") return ResolveProgramFile(Path.ChangeExtension(name, ".jpquery"));
         if (ext is not (".mpr" or ".mpx" or ".jpmenu")) return null;
         return ResolveProgramFile(Path.ChangeExtension(name, ".jpmenu")) ?? ResolveProgramFile(Path.ChangeExtension(name, ".mnx"));
     }

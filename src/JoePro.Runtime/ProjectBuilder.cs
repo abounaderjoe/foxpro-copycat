@@ -51,7 +51,7 @@ public static class ProjectBuilder
             {
                 switch (Path.GetExtension(path).ToLowerInvariant())
                 {
-                    case ".prg" or ".mpr":
+                    case ".prg" or ".mpr" or ".qpr":
                         Parser.ParseProgram(File.ReadAllText(path), "X", path, inc => Include(inc, path, projectDir));
                         break;
                     case ".jpform" or ".jpclass":
@@ -66,6 +66,9 @@ public static class ProjectBuilder
                         break;
                     case ".mnx":
                         Parser.ParseProgram(MenuGenerator.Generate(LegacyMenuConverter.Convert(path).Document, path), "X", path);
+                        break;
+                    case ".jpquery":
+                        Parser.ParseProgram(JoePro.Documents.Queries.QueryDocument.Load(path).RunCode(), "X", path);
                         break;
                     case ".jpreport" or ".jplabel":
                         ReportDocument.Load(path);

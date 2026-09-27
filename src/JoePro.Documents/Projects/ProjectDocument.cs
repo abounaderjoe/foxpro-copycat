@@ -145,6 +145,7 @@ public static class LegacyProjectConverter
         ".frx" => System.IO.Path.ChangeExtension(path, ".jpreport"),
         ".lbx" => System.IO.Path.ChangeExtension(path, ".jplabel"),
         ".mnx" => System.IO.Path.ChangeExtension(path, ".jpmenu"),
+        ".qpr" => System.IO.Path.ChangeExtension(path, ".jpquery"),
         ".dbf" => System.IO.Path.ChangeExtension(path, ".jpt"),
         ".dbc" => System.IO.Path.ChangeExtension(path, ".jpdb"),
         _ => path,
