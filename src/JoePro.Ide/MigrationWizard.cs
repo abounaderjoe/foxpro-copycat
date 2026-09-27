@@ -438,21 +438,24 @@ public sealed class MigrationReportView : UserControl
             chips.Children.Add(chip);
         }
         header.Children.Add(chips);
-        var filters = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 10, 6), Children = { _status, _category, _search, _count } };
+        var filters = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6), Children = { _status, _category, _search, _count } };
         var detailsPanel = new StackPanel
         {
             Margin = new Thickness(10, 6),
             Children = { _details, new StackPanel { Orientation = Orientation.Horizontal, Children = { _openConverted, _openOriginal } } },
         };
-        var detailsBorder = new Border { BorderThickness = new Thickness(0, 1, 0, 0), BorderBrush = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128)), Child = detailsPanel, MaxHeight = 220 };
-        var root = new DockPanel();
+        var detailsCard = IdeTheme.Card(Strings.T("Details"), detailsPanel);
+        detailsCard.MaxHeight = 240;
+        var findings = new DockPanel();
+        DockPanel.SetDock(filters, Dock.Top);
+        findings.Children.Add(filters);
+        findings.Children.Add(_list);
+        var root = new DockPanel { Margin = new Thickness(2) };
         DockPanel.SetDock(header, Dock.Top);
         root.Children.Add(header);
-        DockPanel.SetDock(filters, Dock.Top);
-        root.Children.Add(filters);
-        DockPanel.SetDock(detailsBorder, Dock.Bottom);
-        root.Children.Add(detailsBorder);
-        root.Children.Add(_list);
+        DockPanel.SetDock(detailsCard, Dock.Bottom);
+        root.Children.Add(detailsCard);
+        root.Children.Add(IdeTheme.Card(Strings.T("Findings"), findings));
         Content = root;
         Fill();
     }

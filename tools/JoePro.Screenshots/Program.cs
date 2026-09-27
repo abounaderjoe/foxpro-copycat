@@ -62,6 +62,8 @@ File.WriteAllText(Path.Combine(work, "report.prg"), """
     ENDSCAN
     """);
 
+// JOEPRO_SHOTS_THEME=dark renders the designer screenshots in the dark theme (to check it; docs use light).
+var designerVariant = Environment.GetEnvironmentVariable("JOEPRO_SHOTS_THEME") == "dark" ? ThemeVariant.Dark : ThemeVariant.Light;
 foreach (var (variant, file) in new[] { (ThemeVariant.Light, "ide-light.png"), (ThemeVariant.Dark, "ide-dark.png") })
 {
     Application.Current!.RequestedThemeVariant = variant;
@@ -90,7 +92,7 @@ foreach (var (variant, file) in new[] { (ThemeVariant.Light, "ide-light.png"), (
     Pump();
     Save(window, Path.Combine(output, file));
 
-    if (variant == ThemeVariant.Light)
+    if (variant == designerVariant)
     {
         window.Documents.SelectedIndex = 1;
         Pump();

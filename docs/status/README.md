@@ -27,7 +27,7 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | INSERT / UPDATE / DELETE SQL, CREATE/ALTER TABLE, CREATE CURSOR | ✅ Done |
 | Language: procedures, scoping, arrays, TRY/CATCH, ON ERROR, macros, TEXT/TEXTMERGE, preprocessor | ✅ Done ([ADR 0002](../adr/0002-tree-walking-interpreter-first.md)) |
 | OOP: DEFINE CLASS, inheritance, ADD OBJECT, DODEFAULT, access/assign, Collection | ✅ Done |
-| Built-in functions | 🟡 [282 implemented](functions.md), prioritized by frequency in typical code |
+| Built-in functions | ✅ 369 of the 427 VFP 9 functions implemented, the rest listed as unsupported with a reason ([coverage](../reference/coverage.md)) |
 | Command Window | ✅ In the IDE (Enter runs the line or selection; blocks collect until complete; earlier lines can be re-run), plus the console `joepro` |
 | Browse window | ✅ Editable grid in the IDE: edits write back with REPLACE (rules and triggers apply), append, Ctrl+T toggles deleted. Loads up to 100,000 rows; paging is a later milestone |
 | Basic form runtime | ✅ Forms from code (`DEFINE CLASS … AS Form`) or `.jpform` files (`DO FORM`) render with Avalonia: Label, TextBox, EditBox, CommandButton, CheckBox, OptionGroup, CommandGroup, ComboBox/ListBox, Spinner, Shape, Line, Image, Container, PageFrame, Grid, Timer; ControlSource binding; VFP event order; private data sessions |
