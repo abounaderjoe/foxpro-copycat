@@ -195,8 +195,8 @@ public static class VfpCatalog
         ["REFRESH"] = (SetStatus.NoEffect, "Changes by other users are visible at once."), ["ODOMETER"] = (SetStatus.NoEffect, CharMode),
 
         ["CURRENCY"] = (SetStatus.Supported, null), ["REPROCESS"] = (SetStatus.Supported, null), ["UDFPARMS"] = (SetStatus.Supported, null),
-        ["COMPATIBLE"] = (SetStatus.Missing, null), ["KEY"] = (SetStatus.Supported, null),
-        ["SKIP"] = (SetStatus.Missing, null), ["STRICTDATE"] = (SetStatus.Supported, null), ["VARCHARMAPPING"] = (SetStatus.Supported, null), ["AUTOINCERROR"] = (SetStatus.Supported, null),
+        ["COMPATIBLE"] = (SetStatus.Unsupported, "SET COMPATIBLE ON switches dozens of FoxBASE+ and dBASE IV behaviors at once; Joe Pro follows Visual FoxPro (COMPATIBLE OFF)."), ["KEY"] = (SetStatus.Supported, null),
+        ["SKIP"] = (SetStatus.Supported, null), ["STRICTDATE"] = (SetStatus.Supported, null), ["VARCHARMAPPING"] = (SetStatus.Supported, null), ["AUTOINCERROR"] = (SetStatus.Supported, null),
         ["SYSFORMATS"] = (SetStatus.Supported, null),
 
         ["PRINTER"] = (SetStatus.Unsupported, "Direct printer streaming is not supported; print through REPORT FORM."),

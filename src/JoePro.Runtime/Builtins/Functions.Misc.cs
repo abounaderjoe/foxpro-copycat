@@ -742,6 +742,7 @@ public static partial class Library
             "MEMOWIDTH" => N(o.MemoWidth),
             "FDOW" => N(o.Fdow),
             "FWEEK" => N(o.Fweek),
+            "SKIP" => S(string.Join(",", c.Rt.Session.Current.SkipTo.Select(w => w.Alias.ToUpperInvariant()))),
             "CURRENCY" when c.Has(1) => S(o.Values.GetValueOrDefault("CURRENCY_SYMBOL") ?? "$"),
             "ALTERNATE" => S(c.Has(1) ? c.Rt.AlternateFile : OnOff(c.Rt.AlternateOn)),
             "PROCEDURE" => S(string.Join(",", c.Rt.ProcedureFileNames)),

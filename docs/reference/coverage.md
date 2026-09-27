@@ -155,10 +155,10 @@ Designer commands (CREATE/MODIFY FORM, REPORT, …) count as supported when they
 
 | | SET commands | Share |
 |---|---:|---:|
-| Supported | 55 | 49.5% |
+| Supported | 57 | 51.4% |
 | Accepted, no effect needed (with a reason) | 34 | 30.6% |
-| Unsupported, with a reason | 19 | 17.1% |
-| Missing (accepted, stored for SET(), not acted on) | 3 | 2.7% |
+| Unsupported, with a reason | 20 | 18.0% |
+| Missing (accepted, stored for SET(), not acted on) | 0 | 0.0% |
 | **Total** | **111** | |
 
 ### No effect needed
@@ -208,6 +208,7 @@ Designer commands (CREATE/MODIFY FORM, REPORT, …) count as supported when they
 | SET COLOR | Character-mode display settings have no meaning for forms. |
 | SET COLOR OF SCHEME | Character-mode display settings have no meaning for forms. |
 | SET COLOR SET | Character-mode display settings have no meaning for forms. |
+| SET COMPATIBLE | SET COMPATIBLE ON switches dozens of FoxBASE+ and dBASE IV behaviors at once; Joe Pro follows Visual FoxPro (COMPATIBLE OFF). |
 | SET DELIMITERS | Character-mode display settings have no meaning for forms. |
 | SET DEVICE | Direct printer streaming is not supported; print through REPORT FORM. |
 | SET DISPLAY | Character-mode display settings have no meaning for forms. |
@@ -226,11 +227,11 @@ Designer commands (CREATE/MODIFY FORM, REPORT, …) count as supported when they
 
 ### Missing SET commands
 
-SET COMPATIBLE, SET SKIP, SET SQLBUFFERING
+
 
 ### Supported SET commands
 
-SET ALTERNATE, SET ANSI, SET ASSERTS, SET AUTOINCERROR, SET CENTURY, SET CLASSLIB, SET COLLATE, SET CONSOLE, SET COVERAGE, SET CURRENCY, SET DATABASE, SET DATASESSION, SET DATE, SET DECIMALS, SET DEFAULT, SET DELETED, SET ENGINEBEHAVIOR, SET EVENTTRACKING, SET EXACT, SET EXCLUSIVE, SET FDOW, SET FILTER, SET FIXED, SET FWEEK, SET HEADINGS, SET HOURS, SET KEY, SET MARK, SET MARK OF, SET MEMOWIDTH, SET MESSAGE, SET NEAR, SET NULL, SET NULLDISPLAY, SET OPTIMIZE, SET ORDER, SET PATH, SET POINT, SET PROCEDURE, SET RELATION, SET REPROCESS, SET SAFETY, SET SECONDS, SET SEPARATOR, SET SKIP OF, SET SPACE, SET STEP, SET STRICTDATE, SET SYSFORMATS, SET SYSMENU, SET TALK, SET TEXTMERGE, SET UDFPARMS, SET UNIQUE, SET VARCHARMAPPING
+SET ALTERNATE, SET ANSI, SET ASSERTS, SET AUTOINCERROR, SET CENTURY, SET CLASSLIB, SET COLLATE, SET CONSOLE, SET COVERAGE, SET CURRENCY, SET DATABASE, SET DATASESSION, SET DATE, SET DECIMALS, SET DEFAULT, SET DELETED, SET ENGINEBEHAVIOR, SET EVENTTRACKING, SET EXACT, SET EXCLUSIVE, SET FDOW, SET FILTER, SET FIXED, SET FWEEK, SET HEADINGS, SET HOURS, SET KEY, SET MARK, SET MARK OF, SET MEMOWIDTH, SET MESSAGE, SET NEAR, SET NULL, SET NULLDISPLAY, SET OPTIMIZE, SET ORDER, SET PATH, SET POINT, SET PROCEDURE, SET RELATION, SET REPROCESS, SET SAFETY, SET SECONDS, SET SEPARATOR, SET SKIP, SET SKIP OF, SET SPACE, SET SQLBUFFERING, SET STEP, SET STRICTDATE, SET SYSFORMATS, SET SYSMENU, SET TALK, SET TEXTMERGE, SET UDFPARMS, SET UNIQUE, SET VARCHARMAPPING
 
 ## Supported functions
 

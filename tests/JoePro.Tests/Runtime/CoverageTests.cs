@@ -423,6 +423,37 @@ public class CoverageTests : RuntimeHarness
     }
 
     [Fact]
+    public void Set_skip_steps_through_a_one_to_many_relation()
+    {
+        var o = Run("""
+            CREATE CURSOR cust (id I, name C(5))
+            INSERT INTO cust VALUES (1, "Ann")
+            INSERT INTO cust VALUES (2, "Bob")
+            INSERT INTO cust VALUES (3, "Cy")
+            CREATE CURSOR ord (cid I, item C(5))
+            INSERT INTO ord VALUES (1, "a1")
+            INSERT INTO ord VALUES (1, "a2")
+            INSERT INTO ord VALUES (3, "c1")
+            INSERT INTO ord VALUES (1, "a3")
+            INDEX ON cid TAG cid
+            SELECT cust
+            SET RELATION TO id INTO ord
+            SET SKIP TO ord
+            lcSeen = ""
+            SCAN
+                lcSeen = lcSeen + ALLTRIM(name) + ":" + IIF(EOF("ord"), "-", ALLTRIM(ord.item)) + " "
+            ENDSCAN
+            ? lcSeen
+            SET SKIP TO
+            COUNT TO n
+            ? n
+            """);
+        var lines = o.Trim().Split('\n').Select(l => l.Trim()).ToArray();
+        Assert.Equal("Ann:a1 Ann:a2 Ann:a3 Bob:- Cy:c1", lines[0]);
+        Assert.Equal("3", lines[1]);
+    }
+
+    [Fact]
     public void Set_procedure_and_classlib_restore_from_a_saved_list()
     {
         File.WriteAllText(Path.Combine(Dir, "p1.prg"), "FUNCTION f1\nRETURN 1");

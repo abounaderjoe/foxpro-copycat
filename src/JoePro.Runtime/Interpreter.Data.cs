@@ -1064,6 +1064,20 @@ public sealed partial class Interpreter
             case "KEY":
                 SetKeyCommand(st);
                 break;
+            case "SKIP":
+            {
+                // SET SKIP TO [alias1 [, alias2 …]]: one-to-many through relations of the current work area.
+                var wa = Session.Current;
+                if (!wa.InUse) throw VfpException.NoTableOpen();
+                var names = st.Raw.SkipWhile(t => !t.Text.Equals("TO", StringComparison.OrdinalIgnoreCase)).Skip(1)
+                    .Where(t => !t.IsOp(",")).Select(t => t.Text).ToList();
+                var children = names.Select(n => Session.ResolveAlias(n)).ToList();
+                foreach (var c in children)
+                    if (!wa.Relations.Any(r => r.Child == c)) throw new VfpException(1580, $"No relation from {wa.Alias.ToUpperInvariant()} into {c.Alias.ToUpperInvariant()}.");
+                wa.SkipTo.Clear();
+                wa.SkipTo.AddRange(children);
+                break;
+            }
             case "SYSFORMATS":
                 StoreSetting(st);
                 ApplySysFormats(On());
@@ -1083,7 +1097,7 @@ public sealed partial class Interpreter
                 or "RESOURCE" or "CURSOR" or "TYPEAHEAD" or "CARRY" or "CONFIRM" or "FULLPATH" or "UNIQUE" or "LOCK"
                 or "REFRESH" or "CLOCK" or "ROLLOVER" or "BLOCKSIZE" or "VARCHARMAPPING"
                 or "TABLEVALIDATE" or "LIBRARY"
-                or "AUTOINCERROR" or "INDEX" or "SKIP" or "DEBUG" or "PRINTER" or "DEVICE" or "LOGERRORS"
+                or "AUTOINCERROR" or "INDEX" or "DEBUG" or "PRINTER" or "DEVICE" or "LOGERRORS"
                 or "NOCPTRANS" or "OLEOBJECT" or "SQLBUFFERING" or "SPACE" or "HEADINGS" or "":
                 StoreSetting(st);
                 if (!UnsupportedSettings.Contains(st.Option)) UnsupportedSettings.Add(st.Option);

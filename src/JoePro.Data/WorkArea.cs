@@ -35,6 +35,9 @@ public sealed class WorkArea : IRecord
     public TagDef? Order { get; private set; }
     public ICompiledExpression? Filter { get; private set; }
     public List<(ICompiledExpression Expr, WorkArea Child)> Relations { get; } = new();
+    /// <summary>SET SKIP TO: related child areas that SKIP steps through (one-to-many) before moving this area.</summary>
+    public List<WorkArea> SkipTo { get; } = new();
+    private readonly Dictionary<string, ICompiledExpression> _keyExprs = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>CURSORSETPROP("Buffering"): 1 none, 2/3 row (pessimistic/optimistic), 4/5 table.</summary>
     public int BufferMode { get; private set; } = 1;
     public bool IsCursor { get; private set; }
@@ -83,6 +86,8 @@ public sealed class WorkArea : IRecord
         Order = null;
         Filter = null;
         Relations.Clear();
+        SkipTo.Clear();
+        foreach (var other in Session.OpenWorkAreas()) other.SkipTo.Remove(this);
         BufferMode = 1;
         (ViewState as IDisposable)?.Dispose();
         ViewState = null;
@@ -486,6 +491,37 @@ public sealed class WorkArea : IRecord
         }
         if (n > 0 && Eof) throw VfpException.EndOfFile();
         if (n < 0 && Bof) throw VfpException.BeginningOfFile();
+        if (n > 0 && SkipTo.Count > 0)
+        {
+            // One-to-many: each SKIP first moves a child to its next related record; the parent moves when none is left.
+            for (int i = 0; i < n && !Eof; i++)
+                if (!AdvanceChild()) SkipOwn(1);
+            return;
+        }
+        SkipOwn(n);
+    }
+
+    private bool AdvanceChild()
+    {
+        for (int i = SkipTo.Count - 1; i >= 0; i--)
+        {
+            var child = SkipTo[i];
+            var rel = Relations.FirstOrDefault(r => r.Child == child);
+            if (rel.Child == null || !child.InUse || child.Eof || child.Order == null || _current == null) continue;
+            var parentKey = rel.Expr.Evaluate(this);
+            child.Skip(1);
+            if (child.Eof) continue;
+            var host = Session.ExpressionHost ?? Table.ExpressionHost;
+            if (host == null) continue;
+            if (!_keyExprs.TryGetValue(child.Order.Expression, out var keyExpr)) _keyExprs[child.Order.Expression] = keyExpr = host.Compile(child.Order.Expression);
+            if (VfpCompare.Compare(keyExpr.Evaluate(child), parentKey, Options.Exact ? StringCompareMode.Padded : StringCompareMode.RightLength) == 0) return true;
+        }
+        return false;
+    }
+
+    private void SkipOwn(int n)
+    {
+        if (n == 0) return;
         CommitRowBufferIfLeaving();
         var forward = n > 0;
         var pos = Eof ? null : CurrentPosition();
