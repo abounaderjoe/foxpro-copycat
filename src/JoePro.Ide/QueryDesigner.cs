@@ -75,6 +75,7 @@ public sealed class QueryDesigner : UserControl
         {
             FontFamily = Mono, FontSize = 13, ShowLineNumbers = true, SyntaxHighlighting = FoxProHighlighting.Get(dark), Padding = new Thickness(4),
         };
+        Avalonia.Automation.AutomationProperties.SetName(_sql, "SQL statement");
         _sql.TextChanged += (_, _) => { if (!_syncing) _dirty = true; };
         Button B(string text, string tip, Action act)
         {
@@ -417,6 +418,7 @@ public sealed class QueryDesigner : UserControl
     private static Button Small(string text, Action act)
     {
         var b = new Button { Content = text, Padding = new Thickness(6, 0), FontSize = 11, Margin = new Thickness(2, 0) };
+        if (Accessibility.GlyphName(text) is { } tip) ToolTip.SetTip(b, tip);
         b.Click += (_, _) => act();
         return b;
     }
@@ -447,12 +449,12 @@ public sealed class QueryDesigner : UserControl
             _fieldsTab.Children.Add(Row(
                 Edit(f.Expression, v => { Document.Fields[index] = f with { Expression = v.Trim() }; Touch(); }, 280),
                 new TextBlock { Text = "AS", VerticalAlignment = VerticalAlignment.Center },
-                Edit(f.Alias ?? "", v => { Document.Fields[index] = f with { Alias = string.IsNullOrWhiteSpace(v) ? null : v.Trim() }; Touch(); }, 120),
+                Edit(f.Alias ?? "", v => { Document.Fields[index] = f with { Alias = string.IsNullOrWhiteSpace(v) ? null : v.Trim() }; Touch(); }, 120).Named("Field alias"),
                 Small("▲", () => Move(Document.Fields, index, -1)), Small("▼", () => Move(Document.Fields, index, 1)),
                 Small("✕", () => { Document.Fields.RemoveAt(index); Touch(); })));
         }
         var expr = new TextBox { Width = 280, Watermark = "expression (customer.name, SUM(orders.total) …)", FontFamily = Mono, FontSize = 12 };
-        var alias = new TextBox { Width = 120, Watermark = "name", FontFamily = Mono, FontSize = 12 };
+        var alias = new TextBox { Width = 120, Watermark = "name", FontFamily = Mono, FontSize = 12 }.Named("New field alias");
         _fieldsTab.Children.Add(Row(expr, new TextBlock { Text = "AS", VerticalAlignment = VerticalAlignment.Center }, alias,
             Small("Add", () => { if (!string.IsNullOrWhiteSpace(expr.Text)) AddField(expr.Text.Trim(), alias.Text); })));
     }

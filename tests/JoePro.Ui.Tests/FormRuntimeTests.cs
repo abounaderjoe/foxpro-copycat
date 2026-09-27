@@ -47,6 +47,26 @@ public class FormRuntimeTests : IDisposable
         """;
 
     [AvaloniaFact]
+    public void Form_inputs_get_accessible_names_from_labels_and_tooltips()
+    {
+        _rt.ExecuteCommand("""
+            oForm = CREATEOBJECT("NamedForm")
+            oForm.Show()
+            DEFINE CLASS NamedForm AS Form
+               ADD OBJECT lblName AS Label WITH Caption = "\<Customer:", Left = 10, Top = 20, Width = 70, Height = 17
+               ADD OBJECT txtName AS TextBox WITH Left = 90, Top = 18, Height = 23
+               ADD OBJECT lblFar AS Label WITH Caption = "Other", Left = 10, Top = 120, Width = 70, Height = 17
+               ADD OBJECT txtPhone AS TextBox WITH Left = 90, Top = 50, Height = 23, ToolTipText = "Phone number"
+               ADD OBJECT cmdOk AS CommandButton WITH Caption = "OK", Left = 90, Top = 90
+            ENDDEFINE
+            """);
+        string Name(string path) => Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(Control<Control>(Form(), path)).GetName();
+        Assert.Equal("Customer", Name("txtName"));
+        Assert.Equal("Phone number", Name("txtPhone"));
+        Assert.Equal("OK", Name("cmdOk"));
+    }
+
+    [AvaloniaFact]
     public void On_key_label_runs_its_command_when_the_key_is_pressed_in_a_form()
     {
         _rt.ExecuteCommand("""

@@ -144,7 +144,7 @@ public sealed class ProjectManager : UserControl
             Tag = f.Path,
             Opacity = f.Exclude ? 0.65 : 1,
         };
-        TreeView Tree() { var t = new TreeView(); t.SelectionChanged += (_, _) => { if (t.SelectedItem is TreeViewItem { Tag: string p }) { _selected = p; ShowInfo(); } }; t.DoubleTapped += (_, _) => { if (_selected != null) Open(_selected); }; return t; }
+        TreeView Tree() { var t = new TreeView(); Avalonia.Automation.AutomationProperties.SetName(t, "Project files"); t.SelectionChanged += (_, _) => { if (t.SelectedItem is TreeViewItem { Tag: string p }) { _selected = p; ShowInfo(); } }; t.DoubleTapped += (_, _) => { if (_selected != null) Open(_selected); }; return t; }
         var all = Tree();
         foreach (var path in Visible("All")) all.Items.Add(FileNode(Project.Find(path)!));
         _tabs.Items.Add(new TabItem { Header = "All", Content = all, FontSize = 13 });

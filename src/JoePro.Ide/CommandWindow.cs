@@ -27,6 +27,7 @@ public sealed class CommandWindow : UserControl
             WordWrap = false,
             Padding = new Avalonia.Thickness(4),
         };
+        Avalonia.Automation.AutomationProperties.SetName(Editor, "Command Window");
         Editor.TextArea.AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
         Content = Editor;
     }

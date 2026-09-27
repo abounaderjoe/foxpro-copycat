@@ -31,7 +31,7 @@ public sealed class MenuDesignerTab : DocumentTab
 public sealed class MenuDesigner : UserControl
 {
     private readonly IdeSession _ide;
-    private readonly TreeView _tree = new();
+    private readonly TreeView _tree = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Menu items" };
     private readonly StackPanel _props = new() { Margin = new Thickness(8) };
     private int[] _selected = [];
     private bool _loading;

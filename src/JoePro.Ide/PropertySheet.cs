@@ -17,11 +17,11 @@ namespace JoePro.Ide;
 /// </summary>
 public sealed class PropertySheet : UserControl
 {
-    private readonly ComboBox _objects = new() { HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(4) };
+    private readonly ComboBox _objects = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Object", HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(4) };
     private readonly TextBox _search = new() { Watermark = "Search properties", Margin = new Thickness(4, 0, 4, 4) };
-    private readonly ComboBox _category = new() { HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(4, 0, 4, 4) };
+    private readonly ComboBox _category = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Property category", HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(4, 0, 4, 4) };
     private readonly StackPanel _rows = new() { Spacing = 0 };
-    private readonly ListBox _methods = new();
+    private readonly ListBox _methods = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Methods" };
     private readonly TabControl _tabs = new() { Padding = new Thickness(0) };
     private bool _loading;
 

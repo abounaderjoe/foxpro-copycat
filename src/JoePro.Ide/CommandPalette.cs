@@ -20,6 +20,9 @@ public sealed class CommandPalette : Border
     private readonly List<PaletteAction> _actions;
     private readonly Action<string> _runCommand;
 
+    /// <summary>Every action the palette offers (each menu command is one of them).</summary>
+    public IReadOnlyList<PaletteAction> Actions => _actions;
+
     public CommandPalette(List<PaletteAction> actions, Action<string> runCommand)
     {
         _actions = actions;

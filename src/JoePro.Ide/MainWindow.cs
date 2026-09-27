@@ -29,6 +29,7 @@ public sealed class MainWindow : Window
 
     public MainWindow(IdeSession session)
     {
+        Accessibility.Install();
         _session = session;
         Title = "Joe Pro";
         Width = 1280;
@@ -1082,12 +1083,12 @@ public sealed class MainWindow : Window
                     Item("_Redo", "Form: redo"),
                     new Separator(),
                     Item("Align _Left", "Form: align left"),
-                    Item("Align _Right", "Form: align right"),
+                    Item("Align Ri_ght", "Form: align right"),
                     Item("Align _Top", "Form: align top"),
                     Item("Align _Bottom", "Form: align bottom"),
                     Item("Same _Width", "Form: same width"),
                     Item("Same _Height", "Form: same height"),
-                    Item("Center _Horizontally", "Form: center horizontally"),
+                    Item("Center Hori_zontally", "Form: center horizontally"),
                     Item("Center _Vertically", "Form: center vertically"),
                     new Separator(),
                     Item("Bring to _Front", "Form: bring to front"),

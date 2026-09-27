@@ -32,7 +32,7 @@ public sealed class ClassBrowserTab : DocumentTab
 public sealed class ClassBrowser : UserControl
 {
     private readonly Interpreter _rt;
-    private readonly TreeView _tree = new();
+    private readonly TreeView _tree = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Classes" };
     private readonly TextBox _filter = new() { Watermark = "Filter classes", Margin = new Thickness(4) };
     private readonly TextBlock _header = new() { FontWeight = FontWeight.SemiBold, FontSize = 15, Margin = new Thickness(8, 6, 8, 2), TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _details = new() { Margin = new Thickness(8, 0, 8, 6), TextWrapping = TextWrapping.Wrap, Opacity = 0.85 };
@@ -55,6 +55,7 @@ public sealed class ClassBrowser : UserControl
             ShowLineNumbers = true,
             SyntaxHighlighting = FoxProHighlighting.Get(dark),
         };
+        Avalonia.Automation.AutomationProperties.SetName(_code, "Class code");
         _filter.TextChanged += (_, _) => FillTree();
         _tree.SelectionChanged += (_, _) => ShowSelected();
         _tree.DoubleTapped += (_, _) => { if (SelectedClass != null && !IsLegacy) ModifyRequested?.Invoke(LibraryPath, SelectedClass); };

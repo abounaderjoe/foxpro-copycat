@@ -53,7 +53,7 @@ public sealed class FormDesigner : UserControl
     private readonly TextBlock _formTitle = new() { Margin = new Thickness(8, 4), FontWeight = FontWeight.SemiBold };
     private readonly TextBlock _message = new() { Margin = new Thickness(12), Foreground = Brushes.IndianRed, TextWrapping = TextWrapping.Wrap };
     private readonly ListBox _toolbox = new();
-    private readonly TreeView _dataEnvironment = new() { MinHeight = 80 };
+    private readonly TreeView _dataEnvironment = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Data environment", MinHeight = 80 };
     private readonly TextEditor _code;
     private readonly TextBlock _codeTitle = new() { Margin = new Thickness(6, 3), FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
     private readonly Grid _centerGrid;
@@ -89,6 +89,7 @@ public sealed class FormDesigner : UserControl
             ShowLineNumbers = true,
             SyntaxHighlighting = FoxProHighlighting.Get(dark),
         };
+        Avalonia.Automation.AutomationProperties.SetName(_code, "Method code");
         _code.Options.ConvertTabsToSpaces = true;
         _code.Options.IndentationSize = 3;
         _code.LostFocus += (_, _) => CommitCode();

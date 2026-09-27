@@ -470,6 +470,34 @@ public sealed class AvaloniaUiHost : IUiHost
             var control = Create(m);
             if (control != null) panel.Children.Add(control);
         }
+        if (!_designMode) NameInputs(parent);
+    }
+
+    /// <summary>
+    /// Accessible names for a container's input controls, so screen readers can announce them: the ToolTipText or
+    /// StatusBarText, else the caption of the label to the left on the same line (the usual FoxPro form layout).
+    /// </summary>
+    private static void NameInputs(VfpObject parent)
+    {
+        double P(VfpObject o, string n) => o.FindProperty(n)?.Value is { Kind: ValueKind.Number } v ? v.AsNumber : 0;
+        string S(VfpObject o, string n) => o.FindProperty(n)?.Value is { Kind: ValueKind.Character } v ? v.AsString.Trim() : "";
+        var labels = parent.Members.Where(m => m.Class.BaseClass.Equals("Label", StringComparison.OrdinalIgnoreCase) && S(m, "Caption").Length > 0).ToList();
+        foreach (var m in parent.Members)
+        {
+            if (m.Native is not Control c) continue;
+            if (m.Class.BaseClass is not ("TextBox" or "EditBox" or "ComboBox" or "ListBox" or "Spinner" or "Grid" or "OptionGroup" or "PageFrame" or "CommandButton" or "CheckBox")) continue;
+            var name = S(m, "ToolTipText") is { Length: > 0 } tip ? tip : S(m, "StatusBarText");
+            if (name.Length == 0 && m.Class.BaseClass is not ("CommandButton" or "CheckBox"))
+            {
+                double top = P(m, "Top"), left = P(m, "Left"), height = Math.Max(P(m, "Height"), 1);
+                var label = labels
+                    .Where(l => P(l, "Left") + P(l, "Width") <= left + 4 && Math.Abs(P(l, "Top") + P(l, "Height") / 2 - (top + height / 2)) <= Math.Max(height, P(l, "Height")) / 2 + 4)
+                    .OrderByDescending(l => P(l, "Left") + P(l, "Width"))
+                    .FirstOrDefault();
+                if (label != null) name = S(label, "Caption").Replace("\\<", "").TrimEnd(':', ' ');
+            }
+            if (name.Length > 0) Avalonia.Automation.AutomationProperties.SetName(c, name);
+        }
     }
 
     private Control? Create(VfpObject o)

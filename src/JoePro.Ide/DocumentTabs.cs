@@ -30,7 +30,12 @@ public abstract class DocumentTab : TabItem
     public string Title
     {
         get => _title.Text ?? "";
-        set => _title.Text = value;
+        set
+        {
+            _title.Text = value;
+            if (Header is StackPanel { Children: [_, Button close] }) Avalonia.Automation.AutomationProperties.SetName(close, "Close " + value);
+            Avalonia.Automation.AutomationProperties.SetName(this, value);
+        }
     }
 
     public virtual bool CanClose() => true;
@@ -52,6 +57,7 @@ public sealed class CodeEditorTab : DocumentTab
             SyntaxHighlighting = FoxProHighlighting.Get(dark),
             Padding = new Thickness(4),
         };
+        Avalonia.Automation.AutomationProperties.SetName(Editor, "Code editor");
         Editor.Options.ConvertTabsToSpaces = true;
         Editor.Options.IndentationSize = 3;
         if (path != null && File.Exists(path)) Editor.Text = File.ReadAllText(path);

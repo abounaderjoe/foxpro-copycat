@@ -566,6 +566,7 @@ public sealed class StoredProceduresTab : DocumentTab
             Padding = new Thickness(4),
             Text = database.StoredProcedures,
         };
+        Avalonia.Automation.AutomationProperties.SetName(Editor, "Stored procedures");
         Editor.Options.ConvertTabsToSpaces = true;
         Editor.Options.IndentationSize = 3;
         Editor.TextChanged += (_, _) => { _dirty = true; UpdateTitle(); };

@@ -13,7 +13,7 @@ public sealed class DataSessionPanel : UserControl
     public DataSessionPanel(IdeSession session, Action<string> run)
     {
         _session = session;
-        List = new ListBox { FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
+        List = new ListBox { [Avalonia.Automation.AutomationProperties.NameProperty] = "Work areas", FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
         List.DoubleTapped += (_, _) => { if (Selected is { } w) run($"SELECT {w.Number}\nBROWSE"); };
         var browse = new Button { Content = "Browse" };
         browse.Click += (_, _) => { if (Selected is { } w) run($"SELECT {w.Number}\nBROWSE"); };

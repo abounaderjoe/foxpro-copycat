@@ -44,8 +44,8 @@ public sealed class TableDesigner : UserControl
     private readonly Store? _database;
     private readonly string? _freePath;
     private readonly TextBox _name = new() { Width = 220 };
-    private readonly ListBox _fields = new() { FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
-    private readonly ListBox _tags = new() { FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
+    private readonly ListBox _fields = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Fields", FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
+    private readonly ListBox _tags = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Index tags", FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
     private readonly StackPanel _fieldEditor = new() { Spacing = 4, Margin = new Thickness(10, 0) };
     private readonly StackPanel _tagEditor = new() { Spacing = 4, Margin = new Thickness(10, 0) };
     private readonly TextBlock _changes = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.85, Margin = new Thickness(0, 4) };
