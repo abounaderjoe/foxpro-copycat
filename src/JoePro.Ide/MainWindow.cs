@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using JoePro.Core;
+using JoePro.Data;
 using JoePro.Runtime;
 using DebugAction = JoePro.Runtime.DebugAction;
 using JoePro.Ui.Runtime;
@@ -261,6 +262,16 @@ public sealed class MainWindow : Window
                 return true;
             case "PROJECT" when request.Path.Length > 0:
                 OpenProject(request.Path);
+                return true;
+            case "DATABASE" when request.Path.Length > 0:
+                if (request.Create && !File.Exists(request.Path)) Run($"CREATE DATABASE \"{request.Path}\"");
+                OpenDatabaseDesigner(request.Path);
+                return true;
+            case "TABLE" when request.ClassName != null:
+                OpenTableDesigner(request.Path, request.ClassName);
+                return true;
+            case "PROCEDURE":
+                OpenStoredProcedures(request.Path);
                 return true;
             default:
                 return false;
@@ -524,7 +535,7 @@ public sealed class MainWindow : Window
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Save program",
-            SuggestedFileName = "program.prg",
+            SuggestedFileName = tab.SuggestedName ?? "program.prg",
             DefaultExtension = "prg",
             FileTypeChoices = [new FilePickerFileType("FoxPro program") { Patterns = ["*.prg"] }, new FilePickerFileType("Joe Pro form") { Patterns = ["*.jpform"] }],
         });
@@ -547,6 +558,21 @@ public sealed class MainWindow : Window
 
     private void SaveActive()
     {
+        if (Documents.SelectedItem is TableDesignerTab tableTab)
+        {
+            tableTab.Designer.Save();
+            return;
+        }
+        if (Documents.SelectedItem is StoredProceduresTab procs)
+        {
+            try
+            {
+                procs.Save();
+                SetStatus($"Saved the stored procedures of {procs.Database.Name.ToLowerInvariant()}.");
+            }
+            catch (JoePro.Language.CompileException ex) { SetStatus($"Not saved: line {ex.Line}: {ex.Message}"); }
+            return;
+        }
         if (ActiveMenuDesigner is { } menu)
         {
             if (menu.FilePath == null) _ = SaveMenuAs(menu);
@@ -600,7 +626,7 @@ public sealed class MainWindow : Window
                 Run($"USE \"{path}\" IN 0\nBROWSE");
                 break;
             case ".jpdb":
-                Run($"OPEN DATABASE \"{path}\"");
+                OpenDatabaseDesigner(path);
                 break;
             case ".jpform" or ".scx":
                 OpenForm(path);
@@ -645,6 +671,146 @@ public sealed class MainWindow : Window
             FileTypeFilter = [new FilePickerFileType("Class libraries") { Patterns = ["*.jpclass", "*.vcx"] }],
         });
         if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) OpenClassBrowser(path);
+    }
+
+    // ---- Database Designer, Table Designer, stored procedures ---------------------------------------
+
+    private static bool SameFile(string a, string b) => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+    private async Task NewDatabaseWithPicker()
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "New database", SuggestedFileName = "data.jpdb", DefaultExtension = "jpdb",
+            FileTypeChoices = [new FilePickerFileType("Joe Pro database") { Patterns = ["*.jpdb"] }],
+        });
+        if (file?.TryGetLocalPath() is not { } path) return;
+        if (!File.Exists(path)) Run($"CREATE DATABASE \"{path}\"");
+        OpenDatabaseDesigner(path);
+    }
+
+    private async Task OpenDatabaseWithPicker()
+    {
+        if (_session.Runtime.Session.CurrentDatabase is { } current) { OpenDatabaseDesigner(current.Path); return; }
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Database",
+            FileTypeFilter = [new FilePickerFileType("Joe Pro databases") { Patterns = ["*.jpdb"] }],
+        });
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) OpenDatabaseDesigner(path);
+    }
+
+    /// <summary>MODIFY DATABASE: the database's tables, views and relations in the Database Designer.</summary>
+    public DatabaseDesigner OpenDatabaseDesigner(string path)
+    {
+        var existing = Documents.Items.OfType<DatabaseDesignerTab>().FirstOrDefault(t => SameFile(t.Designer.DatabasePath, path));
+        if (existing != null)
+        {
+            Documents.SelectedItem = existing;
+            existing.Designer.Refresh();
+            return existing.Designer;
+        }
+        var designer = new DatabaseDesigner(path, _session);
+        designer.Status += SetStatus;
+        designer.NewTableRequested += () =>
+        {
+            var n = 1;
+            while (designer.Database.HasTable("table" + n) || Documents.Items.OfType<TableDesignerTab>().Any(t => t.Designer.Design.Name.Equals("TABLE" + n, StringComparison.OrdinalIgnoreCase))) n++;
+            var design = TableDesign.New("table" + n);
+            design.Fields.Add(new FieldDesign(new FieldDef("ID", 'I') { AutoIncNext = 1 }));
+            design.Tags.Add(new TagDef("ID", "id", Kind: TagKind.Primary));
+            ShowTableDesigner(new TableDesigner(design, designer.Database, null, _session));
+        };
+        designer.ModifyTableRequested += name => OpenTableDesigner(designer.DatabasePath, name);
+        designer.ModifyViewRequested += name => SetStatus($"{name.ToLowerInvariant()} is a view; MODIFY VIEW {name.ToLowerInvariant()} changes it.");
+        designer.BrowseRequested += name =>
+        {
+            var alias = _session.Runtime.Session.OpenWorkAreas().FirstOrDefault(w => w.Table.Store == designer.Database && w.Table.Name.Equals(name, StringComparison.OrdinalIgnoreCase))?.Alias;
+            Run(alias != null ? $"SELECT {alias}\nBROWSE" : $"USE {designer.Database.Name}!{name} IN 0\nSELECT {name}\nBROWSE");
+        };
+        designer.ProceduresRequested += () => OpenStoredProcedures(designer.DatabasePath);
+        designer.ScriptRequested += (name, text) => OpenScript(name, text);
+        designer.AddTableRequested += async () =>
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Add a free table to the database",
+                FileTypeFilter = [new FilePickerFileType("Tables") { Patterns = ["*.jpt", "*.dbf"] }],
+            });
+            if (files.Count > 0 && files[0].TryGetLocalPath() is { } table)
+            {
+                try { designer.AddTable(table); }
+                catch (Exception ex) when (ex is VfpException or InvalidOperationException) { SetStatus(ex.Message); }
+            }
+        };
+        designer.CompareRequested += async () =>
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "The other version of the database (the one to upgrade)",
+                FileTypeFilter = [new FilePickerFileType("Joe Pro databases") { Patterns = ["*.jpdb"] }],
+            });
+            if (files.Count > 0 && files[0].TryGetLocalPath() is { } other)
+            {
+                try { OpenScript($"upgrade-{Path.GetFileNameWithoutExtension(other)}.prg", designer.UpgradeScriptFor(other)); }
+                catch (Exception ex) when (ex is VfpException or IOException or Microsoft.Data.Sqlite.SqliteException) { SetStatus(ex.Message); }
+            }
+        };
+        OpenDocument(new DatabaseDesignerTab(designer));
+        return designer;
+    }
+
+    /// <summary>MODIFY STRUCTURE / the Database Designer's Modify: a table (of a database, or a free table file) in the Table Designer.</summary>
+    public TableDesigner OpenTableDesigner(string storePath, string table)
+    {
+        var existing = Documents.Items.OfType<TableDesignerTab>().FirstOrDefault(t => t.Designer.Design.OriginalName is { } o && o.Equals(table, StringComparison.OrdinalIgnoreCase)
+            && t.Designer.StorePath is { } sp && SameFile(sp, storePath));
+        if (existing != null)
+        {
+            Documents.SelectedItem = existing;
+            return existing.Designer;
+        }
+        var store = _session.Runtime.Session.StoreOf(storePath);
+        var isDatabase = store.Kind == StoreKind.Database;
+        var schema = store.OpenTable(isDatabase ? table : store.TableNames()[0], _session.Runtime).Schema;
+        return ShowTableDesigner(new TableDesigner(TableDesign.From(schema), isDatabase ? store : null, isDatabase ? null : store.Path, _session));
+    }
+
+    private TableDesigner ShowTableDesigner(TableDesigner designer)
+    {
+        designer.Status += SetStatus;
+        designer.ScriptRequested += (name, text) => OpenScript(name, text);
+        designer.Saved += () =>
+        {
+            foreach (var db in Documents.Items.OfType<DatabaseDesignerTab>()) db.Designer.Refresh();
+            DataSession.Refresh();
+        };
+        OpenDocument(new TableDesignerTab(designer));
+        return designer;
+    }
+
+    /// <summary>MODIFY PROCEDURE: the database's stored procedures in the code editor.</summary>
+    public StoredProceduresTab OpenStoredProcedures(string databasePath)
+    {
+        var existing = Documents.Items.OfType<StoredProceduresTab>().FirstOrDefault(t => SameFile(t.Database.Path, databasePath));
+        if (existing != null)
+        {
+            Documents.SelectedItem = existing;
+            return existing;
+        }
+        var tab = new StoredProceduresTab(_session.Runtime.Session.StoreOf(databasePath), IsDark);
+        OpenDocument(tab);
+        return tab;
+    }
+
+    /// <summary>A generated script in an unsaved code editor.</summary>
+    public CodeEditorTab OpenScript(string name, string text)
+    {
+        var tab = new CodeEditorTab(null, IsDark, Debugger.Engine, Language);
+        tab.Editor.Text = text;
+        tab.SuggestedName = name;
+        OpenDocument(tab);
+        return tab;
     }
 
     /// <summary>The migration wizard (File › Import FoxPro Application).</summary>
@@ -696,6 +862,9 @@ public sealed class MainWindow : Window
         A("New report", "", () => OpenReport(null));
         A("New label", "", () => OpenReport(null, label: true));
         A("New menu", "", () => OpenMenu(null));
+        A("New database…", "", () => _ = NewDatabaseWithPicker());
+        A("Modify database…", "", () => _ = OpenDatabaseWithPicker());
+        A("Modify structure", "", () => Run("MODIFY STRUCTURE"));
         A("Class browser…", "", () => _ = OpenClassLibraryWithPicker());
         A("Class: new property…", "", () => { if (ActiveDesigner is { } d) MemberDialogs.NewMember(d, isMethod: false); });
         A("Class: new method…", "", () => { if (ActiveDesigner is { } d) MemberDialogs.NewMember(d, isMethod: true); });
@@ -771,6 +940,7 @@ public sealed class MainWindow : Window
                     Item("New _Report", "New report"),
                     Item("New _Label", "New label"),
                     Item("New _Menu", "New menu"),
+                    Item("New _Database…", "New database…"),
                     Item("_Open…", "Open…", "Ctrl+O"),
                     Item("_Save", "Save", "Ctrl+S"),
                     new Separator(),
@@ -791,6 +961,8 @@ public sealed class MainWindow : Window
                 {
                     Item("_Browse", "Browse current table"),
                     Item("Display _Structure", "Display structure"),
+                    Item("_Modify Structure", "Modify structure"),
+                    Item("Modify _Database…", "Modify database…"),
                     Item("_Close All Tables", "Close all tables"),
                 } },
                 new MenuItem { Header = "F_orm", Items =

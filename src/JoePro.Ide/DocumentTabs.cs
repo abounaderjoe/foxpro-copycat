@@ -86,7 +86,20 @@ public sealed class CodeEditorTab : DocumentTab
     public TextEditor Editor { get; }
     public bool IsDirty => _dirty;
 
-    private void UpdateTitle() => Title = (FilePath != null ? Path.GetFileName(FilePath) : "Untitled.prg") + (_dirty ? " •" : "");
+    /// <summary>The name an unsaved editor shows and suggests when it is saved (a generated script, say).</summary>
+    public string? SuggestedName
+    {
+        get => _suggested;
+        set
+        {
+            _suggested = value;
+            UpdateTitle();
+        }
+    }
+
+    private string? _suggested;
+
+    private void UpdateTitle() => Title = (FilePath != null ? Path.GetFileName(FilePath) : _suggested ?? "Untitled.prg") + (_dirty ? " •" : "");
 
     public void Save(string? path = null)
     {
