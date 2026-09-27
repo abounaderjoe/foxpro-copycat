@@ -8,6 +8,11 @@ and a migration and sync layer for existing FoxPro applications.
 - **Decisions:** [docs/adr](docs/adr)
 - **Coming from Visual FoxPro:** [the guide](docs/guide/for-foxpro-developers.md), the [language reference](docs/reference/language.md) and the [coverage matrix](docs/reference/coverage.md)
 
+## Download
+
+Tagged releases have self-contained bundles for Linux, Windows and macOS (no .NET install needed). To build one
+yourself: `tools/package.sh` (this platform) or `tools/package.sh linux-x64 win-x64 osx-arm64`.
+
 ## Try it
 
 Requires the .NET 10 SDK.

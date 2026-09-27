@@ -494,7 +494,12 @@ public sealed partial class Interpreter
         }
     }
 
-    public const string VersionString = "Joe Pro 0.1 (FoxPro 9 compatible)";
+    /// <summary>The product version from the build (Directory.Build.props).</summary>
+    public static readonly string ProductVersion =
+        typeof(Interpreter).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0.0.0";
+
+    public static readonly string VersionString = $"Joe Pro {ProductVersion} (FoxPro 9 compatible)";
 
     // ================================================================================
     // Properties

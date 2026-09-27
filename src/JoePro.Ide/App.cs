@@ -24,8 +24,14 @@ public sealed class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            CrashReports.Install();
+            Avalonia.Threading.Dispatcher.UIThread.UnhandledException += (_, e) => CrashReports.Write(e.Exception, "unhandled exception on the UI thread");
             var session = new IdeSession(StartDirectory);
+            CrashReports.RecentActivity = () => session.History.TakeLast(20);
             var window = new MainWindow(session);
+            var crashes = CrashReports.TakeNew();
+            if (crashes.Count > 0)
+                window.Opened += (_, _) => window.SetStatus($"Joe Pro closed unexpectedly last time. The report is in {crashes[^1]} (nothing was sent).");
             desktop.MainWindow = window;
             desktop.Exit += (_, _) => session.Dispose();
             if (StartFile != null) window.Opened += (_, _) => window.OpenAny(StartFile);

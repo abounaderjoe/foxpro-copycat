@@ -137,7 +137,9 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Performance: FOR conditions pushed down to SQL as a prefilter for LOCATE/CONTINUE, SCAN FOR and scoped commands (the Rushmore equivalent), verified against record-by-record evaluation; INSERT profiled | ✅ LOCATE ≈ 20×, SCAN FOR ≈ 1.8× faster ([benchmarks](benchmarks.md)) |
 | Accessibility: every interactive control in the IDE and its 12 designers and tool windows has a screen-reader name (from its tooltip, its label, its tab, its placeholder, or set explicitly), enforced by an automated audit; every menu command has a unique access key and is in the command palette; forms that applications run name their inputs from ToolTipText, StatusBarText or the label beside them | ✅ Done (audit tests in `AccessibilityTests`). A manual pass with NVDA/VoiceOver on real desktops is still to do |
 | Localization framework: string catalogs per culture (English text as key, built-in JSON plus user overrides), pseudo-locale to find text that bypasses the catalog, German catalog for the menus and command palette, tests for coverage, stale entries and access keys (see [translating the IDE](../reference/localization.md)) | ✅ Framework done; designer panels and dialogs still to route through it |
-| Installer, auto-update, crash reporting | ⏳ Next |
+| Packaging: `tools/package.sh` builds self-contained bundles (IDE, CLI, app runner, Data Server sharing one .NET runtime; about 48 MB compressed) for Linux, Windows and macOS; a tag builds them in CI and attaches them to a GitHub release. The version is set once in `Directory.Build.props` | ✅ Done. Platform installers (MSI, .dmg, .deb) and code signing are not done |
+| Crash reports: an unhandled failure in the IDE writes a local report (version, OS, stack, recent commands) and the next start says where it is; nothing is sent | ✅ Done |
+| Auto-update and opt-in telemetry | ⏳ Not started (needs a release feed and a privacy decision) |
 
 ## Screenshots
 

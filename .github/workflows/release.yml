@@ -1,0 +1,31 @@
+name: Release
+
+# Pushing a tag such as v0.9.0 builds the self-contained bundles and attaches them to a GitHub release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test --configuration Release
+      - run: tools/package.sh linux-x64 linux-arm64 win-x64 osx-x64 osx-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: joepro-bundles
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+      - if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip --title "Joe Pro $GITHUB_REF_NAME" --generate-notes
