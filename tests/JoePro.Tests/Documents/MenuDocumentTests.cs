@@ -109,3 +109,31 @@ public class MenuDocumentTests
         Directory.Delete(dir, true);
     }
 }
+
+public class MenuDesignSessionTests
+{
+    [Fact]
+    public void Insert_move_indent_outdent_and_undo()
+    {
+        var s = new MenuDesignSession(new MenuDocument());
+        s.Insert([], 0, new MenuNode { Prompt = "File" });
+        s.Insert([], 1, new MenuNode { Prompt = "Open", Command = "x" });
+        s.Insert([], 2, new MenuNode { Prompt = "Close" });
+        var open = s.Indent([1]);
+        Assert.Equal([0, 0], open);
+        Assert.Null(s.Document.Items[0].Command);
+        var close = s.Indent([1]);
+        Assert.Equal([0, 1], close);
+        Assert.Equal(["Open", "Close"], s.Document.Items[0].Items.Select(i => i.Prompt));
+        Assert.Equal([0, 0], s.Move([0, 1], -1));
+        Assert.Equal("Close", s.Document.Items[0].Items[0].Prompt);
+        Assert.Equal([1], s.Outdent([0, 0]));
+        Assert.Equal(["File", "Close"], s.Document.Items.Select(i => i.Prompt));
+        s.Undo(); s.Undo();
+        Assert.Equal(["Open", "Close"], s.Document.Items[0].Items.Select(i => i.Prompt));
+        var quick = MenuDesignSession.QuickMenu();
+        Assert.Equal(["File", "Edit", "Window", "Help"], quick.Items.Select(i => i.Caption));
+        Assert.Contains(quick.Items[1].Items, i => i.SystemBar == "_MED_PASTE");
+        JoePro.Language.Parser.ParseProgram(MenuGenerator.Generate(quick, "quick.jpmenu"), "Q");
+    }
+}

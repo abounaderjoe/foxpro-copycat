@@ -255,6 +255,9 @@ public sealed class MainWindow : Window
             case "REPORT" or "LABEL":
                 OpenReport(request.Path.Length == 0 ? null : request.Path, request.Kind == "LABEL");
                 return true;
+            case "MENU":
+                OpenMenu(request.Path.Length == 0 ? null : request.Path);
+                return true;
             default:
                 return false;
         }
@@ -315,6 +318,36 @@ public sealed class MainWindow : Window
                 foreach (var b in Documents.Items.OfType<ClassBrowserTab>().Where(b => SamePath(b.Browser.LibraryPath, designer.FilePath))) b.Browser.Reload();
             }
         };
+    }
+
+    private MenuDesigner? ActiveMenuDesigner => (Documents.SelectedItem as MenuDesignerTab)?.Designer;
+
+    /// <summary>CREATE/MODIFY MENU: a .jpmenu as is, a legacy .mnx converted (saving writes .jpmenu), or a new menu.</summary>
+    public MenuDesignerTab OpenMenu(string? path)
+    {
+        var legacy = path != null && System.IO.Path.GetExtension(path).Equals(".mnx", StringComparison.OrdinalIgnoreCase);
+        var target = legacy ? System.IO.Path.ChangeExtension(path!, ".jpmenu") : path;
+        var existing = Documents.Items.OfType<MenuDesignerTab>().FirstOrDefault(t => t.Designer.FilePath != null && target != null && SamePath(t.Designer.FilePath, target));
+        if (existing != null) { Documents.SelectedItem = existing; return existing; }
+        var doc = path != null && File.Exists(path)
+            ? legacy ? JoePro.Documents.Menus.LegacyMenuConverter.Convert(path).Document : JoePro.Documents.Menus.MenuDocument.Load(path)
+            : new JoePro.Documents.Menus.MenuDocument();
+        var tab = new MenuDesignerTab(target, doc, _session, IsDark);
+        tab.Designer.Status += SetStatus;
+        tab.Designer.SaveAsRequested += () => _ = SaveMenuAs(tab.Designer);
+        OpenDocument(tab);
+        if (legacy) SetStatus($"{System.IO.Path.GetFileName(path)} was converted; saving writes {System.IO.Path.GetFileName(target)}.");
+        return tab;
+    }
+
+    private async Task SaveMenuAs(MenuDesigner designer)
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save menu", SuggestedFileName = "menu1.jpmenu", DefaultExtension = "jpmenu",
+            FileTypeChoices = [new FilePickerFileType("Joe Pro menu") { Patterns = ["*.jpmenu"] }],
+        });
+        if (file?.TryGetLocalPath() is { } path) designer.Save(path);
     }
 
     public ReportPreviewTab OpenPreview(JoePro.Reports.RenderedReport report)
@@ -487,6 +520,12 @@ public sealed class MainWindow : Window
 
     private void SaveActive()
     {
+        if (ActiveMenuDesigner is { } menu)
+        {
+            if (menu.FilePath == null) _ = SaveMenuAs(menu);
+            else menu.Save();
+            return;
+        }
         if (ActiveReportDesigner is { } report)
         {
             if (report.FilePath == null) _ = SaveReportAs(report);
@@ -513,7 +552,7 @@ public sealed class MainWindow : Window
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.scx", "*.jpclass", "*.vcx", "*.jpreport", "*.frx", "*.jplabel", "*.lbx", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
+                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.scx", "*.jpclass", "*.vcx", "*.jpreport", "*.frx", "*.jplabel", "*.lbx", "*.jpmenu", "*.mnx", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
                 new FilePickerFileType("All files") { Patterns = ["*"] },
             ],
         });
@@ -539,6 +578,9 @@ public sealed class MainWindow : Window
                 break;
             case ".jpreport" or ".frx" or ".jplabel" or ".lbx":
                 OpenReport(path);
+                break;
+            case ".jpmenu" or ".mnx":
+                OpenMenu(path);
                 break;
             default:
                 OpenFile(path);
@@ -586,6 +628,7 @@ public sealed class MainWindow : Window
         A("New form", "", () => OpenForm(null, create: true));
         A("New report", "", () => OpenReport(null));
         A("New label", "", () => OpenReport(null, label: true));
+        A("New menu", "", () => OpenMenu(null));
         A("Class browser…", "", () => _ = OpenClassLibraryWithPicker());
         A("Class: new property…", "", () => { if (ActiveDesigner is { } d) MemberDialogs.NewMember(d, isMethod: false); });
         A("Class: new method…", "", () => { if (ActiveDesigner is { } d) MemberDialogs.NewMember(d, isMethod: true); });
@@ -660,6 +703,7 @@ public sealed class MainWindow : Window
                     Item("New _Form", "New form"),
                     Item("New _Report", "New report"),
                     Item("New _Label", "New label"),
+                    Item("New _Menu", "New menu"),
                     Item("_Open…", "Open…", "Ctrl+O"),
                     Item("_Save", "Save", "Ctrl+S"),
                     new Separator(),
