@@ -350,7 +350,9 @@ public static class YamlText
             var line = lines[pos];
             if (line.Indent < indent) break;
             var t = line.Text[line.Indent..];
-            if (line.Indent > indent || !(t == "-" || t.StartsWith("- "))) throw new FormatException($"Line {line.Number}: expected '- ' at this indentation.");
+            var isItem = t == "-" || t.StartsWith("- ");
+            if (line.Indent == indent && !isItem) break; // a sequence written at its key's indentation ends at the next key
+            if (line.Indent > indent || !isItem) throw new FormatException($"Line {line.Number}: expected '- ' at this indentation.");
             var after = t.Length > 1 ? t[2..] : "";
             var itemIndent = indent + 2 + (after.Length - after.TrimStart(' ').Length);
             after = after.TrimStart(' ');

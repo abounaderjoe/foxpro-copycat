@@ -256,7 +256,7 @@ public static class LegacyFormConverter
     }
 
     /// <summary>"Name = value" lines. Lines that do not start a new assignment continue the previous value.</summary>
-    private static List<(string Name, string Value)> ParseProperties(string memo, string obj, ConversionResult result)
+    internal static List<(string Name, string Value)> ParseProperties(string memo, string obj, ConversionResult result)
     {
         var list = new List<(string, string)>();
         foreach (var line in Lines(memo))
@@ -317,7 +317,7 @@ public static class LegacyFormConverter
     }
 
     /// <summary>PROCEDURE … ENDPROC blocks of a METHODS memo.</summary>
-    private static List<MethodDocument> ParseMethods(string memo)
+    internal static List<MethodDocument> ParseMethods(string memo)
     {
         var list = new List<MethodDocument>();
         MethodDocument? current = null;
