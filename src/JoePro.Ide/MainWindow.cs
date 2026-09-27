@@ -215,6 +215,7 @@ public sealed class MainWindow : Window
 
     public void CloseDocument(DocumentTab tab)
     {
+        if (!tab.CanClose()) return;
         if (tab is CodeEditorTab { IsDirty: true, FilePath: not null } code) code.Save();
         if (tab is FormDesignerTab { Designer: { FilePath: not null, Session.IsDirty: true } designer }) designer.Save();
         Documents.Items.Remove(tab);
@@ -588,6 +589,11 @@ public sealed class MainWindow : Window
     /// <summary>Opens a file the way VFP would: programs in the editor, tables with USE + BROWSE, databases with OPEN DATABASE.</summary>
     public void OpenAny(string path)
     {
+        if (Path.GetFileName(path).Equals("migration-report.json", StringComparison.OrdinalIgnoreCase))
+        {
+            OpenMigrationReport(JoePro.Migration.MigrationReport.FromJson(File.ReadAllText(path)));
+            return;
+        }
         switch (Path.GetExtension(path).ToLowerInvariant())
         {
             case ".jpt" or ".dbf":
@@ -641,14 +647,43 @@ public sealed class MainWindow : Window
         if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) OpenClassBrowser(path);
     }
 
-    private async Task ImportFolder()
+    /// <summary>The migration wizard (File › Import FoxPro Application).</summary>
+    public MigrationWizard OpenMigrationWizard(string? source = null)
     {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Import a FoxPro application folder" });
-        if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } path) return;
-        var target = path.TrimEnd(Path.DirectorySeparatorChar) + "-joepro";
-        Run($"IMPORT FOXPRO \"{path}\" TO \"{target}\"");
-        var report = Path.Combine(target, "migration-report.html");
-        if (File.Exists(report)) await Launcher.LaunchFileInfoAsync(new FileInfo(report));
+        var existing = Documents.Items.OfType<MigrationWizardTab>().FirstOrDefault();
+        if (existing != null)
+        {
+            Documents.SelectedItem = existing;
+            if (source != null) existing.Wizard.SourceFolder = source;
+            return existing.Wizard;
+        }
+        var wizard = new MigrationWizard(source);
+        wizard.OpenRequested += OpenAny;
+        wizard.ReportRequested += report => OpenMigrationReport(report);
+        wizard.Finished += (report, target) =>
+        {
+            if (wizard.SetDefaultWhenDone) Run($"SET DEFAULT TO \"{target}\"");
+            if (wizard.OpenProjectWhenDone && wizard.ConvertedProjects.Count > 0) OpenProject(wizard.ConvertedProjects[0]);
+            if (wizard.ShowReportWhenDone) OpenMigrationReport(report);
+            SetStatus($"Migrated into {target}: {report.ReadinessScore:P0} of the findings need no action.");
+        };
+        OpenDocument(new MigrationWizardTab(wizard));
+        return wizard;
+    }
+
+    /// <summary>Shows a migration report in the IDE (one tab per migrated folder).</summary>
+    public MigrationReportView OpenMigrationReport(JoePro.Migration.MigrationReport report)
+    {
+        var existing = Documents.Items.OfType<MigrationReportTab>().FirstOrDefault(t => report.Target.Length > 0 && t.View.Report.Target == report.Target);
+        if (existing != null) Documents.Items.Remove(existing);
+        var view = new MigrationReportView(report);
+        view.OpenRequested += (path, line) =>
+        {
+            if (line > 0 && Path.GetExtension(path).ToLowerInvariant() is ".prg" or ".h" or ".mpr" or ".qpr" or ".txt") NavigateTo(new JoePro.Tooling.SymbolLocation(path, line));
+            else OpenAny(path);
+        };
+        OpenDocument(new MigrationReportTab(view));
+        return view;
     }
 
     // ---- Menu, shortcuts, palette ------------------------------------------------------
@@ -686,7 +721,7 @@ public sealed class MainWindow : Window
         A("Open…", "Ctrl+O", () => _ = OpenWithPicker());
         A("Save", "Ctrl+S", SaveActive);
         A("Run program", "Ctrl+E", RunActive);
-        A("Import FoxPro application…", "", () => _ = ImportFolder());
+        A("Import FoxPro application…", "", () => OpenMigrationWizard());
         A("Command window", "Ctrl+F2", () => CommandWindow.Editor.Focus());
         A("Close document", "Ctrl+W", () => { if (Documents.SelectedItem is DocumentTab d) CloseDocument(d); });
         A("Browse current table", "", () => Run("BROWSE"));

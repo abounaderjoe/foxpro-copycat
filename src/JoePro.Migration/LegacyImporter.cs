@@ -35,17 +35,25 @@ public sealed class LegacyImporter
         _report.Source = Path.GetFullPath(folder);
         _report.Target = Path.GetFullPath(targetDir);
         Directory.CreateDirectory(targetDir);
-        var files = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).ToList();
+        // A target inside the source folder (and version control folders) are not part of the application.
+        var targetFull = Path.GetFullPath(targetDir) + Path.DirectorySeparatorChar;
+        var files = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)
+            .Where(f => !IsVersionControl(Rel(f)) && !Path.GetFullPath(f).StartsWith(targetFull)).ToList();
+        _total = files.Count(f => Ext(f) is ".dbc" or ".dbf" or ".prg" or ".h" or ".mpr" or ".qpr" or ".scx" or ".vcx" or ".frx" or ".lbx" or ".mnx" or ".pjx");
+        _done = 0;
         var dbcTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // The target mirrors the source folder layout, so relative references (class libraries, databases,
         // pictures) keep working after conversion.
         foreach (var dbc in files.Where(f => Ext(f) == ".dbc"))
         {
+            Step("Importing database", dbc);
             try { dbcTables.UnionWith(ImportDatabase(dbc, MirrorDir(dbc, targetDir))); }
             catch (Exception ex) { Fail("DATA.DBC.READ", "database", dbc, ex); }
         }
+        _done += files.Count(f => Ext(f) == ".dbf" && dbcTables.Contains(Path.GetFullPath(f)));
         foreach (var dbf in files.Where(f => Ext(f) == ".dbf" && !dbcTables.Contains(Path.GetFullPath(f))))
         {
+            Step("Importing table", dbf);
             try
             {
                 using (var probe = DbfTable.Open(dbf))
@@ -64,35 +72,56 @@ public sealed class LegacyImporter
         var analyzer = new ProgramAnalyzer(_report);
         analyzer.IncludeRoots.Add(Path.GetFullPath(folder));
         foreach (var prg in files.Where(f => Ext(f) is ".prg" or ".h" or ".mpr" or ".qpr"))
+        {
+            Step("Analyzing", prg);
             analyzer.AnalyzeFile(prg, Rel(prg));
+        }
         // Programs, include files, pictures and every other file the application ships (style sheets, scripts, text)
         // are copied as they are (compatibility mode runs programs unchanged). FoxPro binaries are converted instead.
-        var targetFull = Path.GetFullPath(targetDir) + Path.DirectorySeparatorChar;
-        foreach (var f in files.Where(f => !ConvertedOrCompiled.Contains(Ext(f)) && !IsVersionControl(Rel(f)) && !Path.GetFullPath(f).StartsWith(targetFull)))
+        foreach (var f in files.Where(f => !ConvertedOrCompiled.Contains(Ext(f))))
         {
             var dest = Path.Combine(MirrorDir(f, targetDir), Path.GetFileName(f));
             if (!File.Exists(dest)) File.Copy(f, dest, overwrite: false);
         }
         foreach (var form in files.Where(f => Ext(f) is ".scx" or ".vcx"))
         {
+            Step(Ext(form) == ".scx" ? "Converting form" : "Converting class library", form);
             try { ConvertClassFile(form, targetDir); }
             catch (Exception ex) { Fail(Ext(form) == ".scx" ? "FORM.READ" : "CLASSLIB.READ", Ext(form) == ".scx" ? "form" : "classlib", form, ex); CopyOriginal(form, targetDir); }
         }
         foreach (var rpt in files.Where(f => Ext(f) is ".frx" or ".lbx"))
         {
+            Step(Ext(rpt) == ".frx" ? "Converting report" : "Converting label", rpt);
             try { ConvertReportFile(rpt, targetDir); }
             catch (Exception ex) { Fail(Ext(rpt) == ".frx" ? "REPORT.READ" : "LABEL.READ", Ext(rpt) == ".frx" ? "report" : "label", rpt, ex); CopyOriginal(rpt, targetDir); }
         }
         foreach (var mnx in files.Where(f => Ext(f) == ".mnx"))
         {
+            Step("Converting menu", mnx);
             try { ConvertMenuFile(mnx, targetDir); }
             catch (Exception ex) { Fail("MENU.READ", "menu", mnx, ex); CopyOriginal(mnx, targetDir); }
         }
         foreach (var pjx in files.Where(f => Ext(f) is ".pjx"))
         {
+            Step("Converting project", pjx);
             try { ConvertProjectFile(pjx, targetDir); }
             catch (Exception ex) { Fail("PROJECT.READ", "project", pjx, ex); CopyOriginal(pjx, targetDir); }
         }
+        Progress?.Invoke(new MigrationProgress("Done", "", _total, _total));
+    }
+
+    private int _done, _total;
+
+    /// <summary>Raised before each file of a folder import (on the importing thread).</summary>
+    public event Action<MigrationProgress>? Progress;
+
+    /// <summary>Stops a folder import between files (it throws <see cref="OperationCanceledException"/>).</summary>
+    public CancellationToken Cancellation { get; set; }
+
+    private void Step(string step, string file)
+    {
+        Cancellation.ThrowIfCancellationRequested();
+        Progress?.Invoke(new MigrationProgress(step, Rel(file), _done++, _total));
     }
 
     private string MirrorDir(string file, string targetDir)

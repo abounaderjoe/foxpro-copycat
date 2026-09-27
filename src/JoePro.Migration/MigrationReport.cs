@@ -100,7 +100,16 @@ public sealed class MigrationReport
     public static MigrationReport FromJson(string json)
     {
         using var doc = JsonDocument.Parse(json);
-        var report = new MigrationReport { Source = doc.RootElement.GetProperty("source").GetString() ?? "" };
+        var root = doc.RootElement;
+        var report = new MigrationReport
+        {
+            Source = root.GetProperty("source").GetString() ?? "",
+            Target = root.TryGetProperty("target", out var t) ? t.GetString() ?? "" : "",
+            GeneratedUtc = root.TryGetProperty("generatedUtc", out var g) && g.TryGetDateTime(out var when) ? when : default,
+        };
+        if (root.TryGetProperty("tables", out var tables))
+            foreach (var table in tables.EnumerateArray())
+                report.Tables.Add(table.Deserialize<TableSummary>(JsonOptions)!);
         foreach (var f in doc.RootElement.GetProperty("findings").EnumerateArray())
             report.Findings.Add(f.Deserialize<Finding>(JsonOptions)!);
         return report;

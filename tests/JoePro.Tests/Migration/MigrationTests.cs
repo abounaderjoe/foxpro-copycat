@@ -226,4 +226,33 @@ public class MigrationTests
         }
         finally { rt.Session.Dispose(); }
     }
+
+    [Fact]
+    public void Folder_scan_progress_and_cancellation()
+    {
+        var legacy = Path.Combine(_dir, "legacy5");
+        Directory.CreateDirectory(Path.Combine(legacy, ".git"));
+        File.WriteAllText(Path.Combine(legacy, ".git", "config"), "");
+        File.WriteAllText(Path.Combine(legacy, "a.prg"), "x = 1\n");
+        File.WriteAllText(Path.Combine(legacy, "b.prg"), "x = 2\n");
+        File.WriteAllText(Path.Combine(legacy, "b.fxp"), "compiled");
+        File.WriteAllText(Path.Combine(legacy, "logo.png"), "png");
+        var scan = MigrationScan.Scan(legacy);
+        Assert.Equal((3, 2, 1), (scan.Files - 1, scan.Count("Programs"), scan.Count("Other files")));   // .git is skipped; .fxp is a companion
+        Assert.Empty(scan.Projects);
+
+        var steps = new List<MigrationProgress>();
+        var importer = new LegacyImporter(new MigrationReport());
+        importer.Progress += steps.Add;
+        importer.ImportFolder(legacy, Path.Combine(_dir, "out5"));
+        Assert.Equal(["Analyzing", "Analyzing", "Done"], steps.Select(p => p.Step));
+        Assert.Equal([(0, 2), (1, 2), (2, 2)], steps.Select(p => (p.Done, p.Total)));
+        Assert.False(Directory.Exists(Path.Combine(_dir, "out5", ".git")));
+        Assert.False(File.Exists(Path.Combine(_dir, "out5", "b.fxp")));
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var cancelled = new LegacyImporter(new MigrationReport()) { Cancellation = cts.Token };
+        Assert.Throws<OperationCanceledException>(() => cancelled.ImportFolder(legacy, Path.Combine(_dir, "out6")));
+    }
 }
