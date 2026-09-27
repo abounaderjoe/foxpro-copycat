@@ -220,7 +220,7 @@ public static class CommandCoverage
     private sealed class DesignerProbe : IUiHost
     {
         private static readonly HashSet<string> Kinds = new(StringComparer.OrdinalIgnoreCase)
-            { "CLASS", "CLASSLIB", "DATABASE", "FORM", "MENU", "PROCEDURE", "PROJECT", "REPORT", "LABEL", "TABLE", "QUERY", "VIEW", "DEBUGGER" };
+            { "CLASS", "CLASSLIB", "DATABASE", "FORM", "MENU", "PROCEDURE", "PROJECT", "REPORT", "LABEL", "TABLE", "QUERY", "VIEW", "DEBUGGER", "MEMO", "CONNECTION", "HELP" };
         public void PropertyChanged(VfpObject o, string property) { }
         public void Show(VfpObject form, bool modal) { }
         public void Hide(VfpObject form) { }

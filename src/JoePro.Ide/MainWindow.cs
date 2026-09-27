@@ -285,6 +285,28 @@ public sealed class MainWindow : Window
             case "DEBUGGER":
                 Debugger.Panel.IsVisible = true;
                 return true;
+            case "MEMO" when request.ClassName != null:
+                OpenDocument(new MemoEditorTab(_session, request.Path, request.ClassName));
+                return true;
+            case "CONNECTION":
+            {
+                var tab = new ConnectionEditorTab(_session.Runtime.Session.StoreOf(request.Path), request.ClassName);
+                tab.TestRequested += cs =>
+                {
+                    var h = _session.Runtime.Evaluate($"SQLSTRINGCONNECT([{cs.Replace("]", "")}])");
+                    if (h.AsNumber > 0) { _session.Runtime.Evaluate($"SQLDISCONNECT({h.AsNumber})"); tab.ShowMessage("Connected."); }
+                    else tab.ShowMessage("Could not connect. " + _session.Runtime.LastErrorMessage);
+                };
+                OpenDocument(tab);
+                return true;
+            }
+            case "HELP":
+            {
+                var help = Documents.Items.OfType<HelpTab>().FirstOrDefault();
+                if (help == null) OpenDocument(help = new HelpTab(request.ClassName));
+                else { Documents.SelectedItem = help; if (request.ClassName != null) help.Select(request.ClassName); }
+                return true;
+            }
             case "PROCEDURE":
                 OpenStoredProcedures(request.Path);
                 return true;
@@ -582,6 +604,17 @@ public sealed class MainWindow : Window
         if (Documents.SelectedItem is QueryDesignerTab queryTab)
         {
             queryTab.Designer.Save();
+            return;
+        }
+        if (Documents.SelectedItem is MemoEditorTab memoTab)
+        {
+            memoTab.Save();
+            SetStatus($"Saved {memoTab.Alias.ToLowerInvariant()}.{memoTab.Field.ToLowerInvariant()} in record {memoTab.RecNo}.");
+            return;
+        }
+        if (Documents.SelectedItem is ConnectionEditorTab connTab)
+        {
+            connTab.Save();
             return;
         }
         if (Documents.SelectedItem is TableDesignerTab tableTab)
@@ -1011,6 +1044,7 @@ public sealed class MainWindow : Window
         A("Theme: light", "", () => SetTheme(ThemeVariant.Light));
         A("Theme: dark", "", () => SetTheme(ThemeVariant.Dark));
         A("Theme: follow system", "", () => SetTheme(ThemeVariant.Default));
+        A("Language reference", "F1", ShowHelp);
         A("About Joe Pro", "", () => Run("? VERSION()"));
         A("Debug: continue", "F5", () => Debugger.Resume(DebugAction.Continue));
         A("Debug: step over", "F10", () => Debugger.Resume(DebugAction.StepOver));
@@ -1021,6 +1055,22 @@ public sealed class MainWindow : Window
         A("Debug: toggle breakpoint", "F9", ToggleBreakpoint);
         A("Debug: break on errors", "", () => { Debugger.Engine.BreakOnErrors = !Debugger.Engine.BreakOnErrors; SetStatus($"Break on unhandled errors: {(Debugger.Engine.BreakOnErrors ? "on" : "off")}"); });
         A("Debug: step into program", "", () => { Debugger.Engine.RequestPause(); RunActive(); });
+    }
+
+    /// <summary>F1: the help viewer, on the word under the cursor when a code editor or the Command Window has focus.</summary>
+    private void ShowHelp()
+    {
+        AvaloniaEdit.TextEditor? editor = CommandWindow.Editor.IsKeyboardFocusWithin ? CommandWindow.Editor : ActiveEditor?.Editor;
+        string? word = null;
+        if (editor != null)
+        {
+            var text = editor.Text;
+            int caret = Math.Clamp(editor.CaretOffset, 0, text.Length), a = caret, b = caret;
+            while (a > 0 && (char.IsLetterOrDigit(text[a - 1]) || text[a - 1] == '_')) a--;
+            while (b < text.Length && (char.IsLetterOrDigit(text[b]) || text[b] == '_')) b++;
+            if (b > a) word = text[a..b];
+        }
+        OpenDesigner(new DesignerRequest("HELP", "", false, word));
     }
 
     private static void SetTheme(ThemeVariant v)
@@ -1125,7 +1175,7 @@ public sealed class MainWindow : Window
                     Item("Break on _Errors", "Debug: break on errors"),
                     Item("Step Into _Program", "Debug: step into program"),
                 } },
-                new MenuItem { Header = Strings.T("_Help"), Items = { Item("_About Joe Pro", "About Joe Pro") } },
+                new MenuItem { Header = Strings.T("_Help"), Items = { Item("_Language Reference", "Language reference", "F1"), Item("_About Joe Pro", "About Joe Pro") } },
             },
         };
     }
@@ -1149,6 +1199,7 @@ public sealed class MainWindow : Window
             (false, true, Key.F11) => () => Debugger.Resume(DebugAction.StepOut),
             (false, false, Key.F9) => ToggleBreakpoint,
             (false, false, Key.F12) => () => ActiveEditor?.Intelligence?.GoToDefinition(),
+            (false, false, Key.F1) => ShowHelp,
             (true, false, Key.F2) => () => CommandWindow.Editor.Focus(),
             (true, false, Key.W) => Action("Close document").Run,
             _ => null,

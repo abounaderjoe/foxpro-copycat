@@ -114,5 +114,7 @@
   "Debug: set next statement": "Debuggen: nächste Anweisung festlegen",
   "Debug: toggle breakpoint": "Debuggen: Haltepunkt ein/aus",
   "Debug: break on errors": "Debuggen: bei Fehlern anhalten",
-  "Debug: step into program": "Debuggen: in Programm springen"
+  "Debug: step into program": "Debuggen: in Programm springen",
+  "_Language Reference": "_Sprachreferenz",
+  "Language reference": "Sprachreferenz"
 }

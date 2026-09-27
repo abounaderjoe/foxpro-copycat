@@ -1135,6 +1135,30 @@ public sealed partial class Interpreter
                 break;
             case "CREATE" or "CREA" when CreateFromCommand(rest):
                 break;
+            case "MODIFY" or "MODI" when System.Text.RegularExpressions.Regex.Match(rest.Trim(), @"^(?<k>MEMO|CONN\w*)\b\s*(?<n>[^\s]*)", System.Text.RegularExpressions.RegexOptions.IgnoreCase) is { Success: true } mm:
+            {
+                var isMemo = mm.Groups["k"].Value.StartsWith("MEMO", StringComparison.OrdinalIgnoreCase);
+                var arg = NameText(mm.Groups["n"].Value);
+                DesignerRequest req;
+                if (isMemo)
+                {
+                    // MODIFY MEMO [alias.]field: the memo of the current record.
+                    if (arg.Length == 0) throw VfpException.Syntax("MODIFY MEMO needs a memo field name.");
+                    var dot = arg.IndexOf('.');
+                    var wa = dot > 0 ? Session.ResolveAlias(arg[..dot]) : Session.Current;
+                    if (!wa.InUse) throw VfpException.NoTableOpen();
+                    var field = dot > 0 ? arg[(dot + 1)..] : arg;
+                    if (wa.FieldIndex(field) < 0) throw VfpException.FieldNotFound(field);
+                    req = new DesignerRequest("MEMO", wa.Alias, false, field);
+                }
+                else req = new DesignerRequest("CONNECTION", RequireDatabase().Path, arg.Length == 0, arg.Length == 0 ? null : arg);
+                if (Ui?.OpenDesigner(req) != true) Notify($"MODIFY {rest.Trim()}: this editor is available in the Joe Pro IDE.");
+                break;
+            }
+            case "HELP":
+                if (Ui?.OpenDesigner(new DesignerRequest("HELP", "", false, rest.Trim().Length == 0 ? null : rest.Trim())) != true)
+                    Notify("HELP: the help viewer is in the Joe Pro IDE; the reference is in docs/reference/language.md.");
+                break;
             case "EJECT" or "PRINTJOB" or "ENDPRINTJOB" or "FREE" or "ASSIST" or "MENU":
                 Notify($"{verb} {rest}".Trim() + $" is not supported: {Builtins.CommandCoverage.ReasonFor(verb)}");
                 break;
