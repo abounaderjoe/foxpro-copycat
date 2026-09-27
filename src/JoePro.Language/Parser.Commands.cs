@@ -196,7 +196,14 @@ public sealed partial class Parser
             return SqlInsert();
         }
         if (V("UPDATE")) return SqlUpdate();
-        if (V("DEFINE")) { _p = _t.Count; return new NoOpStmt("DEFINE"); }
+        if (V("DEFINE"))
+        {
+            if (DefineMenuCommand() is { } menuStmt) return menuStmt;
+            _p = _t.Count;
+            return new NoOpStmt("DEFINE");
+        }
+        if ((V("ACTIVATE") || V("DEACTIVATE") || V("HIDE") || V("SHOW")) && MenuVerb(verb.Text.ToUpperInvariant() is var vv && vv.StartsWith("DEAC") ? "DEACTIVATE" : vv.StartsWith("ACTI") ? "ACTIVATE" : vv) is { } menuVerb)
+            return menuVerb;
         if (V("CD") || V("CHDIR")) return new ChdirStmt(NameArg());
         if ((Kw("RENAME") || Kw("DROP")) && _p + 1 < _t.Count && (_t[_p + 1].Text.Equals("VIEW", StringComparison.OrdinalIgnoreCase) || _t[_p + 1].Text.Equals("CONNECTION", StringComparison.OrdinalIgnoreCase)))
         {
@@ -324,6 +331,7 @@ public sealed partial class Parser
         var t = Next();
         var opt = SetOptionNames.FirstOrDefault(o => KwMatch(t, o)) ?? t.Text.ToUpperInvariant();
         var raw = _t.Skip(_p).ToList();
+        if ((opt is "MARK" or "SKIP") && Kw("OF")) return SetMenuFlag(opt);
         switch (opt)
         {
             case "ORDER":

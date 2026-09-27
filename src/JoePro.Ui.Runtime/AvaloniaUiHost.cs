@@ -182,6 +182,54 @@ public sealed class AvaloniaUiHost : IUiHost
 
     public bool OpenDesigner(DesignerRequest request) => DesignerHandler?.Invoke(request) ?? false;
 
+    /// <summary>Raised when the program's menus change (the IDE or app window rebuilds its application menu bar).</summary>
+    public event Action? MenusUpdated;
+
+    public void MenusChanged() => MenusUpdated?.Invoke();
+
+    /// <summary>The Avalonia menu items for the active FoxPro menu bar (empty when there is none or SET SYSMENU OFF).</summary>
+    public List<Control> ActiveMenuItems()
+    {
+        var m = _rt.Menus;
+        if (!m.Visible || m.ActiveMenu == null || !m.Menus.TryGetValue(m.ActiveMenu, out var menu)) return [];
+        return MenuBuilder.Pads(_rt, menu, ex => Error?.Invoke(ex));
+    }
+
+    /// <summary>For tests and hosts without a pointer: picks the item a shortcut popup should choose instead of showing it.</summary>
+    public Func<PopupDef, string?>? PopupChooser { get; set; }
+
+    /// <summary>ACTIVATE POPUP: shows the popup as a context menu on the active window and waits until it closes.</summary>
+    public bool ActivatePopup(string name)
+    {
+        if (_rt.Menus.Popup(name) is not { } popup) return false;
+        if (PopupChooser != null)
+        {
+            if (PopupChooser(popup) is { } chosen) Guard(() => _rt.SelectMenuItem(popup.Name, chosen, isPad: false));
+            return true;
+        }
+        var window = _windows.Values.FirstOrDefault(w => w.IsActive) ?? Owner ?? _windows.Values.LastOrDefault();
+        if (window?.Content is not Control target) return false;
+        string? selected = null;
+        var menu = new ContextMenu();
+        foreach (var item in MenuBuilder.Bars(_rt, popup, ex => Error?.Invoke(ex)))
+        {
+            // Selection runs after the popup closes, as in VFP.
+            if (item is MenuItem { Tag: BarDef bar } mi && mi.Items.Count == 0)
+            {
+                var fresh = new MenuItem { Header = mi.Header, IsEnabled = mi.IsEnabled, InputGesture = mi.InputGesture, Icon = mi.Icon };
+                fresh.Click += (_, _) => selected = bar.Id;
+                menu.Items.Add(fresh);
+            }
+            else menu.Items.Add(item);
+        }
+        var frame = new DispatcherFrame();
+        menu.Closed += (_, _) => frame.Continue = false;
+        menu.Open(target);
+        if (menu.IsOpen) Dispatcher.UIThread.PushFrame(frame);
+        if (selected != null) Guard(() => _rt.SelectMenuItem(popup.Name, selected, isPad: false));
+        return true;
+    }
+
     // ================================================================================
     // Design surface (Form Designer)
     // ================================================================================

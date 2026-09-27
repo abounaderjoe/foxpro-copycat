@@ -39,6 +39,12 @@ public interface IUiHost
 
     /// <summary>CREATE/MODIFY FORM, CLASS, REPORT, LABEL, MENU, QUERY, PROJECT…: opens a designer. Returns false if unavailable.</summary>
     bool OpenDesigner(DesignerRequest request);
+
+    /// <summary>Menus were defined, changed, activated or released (see <see cref="Interpreter.Menus"/>).</summary>
+    void MenusChanged() { }
+
+    /// <summary>ACTIVATE POPUP: shows a popup (a shortcut menu at the mouse). Returns false if unavailable.</summary>
+    bool ActivatePopup(string name) => false;
 }
 
 /// <summary>

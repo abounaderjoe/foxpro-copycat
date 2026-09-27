@@ -81,13 +81,14 @@ public sealed class LegacyImporter
             try { ConvertReportFile(rpt, targetDir); }
             catch (Exception ex) { Fail(Ext(rpt) == ".frx" ? "REPORT.READ" : "LABEL.READ", Ext(rpt) == ".frx" ? "report" : "label", rpt, ex); CopyOriginal(rpt, targetDir); }
         }
-        foreach (var other in files.Where(f => Ext(f) is ".mnx" or ".pjx"))
+        foreach (var mnx in files.Where(f => Ext(f) == ".mnx"))
         {
-            var (kind, phase) = Ext(other) switch
-            {
-                ".mnx" => ("Menu", "Phase 5 (Menu Designer)"),
-                _ => ("Project", "Phase 5 (Project Manager)"),
-            };
+            try { ConvertMenuFile(mnx, targetDir); }
+            catch (Exception ex) { Fail("MENU.READ", "menu", mnx, ex); CopyOriginal(mnx, targetDir); }
+        }
+        foreach (var other in files.Where(f => Ext(f) is ".pjx"))
+        {
+            var (kind, phase) = ("Project", "Phase 5 (Project Manager)");
             _report.Add(FindingStatus.Unsupported, "ARTIFACT.NOT_YET_CONVERTED", Ext(other).TrimStart('.'), new SourceLocation(Rel(other)),
                 $"{kind} conversion ships with {phase}. The original file is preserved alongside the output.",
                 "Re-run the migration after upgrading; the report will show what changed.");
@@ -180,6 +181,29 @@ public sealed class LegacyImporter
             if (Directory.Exists(_report.Source)) analyzer.IncludeRoots.Add(_report.Source);
             analyzer.AnalyzeSource(doc.DataEnvironment, Rel(path), "DataEnvironment");
         }
+        return dest;
+    }
+
+    /// <summary>Converts a menu (.MNX) to .jpmenu; DO main.mpr then runs it even without the generated .mpr.</summary>
+    public string ConvertMenuFile(string path, string targetDir)
+    {
+        if (string.IsNullOrEmpty(_report.Source)) _report.Source = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        if (string.IsNullOrEmpty(_report.Target)) _report.Target = Path.GetFullPath(targetDir);
+        var result = JoePro.Documents.Menus.LegacyMenuConverter.Convert(path);
+        var dest = Path.Combine(MirrorDir(path, targetDir), Path.GetFileNameWithoutExtension(path).ToLowerInvariant() + ".jpmenu");
+        result.Document.Save(dest);
+        var src = new SourceLocation(Rel(path));
+        var target = new TargetLocation(dest);
+        foreach (var f in result.Findings)
+            _report.Add(f.Status == JoePro.Documents.FindingStatus.NeedsReview ? FindingStatus.NeedsReview : FindingStatus.Converted,
+                f.Status == JoePro.Documents.FindingStatus.NeedsReview ? "MENU.REVIEW" : "MENU.INFO", "menu", src with { Object = f.Object }, f.Message, target: target);
+        var doc = result.Document;
+        _report.Add(FindingStatus.Converted, "MENU.CONVERTED", "menu", src,
+            $"Menu converted: {doc.Items.Count} pad(s), {doc.AllItems().Count()} item(s).", target: target);
+        var analyzer = new ProgramAnalyzer(_report);
+        if (Directory.Exists(_report.Source)) analyzer.IncludeRoots.Add(_report.Source);
+        foreach (var code in new[] { doc.Setup, doc.Cleanup }.Concat(doc.AllItems().Select(i => i.Procedure ?? i.Command)).OfType<string>())
+            analyzer.AnalyzeSource(code, Rel(path), "menu");
         return dest;
     }
 

@@ -153,6 +153,14 @@ public sealed partial class Interpreter
             case CopyFileStmt cf: ExecCopyFile(cf); return true;
             case AddTableStmt adt: ExecAddTable(adt); return true;
             case ReportFormStmt rf: ExecReportForm(rf); return true;
+            case DefineMenuStmt dm: ExecDefineMenu(dm); return true;
+            case DefinePadStmt dp: ExecDefinePad(dp); return true;
+            case DefinePopupStmt dpo: ExecDefinePopup(dpo); return true;
+            case DefineBarStmt db: ExecDefineBar(db); return true;
+            case OnMenuStmt om: ExecOnMenu(om); return true;
+            case ActivateMenuStmt am: ExecActivateMenu(am); return true;
+            case MenuControlStmt mc: ExecMenuControl(mc); return true;
+            case SetMenuFlagStmt smf: ExecSetMenuFlag(smf); return true;
             case RemoveTableStmt rmt: ExecRemoveTable(rmt); return true;
             case BlockStmt bs:
                 foreach (var inner in bs.Stmts) ExecStmt(inner);
@@ -896,6 +904,9 @@ public sealed partial class Interpreter
             case "CLASSLIB":
                 SetClassLib(st.Raw);
                 break;
+            case "SYSMENU":
+                ExecSetSysMenu(string.Join(" ", st.Raw.Select(t => t.Text)));
+                break;
             case "TEXTMERGE":
             {
                 // SET TEXTMERGE [ON | OFF] [TO [file] [ADDITIVE]] [NOSHOW | SHOW]
@@ -987,7 +998,7 @@ public sealed partial class Interpreter
             }
             case "MULTILOCKS" or "REPROCESS" or "STATUS" or "ECHO" or "CONSOLE" or "ESCAPE" or "BELL" or "NOTIFY"
                 or "CPDIALOG" or "STRICTDATE" or "FIXED" or "UDFPARMS" or "COMPATIBLE" or "MEMOWIDTH" or "HELP"
-                or "RESOURCE" or "SYSMENU" or "CURSOR" or "TYPEAHEAD" or "CARRY" or "CONFIRM" or "FULLPATH" or "UNIQUE" or "LOCK"
+                or "RESOURCE" or "CURSOR" or "TYPEAHEAD" or "CARRY" or "CONFIRM" or "FULLPATH" or "UNIQUE" or "LOCK"
                 or "REFRESH" or "CURRENCY" or "CLOCK" or "ROLLOVER" or "BLOCKSIZE" or "NULLDISPLAY" or "VARCHARMAPPING"
                 or "TABLEVALIDATE" or "LIBRARY" or "DATASESSION" or "ASSERTS"
                 or "AUTOINCERROR" or "INDEX" or "KEY" or "SKIP" or "DEBUG" or "ALTERNATE" or "PRINTER" or "DEVICE" or "LOGERRORS"

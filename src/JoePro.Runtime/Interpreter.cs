@@ -340,7 +340,14 @@ public sealed partial class Interpreter : IExpressionHost
         var resolved = ResolveProgramFile(path) ?? throw VfpException.FileNotFound(Path.GetFileName(path));
         var stamp = File.GetLastWriteTimeUtc(resolved);
         if (_programCache.TryGetValue(resolved, out var cached) && cached.Stamp == stamp) return cached.Unit;
-        var unit = Parser.ParseProgram(File.ReadAllText(resolved), Path.GetFileNameWithoutExtension(resolved).ToUpperInvariant(), resolved,
+        // Menus run as the MPR code they generate: .jpmenu documents, and legacy .mnx files converted in memory.
+        var text = Path.GetExtension(resolved).ToLowerInvariant() switch
+        {
+            ".jpmenu" => JoePro.Documents.Menus.MenuGenerator.Generate(JoePro.Documents.Menus.MenuDocument.Load(resolved), resolved),
+            ".mnx" => JoePro.Documents.Menus.MenuGenerator.Generate(JoePro.Documents.Menus.LegacyMenuConverter.Convert(resolved).Document, resolved),
+            _ => File.ReadAllText(resolved),
+        };
+        var unit = Parser.ParseProgram(text, Path.GetFileNameWithoutExtension(resolved).ToUpperInvariant(), resolved,
             inc => ResolveInclude(inc, resolved));
         _programCache[resolved] = (stamp, unit);
         RegisterUnit(unit);
@@ -354,6 +361,14 @@ public sealed partial class Interpreter : IExpressionHost
         if (includingFile != null && !Path.IsPathRooted(name)
             && DataSession.FindIgnoringCase(Path.Combine(Path.GetDirectoryName(includingFile)!, name)) is { } near) return File.ReadAllText(near);
         return ResolveProgramFile(name, ".h") is { } p ? File.ReadAllText(p) : null;
+    }
+
+    /// <summary>DO main.mpr when only the menu definition exists: runs main.jpmenu, or a legacy main.mnx.</summary>
+    private string? MenuFallback(string name)
+    {
+        var ext = Path.GetExtension(name).ToLowerInvariant();
+        if (ext is not (".mpr" or ".mpx" or ".jpmenu")) return null;
+        return ResolveProgramFile(Path.ChangeExtension(name, ".jpmenu")) ?? ResolveProgramFile(Path.ChangeExtension(name, ".mnx"));
     }
 
     private string? ResolveProgramFile(string name, string ext = ".prg")
@@ -1047,7 +1062,7 @@ public sealed partial class Interpreter : IExpressionHost
             Invoke(found.Proc, found.Unit, args);
             return;
         }
-        var file = ResolveProgramFile(name) ?? throw VfpException.FileNotFound(Path.HasExtension(name) ? name : name + ".prg");
+        var file = ResolveProgramFile(name) ?? MenuFallback(name) ?? throw VfpException.FileNotFound(Path.HasExtension(name) ? name : name + ".prg");
         CallUnitMain(LoadProgram(file), args);
     }
 

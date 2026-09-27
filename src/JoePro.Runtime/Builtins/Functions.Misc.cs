@@ -46,6 +46,41 @@ public static partial class Library
 
     private static void RegisterMisc()
     {
+        // ---- Menus ----
+        Add("BAR", c => { var b = c.Rt.Menus.LastBar; return b != null && int.TryParse(b, out var n) ? N(n) : S(b ?? ""); });
+        Add("POPUP", c => S(c.Rt.Menus.LastPopup?.ToUpperInvariant() ?? ""));
+        Add("PROMPT", c => S(c.Rt.Menus.LastPrompt));
+        Add("PAD", c => S(c.Rt.Menus.LastPad?.ToUpperInvariant() ?? ""));
+        Add("MENU", c => S((c.Rt.Menus.LastMenu ?? c.Rt.Menus.ActiveMenu)?.ToUpperInvariant() ?? ""));
+        PopupDef P(CallContext c) => c.Rt.Menus.Popup(c.Str(0)) ?? throw new VfpException(1639, $"Popup {c.Str(0).ToUpperInvariant()} is not defined.");
+        MenuBarDef M(CallContext c) => c.Rt.Menus.Menus.GetValueOrDefault(c.Str(0)) ?? throw new VfpException(1637, $"Menu {c.Str(0).ToUpperInvariant()} is not defined.");
+        BarDef B(CallContext c) => P(c).Bar(c.Arg(1, Value.Zero) is { Kind: ValueKind.Number } n ? ((int)n.AsNumber).ToString() : c.Str(1))
+                                   ?? throw new VfpException(1640, "Bar is not defined.");
+        PadDef D(CallContext c) => M(c).Pad(c.Str(1)) ?? throw new VfpException(1638, $"Pad {c.Str(1).ToUpperInvariant()} is not defined.");
+        Add("CNTBAR", c => N(P(c).Bars.Count));
+        Add("CNTPAD", c => N(M(c).Pads.Count));
+        Add("GETBAR", c =>
+        {
+            var bars = P(c).Bars;
+            var i = (int)c.Num(1);
+            if (i < 1 || i > bars.Count) throw VfpException.InvalidArgument();
+            var b = bars[i - 1];
+            return b.SystemBar != null ? S(b.SystemBar) : N(b.Number);
+        });
+        Add("GETPAD", c =>
+        {
+            var pads = M(c).Pads;
+            var i = (int)c.Num(1);
+            if (i < 1 || i > pads.Count) throw VfpException.InvalidArgument();
+            return S(pads[i - 1].Name.ToUpperInvariant());
+        });
+        Add("PRMBAR", c => S(B(c).Caption));
+        Add("PRMPAD", c => S(D(c).Caption));
+        Add("MRKBAR", c => L(B(c).Mark));
+        Add("MRKPAD", c => L(D(c).Mark));
+        Add("SKPBAR", c => L(c.Rt.IsMenuItemSkipped(B(c))));
+        Add("SKPPAD", c => L(c.Rt.IsMenuItemSkipped(D(c))));
+
         // AVCXCLASSES(aInfo, cLibrary): one row per class — name, parent, parent library, base class, toolbar icon,
         // container icon, scale mode, description, #INCLUDE file, user info, OLE public.
         Add("AVCXCLASSES", c =>

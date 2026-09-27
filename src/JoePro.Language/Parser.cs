@@ -880,8 +880,9 @@ public sealed partial class Parser
             _p = _t.Count;
             return new ReleaseStmt([], true, like, except);
         }
-        if (AcceptKw("WINDOWS") || AcceptKw("POPUPS") || AcceptKw("MENUS") || AcceptKw("PADS") || AcceptKw("BAR") || AcceptKw("CLASSLIB") || AcceptKw("LIBRARY") || AcceptKw("PROCEDURE")
-            || AcceptKw("PAD") || AcceptKw("POPUP") || AcceptKw("MENU") || AcceptKw("WINDOW") || AcceptKw("BARS"))
+        if (MenuVerb("RELEASE") is { } releaseMenu) return releaseMenu;
+        if (AcceptKw("WINDOWS") || AcceptKw("PADS") || AcceptKw("CLASSLIB") || AcceptKw("LIBRARY") || AcceptKw("PROCEDURE")
+            || AcceptKw("WINDOW") || AcceptKw("BARS"))
         {
             _p = _t.Count;
             return new NoOpStmt("RELEASE");
@@ -909,6 +910,7 @@ public sealed partial class Parser
             _p = _t.Count;
             return new OnErrorStmt(cmd);
         }
+        if (OnMenuCommand() is { } menu) return menu;
         _p = _t.Count; // ON KEY LABEL, ON SHUTDOWN, ON ESCAPE… (UI runtime; Phase 3)
         return new NoOpStmt("ON");
     }

@@ -94,8 +94,14 @@ public sealed class MainWindow : Window
         var root = new DockPanel();
         var menu = BuildMenu();
         DockPanel.SetDock(menu, Dock.Top);
+        // The running program's menu bar (DEFINE MENU / _MSYSMENU) sits under the IDE's own menu.
+        AppMenu.Background = new SolidColorBrush(Color.FromArgb(30, 30, 110, 200));
+        AppMenu.IsVisible = false;
+        DockPanel.SetDock(AppMenu, Dock.Top);
+        session.Host.MenusUpdated += RebuildAppMenu;
         DockPanel.SetDock(statusBorder, Dock.Bottom);
         root.Children.Add(menu);
+        root.Children.Add(AppMenu);
         root.Children.Add(statusBorder);
         root.Children.Add(body);
         Content = new Panel { Children = { root, Palette } };
@@ -121,6 +127,15 @@ public sealed class MainWindow : Window
     }
 
     public TabControl Documents { get; }
+    /// <summary>The application menu bar of the running program (hidden when it has none).</summary>
+    public Menu AppMenu { get; } = new();
+
+    private void RebuildAppMenu()
+    {
+        AppMenu.Items.Clear();
+        foreach (var item in _session.Host.ActiveMenuItems()) AppMenu.Items.Add(item);
+        AppMenu.IsVisible = AppMenu.Items.Count > 0;
+    }
     public ScreenTab Screen { get; }
     public CommandWindow CommandWindow { get; }
     public DataSessionPanel DataSession { get; }

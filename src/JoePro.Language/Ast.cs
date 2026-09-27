@@ -276,3 +276,50 @@ public sealed class ProgramUnit
     public List<string> MainParameters { get; set; } = new();
     public bool MainLocalParameters { get; set; }
 }
+
+// ---- Menus (DEFINE MENU/PAD/POPUP/BAR, ON PAD/BAR/SELECTION, ACTIVATE, …) ----------------------------------
+
+/// <summary>A menu, pad, popup or bar name: an identifier, or (expr) / &amp;macro evaluated when the command runs.</summary>
+public sealed record MenuName(string? Text, Expr? Expr = null);
+
+/// <summary>Common options of DEFINE PAD and DEFINE BAR.</summary>
+public sealed record MenuItemOptions
+{
+    public MenuName? Before { get; init; }
+    public MenuName? After { get; init; }
+    public string? KeyName { get; init; }
+    public Expr? KeyText { get; init; }
+    public Expr? Mark { get; init; }
+    /// <summary>SKIP FOR expression text (evaluated each time the menu is shown); "" for plain SKIP.</summary>
+    public string? SkipFor { get; init; }
+    public Expr? Message { get; init; }
+    public Expr? Picture { get; init; }
+    public string? PictRes { get; init; }
+}
+
+public sealed record DefineMenuStmt(MenuName Name, bool Bar, Expr? Message) : Stmt;
+public sealed record DefinePadStmt(MenuName Name, MenuName Menu, Expr Prompt, MenuItemOptions Options) : Stmt;
+public sealed record DefinePopupStmt(MenuName Name) : Stmt
+{
+    public bool Shortcut { get; init; }
+    public bool Relative { get; init; }
+    public bool Margin { get; init; }
+    public bool MultiSelect { get; init; }
+    public Expr? Title { get; init; }
+    public Expr? Message { get; init; }
+    /// <summary>PROMPT FIELD expr / FILES [LIKE skeleton] / STRUCTURE: the bars come from data.</summary>
+    public string? PromptKind { get; init; }
+    public Expr? PromptExpr { get; init; }
+}
+/// <summary>DEFINE BAR n | SystemBar OF popup PROMPT … (Bar is the number text or the system bar name).</summary>
+public sealed record DefineBarStmt(MenuName Bar, MenuName Popup, Expr? Prompt, MenuItemOptions Options) : Stmt;
+/// <summary>
+/// ON PAD/BAR … ACTIVATE POPUP|MENU name, and ON SELECTION PAD/BAR/POPUP/MENU … [command].
+/// Kind is PAD, BAR, SELECTION PAD, SELECTION BAR, SELECTION POPUP or SELECTION MENU.
+/// </summary>
+public sealed record OnMenuStmt(string Kind, MenuName Name, MenuName? Of, string? ActivatePopup, string? ActivateMenu, string? Command, bool All = false) : Stmt;
+public sealed record ActivateMenuStmt(bool Popup, MenuName Name, bool NoWait, Expr? Item) : Stmt;
+/// <summary>DEACTIVATE / HIDE / SHOW / RELEASE of MENU(S), POPUP(S), PAD, BAR.</summary>
+public sealed record MenuControlStmt(string Verb, string Kind, List<MenuName> Names, bool All, MenuName? Of, bool Extended) : Stmt;
+/// <summary>SET MARK OF … TO lExpr / SET SKIP OF … lExpr.</summary>
+public sealed record SetMenuFlagStmt(string Flag, string Kind, MenuName? Name, MenuName? Of, Expr Value) : Stmt;

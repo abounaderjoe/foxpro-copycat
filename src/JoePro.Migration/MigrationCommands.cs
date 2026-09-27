@@ -51,12 +51,16 @@ public static class MigrationCommands
                     report.Source = Path.GetDirectoryName(src)!;
                     importer.ConvertClassFile(src, dst);
                     break;
+                case ".mnx":
+                    report.Source = Path.GetDirectoryName(src)!;
+                    importer.ConvertMenuFile(src, dst);
+                    break;
                 case ".frx" or ".lbx":
                     report.Source = Path.GetDirectoryName(src)!;
                     importer.ConvertReportFile(src, dst);
                     break;
                 default:
-                    throw new VfpException(ErrorCodes.InvalidArgument, "IMPORT expects a .DBF, .DBC, .SCX, .VCX, .FRX or .LBX file, or a folder.");
+                    throw new VfpException(ErrorCodes.InvalidArgument, "IMPORT expects a .DBF, .DBC, .SCX, .VCX, .FRX, .LBX or .MNX file, or a folder.");
             }
         }
         report.Save(dst);
