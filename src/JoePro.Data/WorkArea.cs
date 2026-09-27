@@ -415,6 +415,19 @@ public sealed class WorkArea : IRecord
         if (forward) foreach (var r in appended) yield return r;
     }
 
+    /// <summary>The records in physical order as this work area sees them: buffered edits, deletions and new records included.</summary>
+    public IEnumerable<RowData> BufferedRows(bool skipDeleted)
+    {
+        foreach (var row in Table.Scan(null, forward: true, skipDeleted: skipDeleted && _buffer.Count == 0))
+        {
+            var r = _buffer.TryGetValue(row.RecNo, out var e) ? e.Current : row;
+            if (skipDeleted && r.Deleted) continue;
+            yield return r;
+        }
+        foreach (var r in _buffer.Where(kv => kv.Key < 0).OrderByDescending(kv => kv.Key).Select(kv => kv.Value.Current))
+            if (!(skipDeleted && r.Deleted)) yield return r;
+    }
+
     private Position? CurrentPosition()
     {
         if (_current == null) return null;

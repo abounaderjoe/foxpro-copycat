@@ -324,10 +324,15 @@ internal static class SqlEngine
         var name = rt.NameValue(src.Table!);
         var bang = name.IndexOf('!');
         var aliasName = src.Alias ?? Path.GetFileNameWithoutExtension(bang >= 0 ? name[(bang + 1)..] : name);
-        var table = SourceArea(rt, name).Table;
+        var area = SourceArea(rt, name);
+        var table = area.Table;
         var withRecno = recnoAlias != null && aliasName.Equals(recnoAlias, StringComparison.OrdinalIgnoreCase);
         var binding = new SqlSourceBinding { Alias = aliasName, Fields = withRecno ? [.. table.Fields, new FieldDef(RecnoColumn, 'I')] : table.Fields.ToList() };
-        foreach (var row in table.Scan(null, forward: true, skipDeleted: rt.Options.Deleted))
+        // SET SQLBUFFERING ON: the query sees this work area's buffered (not yet saved) changes; OFF reads what is stored.
+        var rowsToRead = rt.Options.IsOn("SQLBUFFERING", false) && area.HasPendingChanges
+            ? area.BufferedRows(rt.Options.Deleted)
+            : table.Scan(null, forward: true, skipDeleted: rt.Options.Deleted);
+        foreach (var row in rowsToRead)
         {
             var values = withRecno ? [.. row.Values, Value.Number(row.RecNo)] : row.Values;
             binding.Rows.Add(values);

@@ -399,6 +399,30 @@ public class CoverageTests : RuntimeHarness
     }
 
     [Fact]
+    public void Set_sqlbuffering_lets_select_see_buffered_changes()
+    {
+        var o = Run("""
+            SET MULTILOCKS ON
+            CREATE CURSOR sb (id I, amt N(5))
+            INSERT INTO sb VALUES (1, 10)
+            INSERT INTO sb VALUES (2, 20)
+            = CURSORSETPROP("Buffering", 5)
+            GO 1
+            REPLACE amt WITH 100
+            APPEND BLANK
+            REPLACE id WITH 3, amt WITH 30
+            SELECT SUM(amt) AS t, COUNT(*) AS n FROM sb INTO CURSOR q1
+            ? q1.t, q1.n
+            SET SQLBUFFERING ON
+            SELECT SUM(amt) AS t, COUNT(*) AS n FROM sb INTO CURSOR q2
+            ? q2.t, q2.n
+            """);
+        var lines = o.Trim().Split('\n').Select(l => string.Join(" ", l.Split(' ', StringSplitOptions.RemoveEmptyEntries))).ToArray();
+        Assert.Equal("30 2", lines[0]);
+        Assert.Equal("150 3", lines[1]);
+    }
+
+    [Fact]
     public void Set_procedure_and_classlib_restore_from_a_saved_list()
     {
         File.WriteAllText(Path.Combine(Dir, "p1.prg"), "FUNCTION f1\nRETURN 1");

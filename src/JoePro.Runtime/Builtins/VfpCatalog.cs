@@ -188,7 +188,7 @@ public static class VfpCatalog
         ["FULLPATH"] = (SetStatus.NoEffect, "DBF() always returns the full path."), ["HELP"] = (SetStatus.NoEffect, "Help comes from the documentation and editor hover."),
         ["RESOURCE"] = (SetStatus.NoEffect, "IDE settings are stored per user automatically."), ["KEYCOMP"] = (SetStatus.NoEffect, "Keyboard behavior follows the platform."),
         ["LOGERRORS"] = (SetStatus.NoEffect, "Compile errors are reported in the editor and build output."), ["MULTILOCKS"] = (SetStatus.NoEffect, "Table buffering works without it."),
-        ["OLEOBJECT"] = (SetStatus.NoEffect, "There is no OLE object search."), ["SQLBUFFERING"] = (SetStatus.Missing, null),
+        ["OLEOBJECT"] = (SetStatus.NoEffect, "There is no OLE object search."), ["SQLBUFFERING"] = (SetStatus.Supported, null),
         ["TABLEVALIDATE"] = (SetStatus.NoEffect, "The engine validates tables itself."), ["TOPIC"] = (SetStatus.NoEffect, "Help comes from the documentation and editor hover."),
         ["TRBETWEEN"] = (SetStatus.NoEffect, "The debugger's trace pane shows what it steps through."), ["DEBUG"] = (SetStatus.NoEffect, "The debugger is always available in the IDE."),
         ["INDEX"] = (SetStatus.NoEffect, "Every index tag of a table is always open."), ["LOCK"] = (SetStatus.NoEffect, "Reads never take locks; each sees committed data."),
