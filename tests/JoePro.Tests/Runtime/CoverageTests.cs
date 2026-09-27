@@ -190,6 +190,30 @@ public class CoverageTests : RuntimeHarness
     }
 
     [Fact]
+    public void Sys_codes_for_indexes_settings_paths_and_checksums()
+    {
+        File.WriteAllText(Path.Combine(Dir, "a1.txt"), "x");
+        File.WriteAllText(Path.Combine(Dir, "a2.txt"), "x");
+        var o = Run("""
+            CREATE CURSOR t (id I, name C(5))
+            INDEX ON id TAG id
+            INDEX ON name TAG name FOR id > 0
+            SET ORDER TO name
+            ? SYS(14, 1), SYS(21), SYS(22), SYS(2021, 2), SYS(2001, "EXACT"), SYS(103)
+            ? SYS(2000, "a*.txt"), SYS(2000, "a*.txt", 1), SYS(2000, "a*.txt", 1) == ""
+            ? SYS(2007, "123456789", 0, 1), SYS(2014, "sub" + CHR(47) + "f.txt")
+            f = CREATEOBJECT("Form")
+            f.AddObject("cnt", "Container")
+            ? SYS(1272, f.cnt), SYS(2011)
+            """);
+        var lines = o.Trim().Split('\n').Select(l => string.Join(" ", l.Split(' ', StringSplitOptions.RemoveEmptyEntries))).ToArray();
+        Assert.Equal("id 2 NAME id > 0 OFF OFF", lines[0].Replace("ID>0", "id > 0").Replace("id>0", "id > 0"));
+        Assert.Equal("A1.TXT A2.TXT .T.", lines[1]);
+        Assert.Equal("3421780262 SUB" + Path.DirectorySeparatorChar + "F.TXT", lines[2]);
+        Assert.Equal("form.cnt Exclusive", lines[3]);
+    }
+
+    [Fact]
     public void Table_information_functions()
     {
         var o = Run("""

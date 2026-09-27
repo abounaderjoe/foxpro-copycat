@@ -779,6 +779,69 @@ public static partial class Library
             case 2019: return Value.EmptyString;
             case 6: return Value.EmptyString;
             case 12: return S("655360");
+            case 7 or 2002 or 2005 or 3056: return Value.EmptyString;
+            case 9: return S("Joe Pro " + Interpreter.VersionString);
+            case 13: return S("READY");
+            case 14: return CallByName(c.Rt, "KEY", c.Arg(1, N(1)), c.Has(2) ? c[2] : S(c.Rt.Session.Current.Alias));
+            case 17: return S(System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString());
+            case 21: return S(((int)CallByName(c.Rt, "TAGNO").AsNumber).ToString());
+            case 22: return c.Has(1) ? CallByName(c.Rt, "ORDER", c[1]) : CallByName(c.Rt, "ORDER");
+            case 100: return CallByName(c.Rt, "SET", S("CONSOLE"));
+            case 101: return CallByName(c.Rt, "SET", S("DEVICE"));
+            case 102: return CallByName(c.Rt, "SET", S("PRINTER"));
+            case 103: return CallByName(c.Rt, "SET", S("TALK"));
+            case 1016: return S((GC.GetTotalMemory(false) / 1024).ToString());
+            case 1272:
+            {
+                var parts = new List<string>();
+                for (var o = Obj(c, 1); o != null; o = o.Parent) parts.Insert(0, c.Rt.GetProperty(o, "Name").AsString.ToLowerInvariant());
+                return S(string.Join(".", parts));
+            }
+            case 2000:
+            {
+                // SYS(2000, cSkeleton [, 1]): the first (or next) file name matching a skeleton.
+                if (!(c.Has(2) && c.Int(2) == 1))
+                {
+                    var full = Path.Combine(c.Options.Default_, c.Str(1).Trim());
+                    var dir = Path.GetDirectoryName(full) ?? c.Options.Default_;
+                    var pattern = Path.GetFileName(full);
+                    _sys2000 = new Queue<string>(Directory.Exists(dir) ? Directory.GetFiles(dir, pattern == "*.*" ? "*" : pattern).Select(f => Path.GetFileName(f).ToUpperInvariant()).Order() : []);
+                }
+                return S(_sys2000.Count > 0 ? _sys2000.Dequeue() : "");
+            }
+            case 2001: return CallByName(c.Rt, "SET", c[1], c.Arg(2, N(1)));
+            case 2006: return S("Color/VGA");
+            case 2007:
+            {
+                var bytes = Encoding.UTF8.GetBytes(c.Str(1));
+                return S(c.Has(3) && c.Int(3) == 1 ? Crc32(bytes).ToString() : Crc16(bytes, c.Has(2) ? c.Int(2) : 0).ToString());
+            }
+            case 2011:
+            {
+                var wa = c.Rt.Session.Current;
+                if (!wa.InUse) return S("");
+                return S(wa.Exclusive ? "Exclusive" : wa.Session.Locks.IsLocked(wa, wa.RecNo) ? "Record Locked" : "Record Unlocked");
+            }
+            case 2012: return N(64);
+            case 2014:
+            {
+                var from = c.Has(2) ? Path.GetFullPath(Path.Combine(c.Options.Default_, c.Str(2))) : c.Options.Default_;
+                if (File.Exists(from)) from = Path.GetDirectoryName(from)!;
+                return S(Path.GetRelativePath(from, Path.GetFullPath(Path.Combine(c.Options.Default_, c.Str(1)))).ToUpperInvariant());
+            }
+            case 2020:
+            {
+                try { return N(new DriveInfo(Path.GetPathRoot(c.Options.Default_) ?? "/").TotalSize); }
+                catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException) { return N(0); }
+            }
+            case 2021: return CallByName(c.Rt, "FOR", c.Arg(1, N(1)));
+            case 2029: return S(c.Rt.Session.Current.InUse ? "48" : "0");
+            case 2335: return S("0");
+            case 3051: return S("333");
+            case 3052: return S("0");
+            case 3055: return S("320");
+            case 3099: return S("90");
+            case 3101: return S("0");
             default:
                 c.Rt.Notify($"SYS({n}) is not supported yet.");
                 return Value.EmptyString;
@@ -786,6 +849,36 @@ public static partial class Library
     }
 
     private static long _sysCounter;
+    private static Queue<string> _sys2000 = new();
+
+    /// <summary>The SYS() codes Sys() answers (the migration analyzer flags the others).</summary>
+    public static readonly IReadOnlySet<int> SysCodes = new HashSet<int>
+    {
+        0, 1, 2, 3, 5, 6, 7, 9, 10, 11, 12, 13, 14, 16, 17, 21, 22, 100, 101, 102, 103, 987, 1016, 1037, 1272, 2000, 2001, 2002, 2003, 2004, 2005,
+        2006, 2007, 2011, 2012, 2014, 2015, 2018, 2019, 2020, 2021, 2023, 2029, 2335, 3050, 3051, 3052, 3054, 3055, 3056, 3099, 3101,
+    };
+
+    private static uint Crc32(byte[] data)
+    {
+        uint crc = 0xFFFFFFFF;
+        foreach (var b in data)
+        {
+            crc ^= b;
+            for (int k = 0; k < 8; k++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+        }
+        return ~crc;
+    }
+
+    private static ushort Crc16(byte[] data, int seed)
+    {
+        ushort crc = (ushort)seed;
+        foreach (var b in data)
+        {
+            crc ^= b;
+            for (int k = 0; k < 8; k++) crc = (crc & 1) != 0 ? (ushort)((crc >> 1) ^ 0xA001) : (ushort)(crc >> 1);
+        }
+        return crc;
+    }
 
     private static string ToBase36(long v)
     {

@@ -890,8 +890,9 @@ public sealed partial class Parser
         }
         if (AcceptKw("WINDOWS") || AcceptKw("PADS") || AcceptKw("WINDOW") || AcceptKw("BARS"))
         {
+            var what = _t[_p - 1].Text.ToUpperInvariant();
             _p = _t.Count;
-            return new NoOpStmt("RELEASE");
+            return new NoOpStmt("RELEASE " + (what.StartsWith("WIND") ? "WINDOWS" : what));
         }
         var names = new List<string>();
         var members = new List<MemberExpr>();
@@ -924,8 +925,9 @@ public sealed partial class Parser
             _p = _t.Count;
             return new SetStmt("__ON", rest, null, []);
         }
+        var words = string.Join(" ", _t.Skip(_p).Take(2).Select(t => t.Text.ToUpperInvariant()));
         _p = _t.Count; // ON EXIT BAR/MENU/PAD/POPUP
-        return new NoOpStmt("ON");
+        return new NoOpStmt(("ON " + words).Trim());
     }
 
     private Stmt Clear()

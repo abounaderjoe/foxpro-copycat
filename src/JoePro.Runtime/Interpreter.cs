@@ -830,7 +830,7 @@ public sealed partial class Interpreter : IExpressionHost
             case NoOpStmt { Verb: "RESUME" }:
                 return Flow.Normal;
             case NoOpStmt n:
-                Notify($"{n.Verb} is not supported yet; statement skipped.");
+                Notify($"{n.Verb} is not supported; statement skipped. {Builtins.CommandCoverage.ReasonFor(n.Verb)}");
                 return Flow.Normal;
             case QuitStmt { Cancel: true }:
                 throw new CancelProgramException();

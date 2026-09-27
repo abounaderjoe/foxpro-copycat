@@ -91,7 +91,7 @@ public sealed class ProgramAnalyzer
             var l = lines[i].Trim();
             if (Regex.IsMatch(l, @"^DECLARE\s+(\w+\s+)?\w+\s+IN\s+", RegexOptions.IgnoreCase))
                 Add(FindingStatus.Unsupported, "CODE.DLL.DECLARE", file, objectName, null, i + 1, lines,
-                    "Win32 API declaration (DECLARE … IN). Calling native DLLs is planned for the Windows runtime.",
+                    "Win32 API declaration (DECLARE … IN). Native DLLs cannot be called from the cross-platform runtime.",
                     "Replace with a Joe Pro built-in if one exists; otherwise keep for the Windows DLL bridge.");
             else if (Regex.IsMatch(l, @"^SET\s+LIBR(A|AR|ARY)?\s+TO\s+", RegexOptions.IgnoreCase))
                 Add(FindingStatus.Unsupported, "CODE.FLL", file, objectName, null, i + 1, lines,
@@ -151,33 +151,43 @@ public sealed class ProgramAnalyzer
                 break;
             case NoOpStmt { Verb: "@ SAY/GET" }:
                 Add(FindingStatus.Unsupported, "CODE.SCREEN.SAYGET", file, obj, member, line, lines,
-                    "Legacy @ … SAY/GET screen code is not supported.", "Rebuild the screen as a form (Form Designer, Phase 3).");
+                    "Legacy @ … SAY/GET screen code is not supported and is skipped at run time.", "Rebuild the screen as a form in the Form Designer.");
                 break;
-            case NoOpStmt { Verb: "ON" }:
-                Add(FindingStatus.NeedsReview, "CODE.ON.EVENT", file, obj, member, line, lines,
-                    "ON KEY LABEL / ON SHUTDOWN / ON ESCAPE handlers are ignored until the UI runtime ships (Phase 3).");
+            case NoOpStmt { Verb: "DECLARE DLL" }:
+                break; // reported by the text-level DECLARE check
+            case NoOpStmt noop:
+                Add(FindingStatus.Unsupported, "CODE.COMMAND.UNSUPPORTED", file, obj, member, line, lines,
+                    $"{Snip(lines, line) ?? noop.Verb} is not supported and is skipped at run time: {ReasonForLine(Snip(lines, line), noop.Verb)}");
                 break;
-            case SetStmt { Option: "__REPORT" or "__LABEL" }:
-                Add(FindingStatus.NeedsReview, "CODE.UI.REPORT", file, obj, member, line, lines,
-                    "REPORT FORM / LABEL FORM needs the report engine (Phase 4).");
+            case SetStmt { Option: "__EJECT" or "__PRINTJOB" or "__ENDPRINTJOB" or "__FREE" or "__ASSIST" or "__MENU" } un:
+                Add(FindingStatus.Unsupported, "CODE.COMMAND.UNSUPPORTED", file, obj, member, line, lines,
+                    $"{un.Option[2..]} is not supported and is skipped at run time: {JoePro.Runtime.Builtins.CommandCoverage.ReasonFor(un.Option[2..])}");
                 break;
-            case SetStmt st when st.Option.StartsWith("__") && st.Option is "__MODIFY" or "__MODI" or "__BUILD" or "__KEYBOARD":
-                Add(FindingStatus.NeedsReview, "CODE.IDE.COMMAND", file, obj, member, line, lines,
-                    $"{st.Option[2..]} is an interactive/IDE command that has no effect in the runtime yet.");
+            case CallExpr { Name: var fn } when JoePro.Runtime.Builtins.VfpCatalog.Unsupported.TryGetValue(fn, out var why)
+                                                && !JoePro.Runtime.Builtins.Library.TryGet(fn, out _):
+                Add(FindingStatus.Unsupported, "CODE.FUNCTION.UNSUPPORTED", file, obj, member, line, lines,
+                    $"{fn.ToUpperInvariant()}() is not supported: {why}");
                 break;
             case CallExpr { Name: var n } c when (n.Equals("CREATEOBJECT", StringComparison.OrdinalIgnoreCase) || n.Equals("GETOBJECT", StringComparison.OrdinalIgnoreCase))
                                                  && c.Args.Count > 0 && c.Args[0] is LiteralExpr { Value.Kind: ValueKind.Character } l && l.Value.AsString.Contains('.'):
                 Add(FindingStatus.NeedsReview, "CODE.COM.AUTOMATION", file, obj, member, line, lines,
-                    $"COM automation object '{l.Value.AsString}' requires the COM bridge (Windows, Phase 2).",
+                    $"COM automation object '{l.Value.AsString}' needs Windows COM, which the cross-platform runtime does not provide yet.",
                     "Keep for Windows deployments or replace with a .NET library.");
                 break;
             case CallExpr { Name: var n2 } c2 when n2.Equals("SYS", StringComparison.OrdinalIgnoreCase) && c2.Args.Count > 0 && c2.Args[0] is LiteralExpr { Value.Kind: ValueKind.Number } sl
-                                                  && !SupportedSys.Contains((int)sl.Value.AsNumber):
+                                                  && !JoePro.Runtime.Builtins.Library.SysCodes.Contains((int)sl.Value.AsNumber):
                 Add(FindingStatus.NeedsReview, "CODE.SYS.FUNCTION", file, obj, member, line, lines,
                     $"SYS({(int)sl.Value.AsNumber}) is not implemented yet and returns an empty string.");
                 break;
         }
     }
 
-    private static readonly HashSet<int> SupportedSys = [0, 1, 2, 3, 5, 6, 10, 11, 12, 16, 987, 1037, 2003, 2004, 2015, 2018, 2019, 2023, 3050, 3054];
+    /// <summary>The reason a skipped statement is unsupported, found from its first words in the command catalog.</summary>
+    private static string ReasonForLine(string? text, string verb)
+    {
+        var words = (text ?? verb).ToUpperInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        for (int n = Math.Min(3, words.Length); n >= 1; n--)
+            if (JoePro.Runtime.Builtins.CommandCoverage.Unsupported.TryGetValue(string.Join(" ", words.Take(n)), out var r)) return r;
+        return JoePro.Runtime.Builtins.CommandCoverage.ReasonFor(verb);
+    }
 }

@@ -241,8 +241,9 @@ public sealed partial class Parser
         if (V("DEFINE"))
         {
             if (DefineMenuCommand() is { } menuStmt) return menuStmt;
+            var what = AtEnd ? "" : " " + Peek()!.Text.ToUpperInvariant();
             _p = _t.Count;
-            return new NoOpStmt("DEFINE");
+            return new NoOpStmt("DEFINE" + what);
         }
         if ((V("ACTIVATE") || V("DEACTIVATE") || V("HIDE") || V("SHOW")) && MenuVerb(verb.Text.ToUpperInvariant() is var vv && vv.StartsWith("DEAC") ? "DEACTIVATE" : vv.StartsWith("ACTI") ? "ACTIVATE" : vv) is { } menuVerb)
             return menuVerb;

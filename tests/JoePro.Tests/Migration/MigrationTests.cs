@@ -73,6 +73,29 @@ public class MigrationTests
     }
 
     [Fact]
+    public void Reports_unsupported_commands_and_functions_with_reasons_and_accepts_supported_ones()
+    {
+        var legacy = Path.Combine(_dir, "app2");
+        Directory.CreateDirectory(legacy);
+        File.WriteAllText(Path.Combine(legacy, "main.prg"), """
+            DEFINE WINDOW wMain FROM 1,1 TO 10,40
+            EJECT
+            n = DDEINITIATE("Excel", "System")
+            ON KEY LABEL F2 DO help
+            SORT TO sorted ON name
+            x = SYS(2007, "abc")
+            """);
+        var report = new MigrationReport();
+        new LegacyImporter(report).ImportFolder(legacy, Path.Combine(_dir, "out2"));
+        var unsupported = report.Findings.Where(f => f.Status == FindingStatus.Unsupported).ToList();
+        Assert.Contains(unsupported, f => f.Rule == "CODE.COMMAND.UNSUPPORTED" && f.Message.Contains("DEFINE WINDOW") && f.Message.Contains("use forms"));
+        Assert.Contains(unsupported, f => f.Rule == "CODE.COMMAND.UNSUPPORTED" && f.Message.Contains("EJECT") && f.Message.Contains("REPORT FORM"));
+        Assert.Contains(unsupported, f => f.Rule == "CODE.FUNCTION.UNSUPPORTED" && f.Message.Contains("DDEINITIATE"));
+        Assert.Equal(3, unsupported.Count);
+        Assert.DoesNotContain(report.Findings, f => f.Rule == "CODE.SYS.FUNCTION");
+    }
+
+    [Fact]
     public void Analyzes_programs_and_reports_unconverted_artifacts()
     {
         var legacy = Path.Combine(_dir, "app");

@@ -160,7 +160,10 @@ public static class CommandCoverage
 
     /// <summary>The reason a command verb is unsupported, for the runtime's notice.</summary>
     public static string ReasonFor(string verb) =>
-        Unsupported.FirstOrDefault(kv => kv.Key.StartsWith(verb, StringComparison.OrdinalIgnoreCase)).Value ?? "see the command coverage matrix.";
+        Unsupported.TryGetValue(verb, out var exact) ? exact
+        : verb.StartsWith("@") ? Unsupported["@...SAY"]
+        : verb.Equals("DECLARE DLL", StringComparison.OrdinalIgnoreCase) ? Unsupported["DISPLAY DLLS"]
+        : Unsupported.FirstOrDefault(kv => kv.Key.StartsWith(verb, StringComparison.OrdinalIgnoreCase)).Value ?? "See the coverage matrix (docs/reference/coverage.md).";
 
     /// <summary>Commands that end the program or wait for the user; they are covered by their own tests.</summary>
     private static readonly HashSet<string> Interactive = new(StringComparer.OrdinalIgnoreCase)
