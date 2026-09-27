@@ -87,14 +87,15 @@ public sealed class MenuDesigner : UserControl
             },
         };
         var body = new Grid { ColumnDefinitions = new ColumnDefinitions("320,Auto,*") };
-        body.Children.Add(new Border { Child = _tree, BorderThickness = new Thickness(0, 0, 1, 0), BorderBrush = Brushes.Gray });
-        var split = new GridSplitter { Width = 5, ResizeDirection = GridResizeDirection.Columns };
+        body.Children.Add(IdeTheme.Card(Strings.T("Menu"), _tree));
+        var split = new GridSplitter { Width = 4, ResizeDirection = GridResizeDirection.Columns, Background = Brushes.Transparent };
         Grid.SetColumn(split, 1);
         body.Children.Add(split);
-        var scroller = new ScrollViewer { Content = _props };
+        var scroller = IdeTheme.Card(Strings.T("Item"), new ScrollViewer { Content = _props });
         Grid.SetColumn(scroller, 2);
         body.Children.Add(scroller);
-        var root = new DockPanel();
+        var root = new DockPanel { Margin = new Thickness(2) };
+        toolbar.Margin = new Thickness(4, 4, 4, 0);
         DockPanel.SetDock(toolbar, Dock.Top);
         root.Children.Add(toolbar);
         root.Children.Add(body);

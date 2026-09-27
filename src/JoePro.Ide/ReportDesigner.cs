@@ -76,16 +76,11 @@ public sealed class ReportDesigner : UserControl
         _toolbox.SelectionChanged += (_, _) => ArmedTool = _toolbox.SelectedItem is ListBoxItem { Tag: string t } && t.Length > 0 ? t : null;
         _fields.DoubleTapped += (_, _) => { if (_fields.SelectedItem is ListBoxItem { Tag: string f }) AddField(f); };
 
-        var left = new DockPanel { Width = 170 };
-        var tbHeader = Header("Toolbox");
-        DockPanel.SetDock(tbHeader, Dock.Top);
-        left.Children.Add(tbHeader);
-        DockPanel.SetDock(_toolbox, Dock.Top);
-        left.Children.Add(_toolbox);
-        var fHeader = Header("Fields (double-click)");
-        DockPanel.SetDock(fHeader, Dock.Top);
-        left.Children.Add(fHeader);
-        left.Children.Add(_fields);
+        var left = new Grid { Width = 180, RowDefinitions = new RowDefinitions("Auto,*") };
+        left.Children.Add(IdeTheme.Card(Strings.T("Toolbox"), _toolbox));
+        var fieldsCard = IdeTheme.Card(Strings.T("Fields (double-click)"), _fields);
+        Grid.SetRow(fieldsCard, 1);
+        left.Children.Add(fieldsCard);
 
         var surfaceHost = new Panel { Children = { _surface, _adorners }, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(16) };
         var scroller = new ScrollViewer
@@ -108,34 +103,28 @@ public sealed class ReportDesigner : UserControl
         _surface.KeyDown += (_, e) => OnKey(e);
 
         var previewPane = new DockPanel();
-        var previewHeader = Header("Live preview");
-        DockPanel.SetDock(previewHeader, Dock.Top);
-        previewPane.Children.Add(previewHeader);
         DockPanel.SetDock(_previewMessage, Dock.Top);
         previewPane.Children.Add(_previewMessage);
         previewPane.Children.Add(_previewHost);
         _center = new Grid { RowDefinitions = new RowDefinitions("3*,Auto,2*") };
-        _center.Children.Add(scroller);
-        var split = new GridSplitter { Height = 5, ResizeDirection = GridResizeDirection.Rows };
+        _center.Children.Add(IdeTheme.Card(Strings.T("Report layout"), scroller));
+        var split = new GridSplitter { Height = 4, ResizeDirection = GridResizeDirection.Rows, Background = Brushes.Transparent };
         Grid.SetRow(split, 1);
         _center.Children.Add(split);
-        Grid.SetRow(previewPane, 2);
-        _center.Children.Add(previewPane);
+        var previewCard = IdeTheme.Card(Strings.T("Live preview"), previewPane);
+        Grid.SetRow(previewCard, 2);
+        _center.Children.Add(previewCard);
 
-        var right = new DockPanel { Width = 300 };
-        DockPanel.SetDock(_propsTitle, Dock.Top);
-        right.Children.Add(_propsTitle);
-        right.Children.Add(new ScrollViewer { Content = _props });
-
-        var body = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+        var right = IdeTheme.Card(_propsTitle, new ScrollViewer { Content = _props });
+        var body = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,300") };
         body.Children.Add(left);
         Grid.SetColumn(_center, 1);
         body.Children.Add(_center);
-        var rightBorder = new Border { Child = right, BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = Brushes.Gray };
-        Grid.SetColumn(rightBorder, 2);
-        body.Children.Add(rightBorder);
+        Grid.SetColumn(right, 2);
+        body.Children.Add(right);
         var toolbar = BuildToolbar();
-        var root = new DockPanel();
+        toolbar.Margin = new Thickness(4, 4, 4, 0);
+        var root = new DockPanel { Margin = new Thickness(2) };
         DockPanel.SetDock(toolbar, Dock.Top);
         root.Children.Add(toolbar);
         root.Children.Add(body);
@@ -146,7 +135,6 @@ public sealed class ReportDesigner : UserControl
         RefreshFields();
     }
 
-    private static TextBlock Header(string text) => new() { Text = text, FontWeight = FontWeight.SemiBold, Margin = new Thickness(6, 4) };
 
     public ReportDesignSession Session { get; }
     public string? FilePath { get; private set; }

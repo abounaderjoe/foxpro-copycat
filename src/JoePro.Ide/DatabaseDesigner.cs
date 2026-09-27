@@ -78,9 +78,11 @@ public sealed class DatabaseDesigner : UserControl
                 B("Arrange", "Lay the tables out in a grid", Arrange),
             },
         };
-        var scroller = new ScrollViewer { Content = _canvas, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
-        var sideBorder = new Border { BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128)), Child = new ScrollViewer { Content = _side } };
-        var root = new DockPanel();
+        var scroller = IdeTheme.Card(Strings.T("Tables and relations"),
+            new ScrollViewer { Content = _canvas, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto });
+        var sideBorder = IdeTheme.Card(Strings.T("Details"), new ScrollViewer { Content = _side });
+        var root = new DockPanel { Margin = new Thickness(2) };
+        toolbar.Margin = new Thickness(4, 4, 4, 0);
         DockPanel.SetDock(toolbar, Dock.Top);
         root.Children.Add(toolbar);
         DockPanel.SetDock(sideBorder, Dock.Right);

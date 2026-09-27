@@ -46,8 +46,8 @@ public sealed class TableDesigner : UserControl
     private readonly TextBox _name = new() { Width = 220 };
     private readonly ListBox _fields = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Fields", FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
     private readonly ListBox _tags = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Index tags", FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
-    private readonly StackPanel _fieldEditor = new() { Spacing = 4, Margin = new Thickness(10, 0) };
-    private readonly StackPanel _tagEditor = new() { Spacing = 4, Margin = new Thickness(10, 0) };
+    private readonly StackPanel _fieldEditor = new() { Spacing = 4, Margin = new Thickness(10, 8) };
+    private readonly StackPanel _tagEditor = new() { Spacing = 4, Margin = new Thickness(10, 8) };
     private readonly TextBlock _changes = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.85, Margin = new Thickness(0, 4) };
     private readonly TextBlock _errors = new() { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.IndianRed };
     private readonly Dictionary<string, TextBox> _tableBoxes = new();
@@ -84,14 +84,17 @@ public sealed class TableDesigner : UserControl
                 B("▼", "Move the selected field down", () => MoveField(1)),
             },
         };
-        var fieldList = new DockPanel { Width = 300 };
+        var fieldList = new DockPanel();
+        fieldButtons.Margin = new Thickness(4);
         DockPanel.SetDock(fieldButtons, Dock.Bottom);
         fieldList.Children.Add(fieldButtons);
         fieldList.Children.Add(_fields);
-        var fieldsTab = new DockPanel { Margin = new Thickness(6) };
-        DockPanel.SetDock(fieldList, Dock.Left);
-        fieldsTab.Children.Add(fieldList);
-        fieldsTab.Children.Add(new ScrollViewer { Content = _fieldEditor });
+        var fieldListCard = IdeTheme.Card(Strings.T("Fields"), fieldList);
+        fieldListCard.Width = 300;
+        var fieldsTab = new DockPanel { Margin = new Thickness(2) };
+        DockPanel.SetDock(fieldListCard, Dock.Left);
+        fieldsTab.Children.Add(fieldListCard);
+        fieldsTab.Children.Add(IdeTheme.Card(Strings.T("Field"), new ScrollViewer { Content = _fieldEditor }));
 
         var tagButtons = new WrapPanel
         {
@@ -101,14 +104,17 @@ public sealed class TableDesigner : UserControl
                 B("Delete", "Remove the selected index", () => { if (SelectedTag is { } t) RemoveTag(t.Name); }),
             },
         };
-        var tagList = new DockPanel { Width = 300 };
+        var tagList = new DockPanel();
+        tagButtons.Margin = new Thickness(4);
         DockPanel.SetDock(tagButtons, Dock.Bottom);
         tagList.Children.Add(tagButtons);
         tagList.Children.Add(_tags);
-        var tagsTab = new DockPanel { Margin = new Thickness(6) };
-        DockPanel.SetDock(tagList, Dock.Left);
-        tagsTab.Children.Add(tagList);
-        tagsTab.Children.Add(new ScrollViewer { Content = _tagEditor });
+        var tagListCard = IdeTheme.Card(Strings.T("Indexes"), tagList);
+        tagListCard.Width = 300;
+        var tagsTab = new DockPanel { Margin = new Thickness(2) };
+        DockPanel.SetDock(tagListCard, Dock.Left);
+        tagsTab.Children.Add(tagListCard);
+        tagsTab.Children.Add(IdeTheme.Card(Strings.T("Index"), new ScrollViewer { Content = _tagEditor }));
 
         var tabs = new TabControl
         {
@@ -310,7 +316,6 @@ public sealed class TableDesigner : UserControl
         };
         var sized = t is 'C' or 'V' or 'Q' or 'N' or 'F';
         var withDecimals = t is 'N' or 'F' or 'B';
-        _fieldEditor.Children.Add(new TextBlock { Text = "Field", FontWeight = FontWeight.SemiBold });
         _fieldEditor.Children.Add(Labeled("Name", Text(f.Name.ToLowerInvariant(), v => UpdateField(x => x with { Name = v.Trim().ToUpperInvariant() }))));
         _fieldEditor.Children.Add(Labeled("Type", type));
         var width = Text(sized ? f.Width.ToString(CultureInfo.InvariantCulture) : "", v => UpdateField(x => x with { Width = ParseInt(v, x.Width) }));
@@ -414,7 +419,6 @@ public sealed class TableDesigner : UserControl
                     if (Design.Tags[i].Kind == TagKind.Primary && i != _tags.SelectedIndex) Design.Tags[i] = Design.Tags[i] with { Kind = TagKind.Candidate };
             UpdateTag(x => x with { Kind = k });
         };
-        _tagEditor.Children.Add(new TextBlock { Text = "Index", FontWeight = FontWeight.SemiBold });
         _tagEditor.Children.Add(Labeled("Name", Text(t.Name.ToLowerInvariant(), v => UpdateTag(x => x with { Name = v.Trim().ToUpperInvariant() }))));
         _tagEditor.Children.Add(Labeled("Type", kind, "Primary and candidate indexes allow no duplicate keys; a relation starts at one of them"));
         _tagEditor.Children.Add(Labeled("Expression", Text(t.Expression, v => UpdateTag(x => x with { Expression = v.Trim() }))));

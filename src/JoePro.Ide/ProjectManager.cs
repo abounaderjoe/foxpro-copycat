@@ -91,16 +91,20 @@ public sealed class ProjectManager : UserControl
         DockPanel.SetDock(_search, Dock.Top);
         searchPanel.Children.Add(_search);
         searchPanel.Children.Add(_results);
-        var root = new DockPanel();
+        var files = new DockPanel();
+        DockPanel.SetDock(_filter, Dock.Top);
+        files.Children.Add(_filter);
+        files.Children.Add(_tabs);
+        var searchCard = IdeTheme.Card(Strings.T("Find in files"), searchPanel);
+        var root = new DockPanel { Margin = new Thickness(2) };
+        toolbar.Margin = new Thickness(4, 4, 4, 0);
         DockPanel.SetDock(toolbar, Dock.Top);
         root.Children.Add(toolbar);
-        DockPanel.SetDock(_filter, Dock.Top);
-        root.Children.Add(_filter);
         DockPanel.SetDock(_info, Dock.Bottom);
         root.Children.Add(_info);
-        DockPanel.SetDock(searchPanel, Dock.Bottom);
-        root.Children.Add(searchPanel);
-        root.Children.Add(_tabs);
+        DockPanel.SetDock(searchCard, Dock.Bottom);
+        root.Children.Add(searchCard);
+        root.Children.Add(IdeTheme.Card(Strings.T("Files"), files));
         Content = root;
         Fill();
     }

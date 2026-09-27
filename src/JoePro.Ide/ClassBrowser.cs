@@ -65,10 +65,12 @@ public sealed class ClassBrowser : UserControl
                 ModifyRequested?.Invoke(LibraryPath, SelectedClass);
         };
 
-        var left = new DockPanel { Width = 260 };
+        var classList = new DockPanel();
         DockPanel.SetDock(_filter, Dock.Top);
-        left.Children.Add(_filter);
-        left.Children.Add(_tree);
+        classList.Children.Add(_filter);
+        classList.Children.Add(_tree);
+        var left = IdeTheme.Card(Strings.T("Classes"), classList);
+        left.Width = 270;
 
         var tabs = new TabControl { Padding = new Thickness(0) };
         tabs.Items.Add(new TabItem { Header = "Members", Content = _members, FontSize = 13 });
@@ -78,17 +80,19 @@ public sealed class ClassBrowser : UserControl
         DockPanel.SetDock(info, Dock.Top);
         right.Children.Add(info);
         right.Children.Add(tabs);
+        var rightCard = IdeTheme.Card(Strings.T("Class"), right);
 
         var body = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*") };
         body.Children.Add(left);
-        var split = new GridSplitter { Width = 5, ResizeDirection = GridResizeDirection.Columns };
+        var split = new GridSplitter { Width = 4, ResizeDirection = GridResizeDirection.Columns, Background = Brushes.Transparent };
         Grid.SetColumn(split, 1);
         body.Children.Add(split);
-        Grid.SetColumn(right, 2);
-        body.Children.Add(right);
+        Grid.SetColumn(rightCard, 2);
+        body.Children.Add(rightCard);
 
-        var root = new DockPanel();
+        var root = new DockPanel { Margin = new Thickness(2) };
         var toolbar = BuildToolbar();
+        toolbar.Margin = new Thickness(4, 4, 4, 0);
         DockPanel.SetDock(toolbar, Dock.Top);
         root.Children.Add(toolbar);
         DockPanel.SetDock(_legacyNote, Dock.Top);

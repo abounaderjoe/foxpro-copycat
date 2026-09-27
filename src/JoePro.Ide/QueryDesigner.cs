@@ -110,19 +110,22 @@ public sealed class QueryDesigner : UserControl
         if (IsView) _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Update Criteria", Content = new ScrollViewer { Content = _updateTab } });
         _tabs.Items.Add(new TabItem { FontSize = 14, Header = "SQL", Content = _sql });
         _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Results", Content = _results });
-        var diagram = new Border
-        {
-            Height = 230, BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128)),
-            Child = new ScrollViewer { Content = _canvas, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto },
-        };
-        var root = new DockPanel();
+        var diagram = IdeTheme.Card(Strings.T("Tables"),
+            new ScrollViewer { Content = _canvas, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto });
+        var body = new Grid { RowDefinitions = new RowDefinitions("230,Auto,*") };
+        body.Children.Add(diagram);
+        var split = new GridSplitter { Height = 4, ResizeDirection = GridResizeDirection.Rows, Background = Brushes.Transparent };
+        Grid.SetRow(split, 1);
+        body.Children.Add(split);
+        var details = IdeTheme.Card(Strings.T(IsView ? "View definition" : "Query definition"), _tabs);
+        Grid.SetRow(details, 2);
+        body.Children.Add(details);
+        var root = new DockPanel { Margin = new Thickness(2) };
         DockPanel.SetDock(toolbar, Dock.Top);
         root.Children.Add(toolbar);
         DockPanel.SetDock(_banner, Dock.Top);
         root.Children.Add(_banner);
-        DockPanel.SetDock(diagram, Dock.Top);
-        root.Children.Add(diagram);
-        root.Children.Add(_tabs);
+        root.Children.Add(body);
         Content = root;
         _canvas.PointerMoved += OnPointerMoved;
         _canvas.PointerReleased += OnPointerReleased;
