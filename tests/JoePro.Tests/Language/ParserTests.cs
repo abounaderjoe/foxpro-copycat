@@ -212,4 +212,18 @@ public class ParserTests
         var ex = Assert.Throws<CompileException>(() => Parse("x = 1\nIF x\ny = (1 +\nENDIF"));
         Assert.Equal(3, ex.Line);
     }
+
+    [Fact]
+    public void Include_of_the_foxpro_system_headers_uses_the_built_in_copies_unless_a_file_exists()
+    {
+        static Expr Value(ProgramUnit u) => Assert.IsType<AssignStmt>(Assert.Single(u.Main)).Value;
+        var builtIn = Parser.ParseProgram("#INCLUDE ..\\..\\FoxPro.H\nx = MB_YESNO + MB_ICONQUESTION");
+        var sum = Assert.IsType<BinaryExpr>(Value(builtIn));
+        Assert.Equal((4.0, 32.0), (((LiteralExpr)sum.Left).Value.AsNumber, ((LiteralExpr)sum.Right).Value.AsNumber));
+        Assert.IsType<AssignStmt>(Assert.Single(Parser.ParseProgram("#INCLUDE foxpro_reporting.h\nx = FRX_OBJTYP_BAND").Main));
+        var own = Parser.ParseProgram("#INCLUDE foxpro.h\nx = MB_YESNO", includeResolver: _ => "#DEFINE MB_YESNO 99\n");
+        Assert.Equal(99.0, ((LiteralExpr)Value(own)).Value.AsNumber);
+        Assert.Throws<CompileException>(() => Parser.ParseProgram("#INCLUDE missing.h\nx = 1"));
+        Assert.Equal(["foxpro.h", "foxpro_reporting.h"], SystemHeaders.All);
+    }
 }

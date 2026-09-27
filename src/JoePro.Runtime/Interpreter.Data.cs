@@ -1321,7 +1321,10 @@ public sealed partial class Interpreter
         };
         LastBuild = result;
         if (result.Succeeded)
-            Notify(kind == "PROJECT" ? $"Project {project.Name} built: {result.Files.Count} file(s), no errors." : $"Built {result.Output} ({result.Files.Count} file(s)).");
+        {
+            var warnings = result.Warnings.Count == 0 ? "" : $" {result.Warnings.Count} warning(s): " + string.Join("; ", result.Warnings.Take(3).Select(w => $"{w.File}: {w.Message}"));
+            Notify((kind == "PROJECT" ? $"Project {project.Name} built: {result.Files.Count} file(s), no errors." : $"Built {result.Output} ({result.Files.Count} file(s)).") + warnings);
+        }
         else
         {
             Notify($"Build of {project.Name} failed with {result.Errors.Count} error(s): " + string.Join("; ", result.Errors.Take(3).Select(e => $"{e.File}{(e.Line > 0 ? $"({e.Line})" : "")}: {e.Message}")));

@@ -286,7 +286,8 @@ public sealed class ProjectManager : UserControl
             _ => ProjectBuilder.Check(Project, ProjectDir),
         };
         Status?.Invoke(result.Succeeded
-            ? kind.Equals("PROJECT", StringComparison.OrdinalIgnoreCase) ? $"No errors in {result.Files.Count} file(s)." : $"Built {result.Output}."
+            ? (kind.Equals("PROJECT", StringComparison.OrdinalIgnoreCase) ? $"No errors in {result.Files.Count} file(s)." : $"Built {result.Output}.")
+              + (result.Warnings.Count > 0 ? $" {result.Warnings.Count} warning(s): " + string.Join("; ", result.Warnings.Take(3).Select(w => $"{w.File}: {w.Message}")) : "")
             : $"{result.Errors.Count} error(s): " + string.Join("; ", result.Errors.Take(3).Select(e => $"{e.File}{(e.Line > 0 ? $"({e.Line})" : "")}: {e.Message}")));
         return result;
     }

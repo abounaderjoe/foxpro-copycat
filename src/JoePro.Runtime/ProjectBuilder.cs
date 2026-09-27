@@ -14,6 +14,8 @@ public sealed record BuildError(string File, int Line, string Message);
 public sealed class BuildResult
 {
     public List<BuildError> Errors { get; } = new();
+    /// <summary>Problems that do not stop the build (a missing text or other non-code file).</summary>
+    public List<BuildError> Warnings { get; } = new();
     public List<string> Files { get; } = new();
     public string? Output { get; set; }
     public bool Succeeded => Errors.Count == 0;
@@ -36,14 +38,15 @@ public static class ProjectBuilder
         var result = new BuildResult();
         foreach (var f in project.Files)
         {
-            var path = Path.GetFullPath(Path.Combine(projectDir, f.Path));
-            if (!File.Exists(path))
+            if (Resolve(projectDir, f.Path) is not { } path)
             {
-                if (!f.Exclude) result.Errors.Add(new(f.Path, 0, "File does not exist."));
+                if (f.Exclude) continue;
+                if (f.Type is ProjectFileType.Text or ProjectFileType.Other) result.Warnings.Add(new(f.Path, 0, "File does not exist; it was left out of the application."));
+                else result.Errors.Add(new(f.Path, 0, "File does not exist."));
                 continue;
             }
             if (f.Exclude) continue;
-            result.Files.Add(f.Path);
+            result.Files.Add(RelativeTo(projectDir, path, f.Path));
             try
             {
                 switch (Path.GetExtension(path).ToLowerInvariant())
@@ -81,6 +84,17 @@ public static class ProjectBuilder
         return result;
     }
 
+    /// <summary>Finds a project file ignoring case (FoxPro projects come from case-insensitive file systems).</summary>
+    public static string? Resolve(string projectDir, string relPath) =>
+        JoePro.Data.DataSession.FindIgnoringCase(Path.GetFullPath(Path.Combine(projectDir, relPath)));
+
+    // Files inside the project folder keep their on-disk spelling in the application; others keep the project's.
+    private static string RelativeTo(string projectDir, string path, string fallback)
+    {
+        var rel = Path.GetRelativePath(projectDir, path).Replace('\\', '/');
+        return rel.StartsWith("..") || Path.IsPathRooted(rel) ? fallback : rel;
+    }
+
     private static string? Include(string name, string file, string projectDir)
     {
         foreach (var dir in new[] { Path.GetDirectoryName(file)!, projectDir })
@@ -95,12 +109,11 @@ public static class ProjectBuilder
         var result = Check(project, projectDir);
         var errFile = Path.ChangeExtension(output, ".err");
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
-        if (!result.Succeeded)
-        {
-            File.WriteAllText(errFile, string.Join("\n", result.Errors.Select(e => $"{e.File}{(e.Line > 0 ? $"({e.Line})" : "")}: {e.Message}")) + "\n");
-            return result;
-        }
-        if (File.Exists(errFile)) File.Delete(errFile);
+        static string Line(BuildError e, string prefix = "") => $"{prefix}{e.File}{(e.Line > 0 ? $"({e.Line})" : "")}: {e.Message}";
+        if (!result.Succeeded || result.Warnings.Count > 0)
+            File.WriteAllText(errFile, string.Join("\n", result.Errors.Select(e => Line(e)).Concat(result.Warnings.Select(w => Line(w, "Warning: ")))) + "\n");
+        else if (File.Exists(errFile)) File.Delete(errFile);
+        if (!result.Succeeded) return result;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
         if (File.Exists(output)) File.Delete(output);
         using (var zip = ZipFile.Open(output, ZipArchiveMode.Create))
@@ -140,9 +153,8 @@ public static class ProjectBuilder
         // Excluded files (data) are copied next to the application so it runs as is.
         foreach (var f in project.Files.Where(f => f.Exclude))
         {
-            var src = Path.Combine(projectDir, f.Path);
-            if (!File.Exists(src) || f.Path.StartsWith("..")) continue;
-            var dest = Path.Combine(outputFolder, f.Path);
+            if (Resolve(projectDir, f.Path) is not { } src || f.Path.StartsWith("..")) continue;
+            var dest = Path.Combine(outputFolder, RelativeTo(projectDir, src, f.Path));
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
             File.Copy(src, dest, overwrite: true);
             foreach (var companion in Directory.EnumerateFiles(Path.GetDirectoryName(src)!, Path.GetFileNameWithoutExtension(src) + ".*").Where(c => c != src))

@@ -65,8 +65,10 @@ public sealed class LegacyImporter
         analyzer.IncludeRoots.Add(Path.GetFullPath(folder));
         foreach (var prg in files.Where(f => Ext(f) is ".prg" or ".h" or ".mpr" or ".qpr"))
             analyzer.AnalyzeFile(prg, Rel(prg));
-        // Programs, include files and pictures are copied as they are (compatibility mode runs them unchanged).
-        foreach (var f in files.Where(f => Ext(f) is ".prg" or ".h" or ".mpr" or ".qpr" or ".bmp" or ".gif" or ".jpg" or ".jpeg" or ".png" or ".ico" or ".cur" or ".msk" or ".txt" or ".xml"))
+        // Programs, include files, pictures and every other file the application ships (style sheets, scripts, text)
+        // are copied as they are (compatibility mode runs programs unchanged). FoxPro binaries are converted instead.
+        var targetFull = Path.GetFullPath(targetDir) + Path.DirectorySeparatorChar;
+        foreach (var f in files.Where(f => !ConvertedOrCompiled.Contains(Ext(f)) && !IsVersionControl(Rel(f)) && !Path.GetFullPath(f).StartsWith(targetFull)))
         {
             var dest = Path.Combine(MirrorDir(f, targetDir), Path.GetFileName(f));
             if (!File.Exists(dest)) File.Copy(f, dest, overwrite: false);
@@ -86,13 +88,10 @@ public sealed class LegacyImporter
             try { ConvertMenuFile(mnx, targetDir); }
             catch (Exception ex) { Fail("MENU.READ", "menu", mnx, ex); CopyOriginal(mnx, targetDir); }
         }
-        foreach (var other in files.Where(f => Ext(f) is ".pjx"))
+        foreach (var pjx in files.Where(f => Ext(f) is ".pjx"))
         {
-            var (kind, phase) = ("Project", "Phase 5 (Project Manager)");
-            _report.Add(FindingStatus.Unsupported, "ARTIFACT.NOT_YET_CONVERTED", Ext(other).TrimStart('.'), new SourceLocation(Rel(other)),
-                $"{kind} conversion ships with {phase}. The original file is preserved alongside the output.",
-                "Re-run the migration after upgrading; the report will show what changed.");
-            CopyOriginal(other, targetDir);
+            try { ConvertProjectFile(pjx, targetDir); }
+            catch (Exception ex) { Fail("PROJECT.READ", "project", pjx, ex); CopyOriginal(pjx, targetDir); }
         }
     }
 
@@ -207,7 +206,60 @@ public sealed class LegacyImporter
         return dest;
     }
 
+    /// <summary>Converts a project (.PJX) to .jpproj, pointing at the converted files (.scx → .jpform, .dbf → .jpt, …).</summary>
+    public string ConvertProjectFile(string path, string targetDir)
+    {
+        if (string.IsNullOrEmpty(_report.Source)) _report.Source = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        if (string.IsNullOrEmpty(_report.Target)) _report.Target = Path.GetFullPath(targetDir);
+        var result = JoePro.Documents.Projects.LegacyProjectConverter.Convert(path, mapConverted: true);
+        var outDir = MirrorDir(path, targetDir);
+        var dest = Path.Combine(outDir, Path.GetFileNameWithoutExtension(path).ToLowerInvariant() + ".jpproj");
+        // A .PJX stores lower-case names ("lib/base.vcx" for a folder named "Lib"); use the migrated folder's
+        // spelling so the project builds on case-sensitive file systems.
+        foreach (var f in result.Document.Files)
+        {
+            if (f.Path.StartsWith("../") || Path.IsPathRooted(f.Path)) continue;
+            if (JoePro.Data.DataSession.FindIgnoringCase(Path.Combine(outDir, f.Path)) is not { } hit) continue;
+            var real = Path.GetRelativePath(outDir, hit).Replace('\\', '/');
+            if (real == f.Path) continue;
+            if (string.Equals(result.Document.Main, f.Path, StringComparison.Ordinal)) result.Document.Main = real;
+            f.Path = real;
+        }
+        result.Document.Save(dest);
+        var src = new SourceLocation(Rel(path));
+        var target = new TargetLocation(dest);
+        foreach (var f in result.Findings)
+        {
+            var (status, rule) = f.Status switch
+            {
+                JoePro.Documents.FindingStatus.NeedsReview => (FindingStatus.NeedsReview, "PROJECT.REVIEW"),
+                JoePro.Documents.FindingStatus.Unsupported => (FindingStatus.Unsupported, "PROJECT.UNSUPPORTED"),
+                _ => (FindingStatus.Converted, "PROJECT.INFO"),
+            };
+            _report.Add(status, rule, "project", src, f.Message, target: target);
+        }
+        var doc = result.Document;
+        var missing = doc.Files.Where(f => !f.Exclude && !File.Exists(Path.Combine(outDir, f.Path))).Select(f => f.Path).ToList();
+        foreach (var m in missing.Take(20))
+            _report.Add(FindingStatus.NeedsReview, "PROJECT.FILE.MISSING", "project", src with { Object = m }, $"{m} is in the project but not in the migrated folder.",
+                "Copy the file into the source folder and migrate again, or remove it from the project.", target);
+        _report.Add(FindingStatus.Converted, "PROJECT.CONVERTED", "project", src,
+            $"Project converted: {doc.Files.Count} file(s), main program {doc.Main ?? "(none)"}. BUILD APP {doc.Name} FROM {Path.GetFileName(dest)} builds it.", target: target);
+        return dest;
+    }
+
     private static string Ext(string f) => Path.GetExtension(f).ToLowerInvariant();
+
+    // Files a folder import converts (tables, databases, forms, class libraries, reports, labels, menus, projects and
+    // their memo/index companions) or that FoxPro regenerates (compiled code, backups, error logs).
+    private static readonly HashSet<string> ConvertedOrCompiled =
+    [
+        ".dbf", ".fpt", ".cdx", ".idx", ".dbc", ".dct", ".dcx", ".scx", ".sct", ".vcx", ".vct", ".frx", ".frt", ".lbx", ".lbt",
+        ".mnx", ".mnt", ".pjx", ".pjt", ".fxp", ".spx", ".mpx", ".qpx", ".app", ".err", ".bak", ".tbk", ".dbk", ".cdk",
+    ];
+
+    private static bool IsVersionControl(string rel) =>
+        rel.Replace('\\', '/').Split('/').Any(seg => seg is ".git" or ".svn" or ".hg" or ".vs");
 
     private string Rel(string path)
     {

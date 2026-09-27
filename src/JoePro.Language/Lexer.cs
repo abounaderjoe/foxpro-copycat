@@ -169,7 +169,7 @@ public static class Preprocessor
             case "INCLUDE":
                 if (!active) return;
                 var name = rest.Trim('"', '\'', '[', ']');
-                var content = includeResolver?.Invoke(name) ?? throw new CompileException($"Include file '{name}' was not found.", lineNo);
+                var content = includeResolver?.Invoke(name) ?? SystemHeaders.Find(name) ?? throw new CompileException($"Include file '{name}' was not found.", lineNo);
                 // Only definitions are imported from header files, as in VFP.
                 foreach (var l in Prepare(content, name, includeResolver, defines)) _ = l;
                 break;

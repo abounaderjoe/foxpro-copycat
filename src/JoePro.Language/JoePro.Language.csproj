@@ -4,6 +4,10 @@
     <ProjectReference Include="..\JoePro.Core\JoePro.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Headers\*.h" LogicalName="JoePro.Language.Headers.%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

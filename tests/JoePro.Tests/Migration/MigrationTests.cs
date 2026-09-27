@@ -182,4 +182,48 @@ public class MigrationTests
         }
         finally { rt.Session.Dispose(); }
     }
+
+    [Fact]
+    public void Projects_convert_with_on_disk_spelling_and_build_after_import()
+    {
+        var legacy = Path.Combine(_dir, "legacy4");
+        Directory.CreateDirectory(Path.Combine(legacy, "Lib"));
+        Directory.CreateDirectory(Path.Combine(legacy, "Style"));
+        File.WriteAllText(Path.Combine(legacy, "main.prg"), "#INCLUDE foxpro.h\nPUBLIC gnOut\ngnOut = MB_YESNO + Helper()\n");
+        File.WriteAllText(Path.Combine(legacy, "Lib", "Helper.prg"), "FUNCTION Helper\nRETURN 10\n");
+        File.WriteAllText(Path.Combine(legacy, "Style", "app.css"), "body { color: navy; }\n");
+        FieldDef[] fields = [new("NAME", 'M'), new("TYPE", 'C', 1), new("EXCLUDE", 'L'), new("MAINPROG", 'L'), new("OUTFILE", 'M'), new("COMMENTS", 'M')];
+        (bool, Value[]) Row(string name, string type, bool main = false) =>
+            (false, [Value.String(name + "\0"), Value.String(type), Value.Logical(false), Value.Logical(main), Value.String(""), Value.String("")]);
+        // A PJX stores lower-case names, whatever the folders are called on disk.
+        DbfWriter.Write(Path.Combine(legacy, "demo.pjx"), fields,
+        [
+            Row("c:\\apps\\demo\\demo.pjx", "H"),
+            Row("main.prg", "P", main: true),
+            Row("lib\\helper.prg", "P"),
+            Row("style\\app.css", "T"),
+            Row("..\\readme.txt", "T"),
+        ]);
+        var report = new MigrationReport();
+        var output = Path.Combine(_dir, "out4");
+        new LegacyImporter(report).ImportFolder(legacy, output);
+        var project = JoePro.Documents.Projects.ProjectDocument.Load(Path.Combine(output, "demo.jpproj"));
+        Assert.Equal(["../readme.txt", "Lib/Helper.prg", "Style/app.css", "main.prg"], project.Files.Select(f => f.Path).Order(StringComparer.Ordinal));
+        Assert.True(File.Exists(Path.Combine(output, "Style", "app.css"))); // every file the application ships is copied
+        Assert.Contains(report.Findings, f => f.Rule == "PROJECT.CONVERTED");
+        Assert.Contains(report.Findings, f => f.Rule == "PROJECT.FILE.MISSING" && f.Source.Object == "../readme.txt");
+        Assert.DoesNotContain(report.Findings, f => f.Rule == "CODE.COMPILE");
+
+        var rt = new Interpreter(new TextWriterOutput(new StringWriter()), output);
+        try
+        {
+            rt.ExecuteCommand("BUILD APP dist/demo FROM demo");
+            Assert.True(rt.LastBuild!.Succeeded, string.Join("; ", rt.LastBuild.Errors));
+            Assert.Equal("../readme.txt", Assert.Single(rt.LastBuild.Warnings).File);   // a missing text file does not stop the build
+            Assert.Contains("Warning: ../readme.txt", File.ReadAllText(Path.Combine(output, "dist", "demo.err")));
+            rt.ExecuteCommand("DO dist/demo.jpapp");
+            Assert.Equal(14, rt.Evaluate("gnOut").AsNumber);
+        }
+        finally { rt.Session.Dispose(); }
+    }
 }
