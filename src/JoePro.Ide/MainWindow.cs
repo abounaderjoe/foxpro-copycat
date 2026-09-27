@@ -269,8 +269,20 @@ public sealed class MainWindow : Window
                 if (request.Create && !File.Exists(request.Path)) Run($"CREATE DATABASE \"{request.Path}\"");
                 OpenDatabaseDesigner(request.Path);
                 return true;
+            case "TABLE" when request.ClassName != null && request.Create:
+            {
+                // CREATE name: a new table (in the current database, or a free table file) in the Table Designer.
+                var design = TableDesign.New(request.ClassName);
+                design.Fields.Add(new FieldDesign(new FieldDef("ID", 'I') { AutoIncNext = 1 }));
+                var isDatabase = request.Path.EndsWith(".jpdb", StringComparison.OrdinalIgnoreCase);
+                ShowTableDesigner(new TableDesigner(design, isDatabase ? _session.Runtime.Session.StoreOf(request.Path) : null, isDatabase ? null : request.Path, _session));
+                return true;
+            }
             case "TABLE" when request.ClassName != null:
                 OpenTableDesigner(request.Path, request.ClassName);
+                return true;
+            case "DEBUGGER":
+                Debugger.Panel.IsVisible = true;
                 return true;
             case "PROCEDURE":
                 OpenStoredProcedures(request.Path);

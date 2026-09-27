@@ -49,6 +49,15 @@ public sealed partial class Parser
                 if (AcceptKw("AS")) Expression();   // code page
                 return new ProceduresFileStmt(true, file, AcceptKw("OVERWRITE"));
             }
+            if (AcceptKw("MEMO"))
+            {
+                var field = Ident();
+                ExpectKw("FROM");
+                var file = NameArg("OVERWRITE", "AS");
+                bool overwrite = false;
+                while (!AtEnd) { if (AcceptKw("OVERWRITE")) overwrite = true; else _p++; }
+                return new MemoFileStmt(true, field, file, false, overwrite);
+            }
             if (AcceptKw("BLANK")) return new AppendBlankStmt(AcceptKw("IN") ? AliasArg() : null);
             if (AcceptKw("FROM"))
             {
@@ -80,7 +89,13 @@ public sealed partial class Parser
                 do tags.Add(Ident()); while (AcceptOp(","));
                 return new DeleteTagStmt(tags, false);
             }
-            if (AcceptKw("FILE")) { NameArg(); return new NoOpStmt("DELETE FILE"); }
+            if (AcceptKw("FILE") || AcceptKw("DATABASE"))
+            {
+                var what = _t[_p - 1].Text.ToUpperInvariant().StartsWith("FILE") ? "ERASE" : "DELETE DATABASE";
+                var rest = RawText(_p, _t.Count);
+                _p = _t.Count;
+                return new SetStmt("__" + what, rest, null, []);
+            }
             if (IsSqlDelete()) return SqlDelete();
             return new DeleteStmt(ParseScope(), false);
         }
@@ -115,6 +130,7 @@ public sealed partial class Parser
             }
             return new BlankStmt(fields, ParseScope());
         }
+        if (V("PACK") && AcceptKw("DATABASE")) return new SetStmt("__PACK DATABASE", "", null, []);
         if (V("PACK")) { AcceptKw("MEMO"); AcceptKw("DBF"); return new PackStmt(AcceptKw("IN") ? AliasArg() : null); }
         if (V("ZAP")) return new ZapStmt(AcceptKw("IN") ? AliasArg() : null);
         if (V("INDEX")) return Index();
@@ -141,10 +157,11 @@ public sealed partial class Parser
         {
             bool display = V("DISPLAY");
             if (AcceptKw("STRUCTURE")) { ParseScope(); return new ListStmt(display, null, Scope.Default, true, false); }
-            if (AcceptKw("MEMORY") || AcceptKw("STATUS") || AcceptKw("OBJECTS") || AcceptKw("FILES") || AcceptKw("DATABASE") || AcceptKw("TABLES") || AcceptKw("CONNECTIONS") || AcceptKw("PROCEDURES") || AcceptKw("VIEWS"))
+            if (Kw("MEMORY") || Kw("STATUS") || Kw("OBJECTS") || Kw("FILES") || Kw("DATABASE") || Kw("TABLES") || Kw("CONNECTIONS") || Kw("PROCEDURES") || Kw("VIEWS") || Kw("DLLS"))
             {
+                var rest = RawText(_p, _t.Count);
                 _p = _t.Count;
-                return new NoOpStmt(verb.Text.ToUpperInvariant());
+                return new SetStmt("__" + (display ? "DISPLAY" : "LIST"), rest, null, []);
             }
             List<Expr>? fields = null;
             bool off = false;
@@ -187,6 +204,15 @@ public sealed partial class Parser
                 if (AcceptKw("AS")) Expression();
                 return new ProceduresFileStmt(false, file, AcceptKw("ADDITIVE"));
             }
+            if (AcceptKw("MEMO"))
+            {
+                var field = Ident();
+                ExpectKw("TO");
+                var file = NameArg("ADDITIVE", "AS");
+                bool additive = false;
+                while (!AtEnd) { if (AcceptKw("ADDITIVE")) additive = true; else _p++; }
+                return new MemoFileStmt(false, field, file, additive, false);
+            }
             if (AcceptKw("FILE"))
             {
                 var src = NameArg("TO");
@@ -199,6 +225,7 @@ public sealed partial class Parser
         {
             bool db = AcceptKw("DATABASE");
             AcceptKw("FOXPRO");
+            AcceptKw("FROM");
             var src = NameArg("TO", "TYPE");
             Expr? to = AcceptKw("TO") ? NameArg() : null;
             if (AcceptKw("TYPE")) Ident();
@@ -220,15 +247,39 @@ public sealed partial class Parser
         if ((V("ACTIVATE") || V("DEACTIVATE") || V("HIDE") || V("SHOW")) && MenuVerb(verb.Text.ToUpperInvariant() is var vv && vv.StartsWith("DEAC") ? "DEACTIVATE" : vv.StartsWith("ACTI") ? "ACTIVATE" : vv) is { } menuVerb)
             return menuVerb;
         if (V("CD") || V("CHDIR")) return new ChdirStmt(NameArg());
-        if ((Kw("RENAME") || Kw("DROP")) && _p + 1 < _t.Count && (_t[_p + 1].Text.Equals("VIEW", StringComparison.OrdinalIgnoreCase) || _t[_p + 1].Text.Equals("CONNECTION", StringComparison.OrdinalIgnoreCase)))
+        if ((V("RENAME") || V("DROP")) && (Kw("VIEW") || Kw("CONNECTION")))
         {
             var rename = V("RENAME");
-            if (!rename) V("DROP");
             var kind = Next().Text.ToUpperInvariant();
             var from = NameArg("TO");
             if (!rename) return new DeleteDbObjectStmt(kind, from);
             ExpectKw("TO");
             return new RenameDbObjectStmt(kind, from, NameArg());
+        }
+        if ((V("SAVE") && Kw("TO")) || (V("RESTORE") && Kw("FROM")))
+        {
+            bool save = V("SAVE");
+            _p++;
+            Expr? file = null;
+            string? memo = null;
+            if (AcceptKw("MEMO")) memo = Ident();
+            else file = NameArg("ALL", "ADDITIVE");
+            string? skeleton = null;
+            bool except = false, additive = false;
+            while (!AtEnd)
+            {
+                if (AcceptKw("ALL"))
+                {
+                    if (AcceptKw("EXCEPT")) except = true;
+                    else ExpectKw("LIKE");
+                    var start = _p;
+                    while (!AtEnd && !Kw("ADDITIVE")) _p++;
+                    skeleton = RawText(start, _p);
+                }
+                else if (AcceptKw("ADDITIVE")) additive = true;
+                else throw Error($"Command contains unrecognized phrase/keyword: '{Peek()}'.");
+            }
+            return new MemVarFileStmt(save, file, memo, skeleton, except, additive);
         }
         if ((V("REPORT") || V("LABEL")) && AcceptKw("FORM")) return ReportForm(V("LABEL"));
         if (V("MODIFY") || V("MODI") || V("BUILD") || V("REPORT") || V("LABEL") || V("KEYBOARD") || V("ACTIVATE") || V("DEACTIVATE")
@@ -240,6 +291,136 @@ public sealed partial class Parser
             var rest = RawText(_p, _t.Count);
             _p = _t.Count;
             return new SetStmt("__" + rawVerb, rest, null, []);
+        }
+        if (V("DROP") && AcceptKw("TABLE"))
+        {
+            var rest = RawText(_p, _t.Count);
+            _p = _t.Count;
+            return new SetStmt("__DROP TABLE", rest, null, []);
+        }
+        if (V("DIR") || V("DIRECTORY") || V("TYPE") || V("FREE") || V("EJECT") || V("PRINTJOB") || V("ENDPRINTJOB") || V("ASSIST") || V("MENU"))
+        {
+            var rawVerb = verb.Text.ToUpperInvariant();
+            if (rawVerb.StartsWith("DIR")) rawVerb = "DIR";
+            var rest = RawText(_p, _t.Count);
+            _p = _t.Count;
+            return new SetStmt("__" + rawVerb, rest, null, []);
+        }
+        if (V("EXPORT"))
+        {
+            // EXPORT TO file [FIELDS list] [scope] [TYPE] DIF|MOD|SYLK|WK1|WKS|WR1|WRK|XLS|XL5: COPY TO with a spreadsheet type.
+            ExpectKw("TO");
+            var target = NameArg("FIELDS", "TYPE", "FOR", "WHILE", "ALL", "NEXT", "REST", "RECORD", "XLS", "XL5", "DIF", "SYLK", "WK1", "WKS", "WR1", "WRK", "MOD", "AS");
+            string type = "XLS";
+            List<string>? fields = null;
+            Scope scope = Scope.Default;
+            while (!AtEnd)
+            {
+                if (AcceptKw("FIELDS")) { fields = []; do fields.Add(Ident()); while (AcceptOp(",")); }
+                else if (AcceptKw("TYPE")) type = Ident().ToUpperInvariant();
+                else if (ScopeWords.Any(Kw)) scope = MergeScope(scope, ParseScope(true, "FIELDS", "TYPE"));
+                else if (AcceptKw("AS")) Expression();
+                else type = Next().Text.ToUpperInvariant();
+            }
+            return new CopyToStmt(target, type, fields, scope, false, false);
+        }
+        if (V("SORT"))
+        {
+            ExpectKw("TO");
+            var target = NameArg("ON");
+            ExpectKw("ON");
+            var keys = new List<(string, bool, bool)>();
+            do
+            {
+                var f = Ident();
+                bool desc = false, ic = false;
+                while (IsOp("/"))
+                {
+                    _p++;
+                    var opt = Ident().ToUpperInvariant();
+                    desc |= opt.Contains('D');
+                    ic |= opt.Contains('C');
+                }
+                keys.Add((f, desc, ic));
+            } while (AcceptOp(","));
+            bool allDesc = false;
+            List<string>? fields = null;
+            Scope scope = Scope.Default;
+            while (!AtEnd)
+            {
+                if (AcceptKw("ASCENDING")) { }
+                else if (AcceptKw("DESCENDING")) allDesc = true;
+                else if (AcceptKw("FIELDS"))
+                {
+                    fields = [];
+                    if (AcceptKw("LIKE") || AcceptKw("EXCEPT")) throw Error("SORT FIELDS LIKE/EXCEPT is not supported; list the fields.");
+                    do fields.Add(Ident()); while (AcceptOp(","));
+                }
+                else if (ScopeWords.Any(Kw)) scope = MergeScope(scope, ParseScope(true, "FIELDS", "ASCENDING", "DESCENDING"));
+                else if (AcceptKw("NOOPTIMIZE")) { }
+                else throw Error($"Command contains unrecognized phrase/keyword: '{Peek()}'.");
+            }
+            if (allDesc) keys = keys.Select(k => (k.Item1, true, k.Item3)).ToList();
+            return new SortStmt(target, keys, fields, scope);
+        }
+        if (V("TOTAL"))
+        {
+            ExpectKw("TO");
+            var target = NameArg("ON");
+            ExpectKw("ON");
+            var on = Ident();
+            List<string>? fields = null;
+            Scope scope = Scope.Default;
+            while (!AtEnd)
+            {
+                if (AcceptKw("FIELDS")) { fields = []; do fields.Add(Ident()); while (AcceptOp(",")); }
+                else if (ScopeWords.Any(Kw)) scope = MergeScope(scope, ParseScope(true, "FIELDS"));
+                else throw Error($"Command contains unrecognized phrase/keyword: '{Peek()}'.");
+            }
+            return new TotalStmt(target, on, fields, scope);
+        }
+        if (V("JOIN"))
+        {
+            ExpectKw("WITH");
+            var with = AliasArg();
+            ExpectKw("TO");
+            var target = NameArg("FOR", "FIELDS");
+            Expr? @for = null;
+            List<Expr>? fields = null;
+            while (!AtEnd)
+            {
+                if (AcceptKw("FOR")) @for = Expression();
+                else if (AcceptKw("FIELDS")) fields = ExprList();
+                else if (AcceptKw("NOOPTIMIZE")) { }
+                else throw Error($"Command contains unrecognized phrase/keyword: '{Peek()}'.");
+            }
+            return new JoinStmt(with, target, @for, fields);
+        }
+        if (V("ACCEPT") || V("INPUT"))
+        {
+            Expr? prompt = AtEnd || Kw("TO") ? null : Expression();
+            ExpectKw("TO");
+            return new InputStmt(prompt, VarName(), V("ACCEPT"));
+        }
+        if (V("GETEXPR"))
+        {
+            Expr? prompt = AtEnd || Kw("TO") ? null : Expression();
+            ExpectKw("TO");
+            var name = VarName();
+            Expr? def = null;
+            while (!AtEnd)
+            {
+                if (AcceptKw("TYPE")) Expression();
+                else if (AcceptKw("DEFAULT")) def = Expression();
+                else _p++;
+            }
+            return new GetExprStmt(prompt, name, def);
+        }
+        if (V("COMPILE") && AcceptKw("DATABASE"))
+        {
+            var rest = RawText(_p, _t.Count);
+            _p = _t.Count;
+            return new SetStmt("__COMPILE DATABASE", rest, null, []);
         }
         if (V("COMPILE")) { AcceptKw("FORM"); AcceptKw("CLASSLIB"); AcceptKw("REPORT"); AcceptKw("DATABASE"); return new CompileStmt(NameArg()); }
         if (V("TABLEUPDATE")) return null;
@@ -283,6 +464,20 @@ public sealed partial class Parser
 
     private Stmt Replace()
     {
+        if (Kw("FROM") && Kw(1, "ARRAY"))
+        {
+            _p += 2;
+            var arr = Ident();
+            List<string>? fields = null;
+            Scope scope = Scope.Default;
+            while (!AtEnd)
+            {
+                if (AcceptKw("FIELDS")) { fields = []; do fields.Add(Ident()); while (AcceptOp(",")); }
+                else if (ScopeWords.Any(Kw)) scope = MergeScope(scope, ParseScope(true, "FIELDS"));
+                else throw Error($"Command contains unrecognized phrase/keyword: '{Peek()}'.");
+            }
+            return new ReplaceFromArrayStmt(arr, fields, scope);
+        }
         // Scope clauses may appear before or after the field list: REPLACE ALL x WITH 1, REPLACE x WITH 1 FOR …
         var leading = ParseScope();
         var items = new List<(Expr, Expr, bool)>();

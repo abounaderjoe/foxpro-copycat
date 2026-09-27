@@ -47,6 +47,26 @@ public class FormRuntimeTests : IDisposable
         """;
 
     [AvaloniaFact]
+    public void On_key_label_runs_its_command_when_the_key_is_pressed_in_a_form()
+    {
+        _rt.ExecuteCommand("""
+            PUBLIC gHits
+            gHits = 0
+            ON KEY LABEL CTRL+F2 gHits = gHits + 1
+            oForm = CREATEOBJECT("Form")
+            oForm.Show()
+            """);
+        var window = (Window)Form().Native!;
+        window.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F2, KeyModifiers = KeyModifiers.Control });
+        window.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F3, KeyModifiers = KeyModifiers.Control });
+        Assert.Empty(_errors);
+        Assert.Equal(1, _rt.GetVariable("gHits").AsNumber);
+        _rt.ExecuteCommand("ON KEY LABEL CTRL+F2");
+        window.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F2, KeyModifiers = KeyModifiers.Control });
+        Assert.Equal(1, _rt.GetVariable("gHits").AsNumber);
+    }
+
+    [AvaloniaFact]
     public void Shows_form_with_bound_textbox_and_writes_back_on_valid()
     {
         _rt.ExecuteCommand(CustomerTable + """

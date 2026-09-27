@@ -45,6 +45,9 @@ public interface IUiHost
 
     /// <summary>ACTIVATE POPUP: shows a popup (a shortcut menu at the mouse). Returns false if unavailable.</summary>
     bool ActivatePopup(string name) => false;
+
+    /// <summary>ON KEY LABEL handlers changed (see <see cref="Interpreter.KeyLabels"/>); the host watches for those keys.</summary>
+    void KeyLabelsChanged() { }
 }
 
 /// <summary>

@@ -195,7 +195,7 @@ public static partial class Library
             return c.Rt.Invoke(proc, unit, args, bindDeclared: false);
         });
         Add("SET", c => SetFunction(c));
-        Add("ON", c => S(c.Str(0).Equals("ERROR", StringComparison.OrdinalIgnoreCase) ? c.Rt.OnErrorCommand ?? "" : ""));
+        Add("ON", c => S(c.Rt.OnCommand(c.Str(0), c.Has(1) ? c.Str(1) : null)));
 
         // ---- Errors and program state ----
         Add("ERROR", c => N(c.Rt.LastErrorNumber));
@@ -248,7 +248,9 @@ public static partial class Library
             return N((flags & 0xF) switch { 1 => 1, 2 => 3, 3 or 4 => 6, 5 => 4, _ => 1 });
         });
         Add("INPUTBOX", c => S(c.Has(2) ? c.Str(2) : ""));
-        Add(["INKEY", "LASTKEY", "ROW", "COL", "PROW", "PCOL"], _ => N(0));
+        Add("INKEY", c => N(c.Rt.InKey()));
+        Add("LASTKEY", c => N(c.Rt.LastKey));
+        Add(["ROW", "COL", "PROW", "PCOL"], _ => N(0));
         Add("CHRSAW", _ => Value.False);
         Add("SROWS", _ => N(25));
         Add("SCOLS", _ => N(80));

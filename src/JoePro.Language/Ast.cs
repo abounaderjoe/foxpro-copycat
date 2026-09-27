@@ -221,6 +221,22 @@ public sealed record CopyToStmt(Expr Target, string? Type, List<string>? Fields,
 public sealed record BlockStmt(List<Stmt> Stmts) : Stmt;
 /// <summary>BLANK [FIELDS list] [scope] [IN alias]: resets fields to blank values.</summary>
 public sealed record BlankStmt(List<string>? Fields, Scope Scope) : Stmt;
+/// <summary>SORT TO file ON field [/A|/D][/C] [, …] [ASCENDING|DESCENDING] [scope] [FIELDS list].</summary>
+public sealed record SortStmt(Expr Target, List<(string Field, bool Descending, bool IgnoreCase)> Keys, List<string>? Fields, Scope Scope) : Stmt;
+/// <summary>TOTAL TO file ON keyfield [FIELDS numeric fields] [scope].</summary>
+public sealed record TotalStmt(Expr Target, string On, List<string>? Fields, Scope Scope) : Stmt;
+/// <summary>JOIN WITH alias TO file FOR condition [FIELDS list].</summary>
+public sealed record JoinStmt(Expr With, Expr Target, Expr? For, List<Expr>? Fields) : Stmt;
+/// <summary>REPLACE FROM ARRAY array [FIELDS list] [scope].</summary>
+public sealed record ReplaceFromArrayStmt(string Array, List<string>? Fields, Scope Scope) : Stmt;
+/// <summary>COPY MEMO field TO file [ADDITIVE] and APPEND MEMO field FROM file [OVERWRITE].</summary>
+public sealed record MemoFileStmt(bool Append, string Field, Expr File, bool Additive, bool Overwrite) : Stmt;
+/// <summary>ACCEPT [prompt] TO var (text) and INPUT [prompt] TO var (an expression).</summary>
+public sealed record InputStmt(Expr? Prompt, string Var, bool Accept) : Stmt;
+/// <summary>GETEXPR [prompt] TO var [TYPE cType] [DEFAULT expr]: the Expression Builder.</summary>
+public sealed record GetExprStmt(Expr? Prompt, string Var, Expr? Default) : Stmt;
+/// <summary>SAVE TO file|MEMO field [ALL LIKE|EXCEPT skeleton] and RESTORE FROM file|MEMO field [ADDITIVE].</summary>
+public sealed record MemVarFileStmt(bool Save, Expr? File, string? MemoField, string? Skeleton, bool Except, bool Additive) : Stmt;
 /// <summary>COPY FILE source TO destination (wildcards allowed in the source).</summary>
 public sealed record CopyFileStmt(Expr Source, Expr Destination) : Stmt;
 public sealed record ImportStmt(Expr Source, Expr? To, bool Database) : Stmt;

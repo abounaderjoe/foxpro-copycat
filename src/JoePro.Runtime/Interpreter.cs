@@ -835,6 +835,7 @@ public sealed partial class Interpreter : IExpressionHost
             case QuitStmt { Cancel: true }:
                 throw new CancelProgramException();
             case QuitStmt q:
+                if (RunShutdownHandler()) return Flow.Normal;
                 throw new QuitException(q.Cancel);
             case ReadEventsStmt re:
                 if (re.Clear) Ui?.ClearEvents();

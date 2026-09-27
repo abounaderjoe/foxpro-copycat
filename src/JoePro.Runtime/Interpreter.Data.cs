@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Xml.Linq;
 using JoePro.Core;
 using JoePro.Data;
 using JoePro.Language;
@@ -184,7 +185,7 @@ public sealed partial class Interpreter
             case SqlUpdateStmt su: SqlEngine.Update(this, su); return true;
             case SqlDeleteStmt sdel: SqlEngine.Delete(this, sdel); return true;
         }
-        return false;
+        return ExecCommandStmt(s);
     }
 
     /// <summary>An expression bound to this interpreter for SET FILTER / SET RELATION.</summary>
@@ -1032,11 +1033,65 @@ public sealed partial class Interpreter
         switch (verb)
         {
             case "ERASE" or "DELETE":
+                EraseCommand(rest);
+                break;
+            case "DELETE DATABASE":
+                DeleteDatabaseCommand(rest);
+                break;
+            case "PACK DATABASE":
+                PackDatabaseCommand();
+                break;
+            case "COMPILE DATABASE":
+                CompileDatabaseCommand(rest);
+                break;
+            case "DROP TABLE":
+                DropTableCommand(rest);
+                break;
+            case "DIR":
+                ExecDir(rest);
+                break;
+            case "TYPE":
+                ExecType(rest);
+                break;
+            case "ON":
+                ExecOnCommand(rest);
+                break;
+            case "RELEASE":
+                ReleaseLibraryCommand(rest);
+                break;
+            case "RUN":
+                ExecRun(rest);
+                break;
+            case "KEYBOARD":
+                ExecKeyboard(rest);
+                break;
+            case "PUSH" or "POP" when System.Text.RegularExpressions.Regex.Match(rest.Trim(), @"^(MENU|POPUP)\s+(\S+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase) is { Success: true } mp:
             {
-                var p = Session.ResolvePath(rest.Trim('"', '\''), "");
-                if (File.Exists(p)) File.Delete(p);
+                bool popup = mp.Groups[1].Value.Equals("POPUP", StringComparison.OrdinalIgnoreCase);
+                var name = mp.Groups[2].Value.Trim('"', '\'');
+                if (verb == "PUSH") Menus.Push(popup, name);
+                else if (!Menus.Pop(popup, name)) throw new VfpException(1777, $"{(popup ? "Popup" : "Menu")} {name.ToUpperInvariant()} has not been pushed.");
+                Ui?.MenusChanged();
                 break;
             }
+            case "DEBUG":
+                if (Ui?.OpenDesigner(new DesignerRequest("DEBUGGER", "", false)) != true) Notify("DEBUG: the debugger is available in the Joe Pro IDE.");
+                break;
+            case "PUSH" or "POP" when rest.TrimStart().StartsWith("KEY", StringComparison.OrdinalIgnoreCase):
+                PushPopKey(verb == "PUSH", rest.TrimStart()[3..]);
+                break;
+            case "LIST" or "DISPLAY":
+                ListCommand(verb == "DISPLAY", rest);
+                break;
+            case "ACTIVATE" when rest.Trim().Equals("SCREEN", StringComparison.OrdinalIgnoreCase):
+                break; // output already goes to the screen
+            case "MODIFY" or "MODI" or "ZOOM" when ScreenWindowCommand(verb == "ZOOM" ? "ZOOM" : "MODIFY", rest):
+                break;
+            case "CREATE" or "CREA" when CreateFromCommand(rest):
+                break;
+            case "EJECT" or "PRINTJOB" or "ENDPRINTJOB" or "FREE" or "ASSIST" or "MENU":
+                Notify($"{verb} {rest}".Trim() + $" is not supported: {Builtins.CommandCoverage.ReasonFor(verb)}");
+                break;
             case "RENAME" when rest.TrimStart().StartsWith("TABLE ", StringComparison.OrdinalIgnoreCase):
                 RenameTableCommand(rest.TrimStart()[6..]);
                 break;
@@ -1117,7 +1172,15 @@ public sealed partial class Interpreter
         var m = System.Text.RegularExpressions.Regex.Match(rest.Trim(),
             @"^(?<kind>FORM|CLASSLIB|CLASS|REPO\w*|LABE?L?|MENU|QUER\w*|PROJ\w*|DATA\w*|SCREEN|STRU\w*|PROC\w*|VIEW)\b\s*(?<rest>.*)$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
-        if (!m.Success) return false;
+        if (!m.Success)
+        {
+            // CREATE [name | ?]: a new table in the Table Designer.
+            if (!create || Ui == null) return false;
+            var tableName = TokenizeDesignerArgs(rest).FirstOrDefault(w => !IsDesignerClause(w)) ?? "";
+            if (tableName is "" or "?" || tableName.Contains(' ')) return false;
+            var storePath = Session.CurrentDatabase is { } cdb && !Path.HasExtension(tableName) ? cdb.Path : Session.ResolvePath(tableName, Store.FreeTableExtension);
+            return Ui.OpenDesigner(new DesignerRequest("TABLE", storePath, true, Path.GetFileNameWithoutExtension(tableName)));
+        }
         var kindWord = m.Groups["kind"].Value.ToUpperInvariant();
         // Class libraries are files the runtime can create without a user interface.
         if (create && kindWord == "CLASSLIB") { CreateClassLibrary(m.Groups["rest"].Value); return true; }
@@ -1357,6 +1420,20 @@ public sealed partial class Interpreter
             return DataSession.FindIgnoringCase(full + ".jpproj") ?? DataSession.FindIgnoringCase(full + ".pjx") ?? throw VfpException.FileNotFound(name + ".jpproj");
         }
         var fromAt = words.FindIndex(w => w.Equals("FROM", StringComparison.OrdinalIgnoreCase));
+        if (kind == "PROJECT" && fromAt > 0)
+        {
+            // BUILD PROJECT name FROM file1, file2…: creates (or adds to) the project; the first file is the main one.
+            var projFile = Path.Combine(Options.Default_, Path.HasExtension(words[1]) ? words[1] : words[1] + ".jpproj");
+            var doc = File.Exists(projFile) ? JoePro.Documents.Projects.ProjectDocument.Load(projFile) : new JoePro.Documents.Projects.ProjectDocument { Name = Path.GetFileNameWithoutExtension(projFile) };
+            foreach (var w in words.Skip(fromAt + 1).SelectMany(x => x.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)))
+            {
+                var rel = Path.HasExtension(w) ? w : w + ".prg";
+                if (doc.Find(rel) == null) doc.Add(rel);
+                doc.Main ??= JoePro.Documents.Projects.ProjectDocument.Normalize(rel);
+            }
+            doc.Save(projFile);
+            words = words.Take(fromAt).ToList();
+        }
         var projectPath = ProjectPath(kind == "PROJECT" ? words[1] : fromAt > 0 && fromAt + 1 < words.Count ? words[fromAt + 1] : throw VfpException.Syntax($"BUILD {kind} name FROM project"));
         var project = LoadProject(projectPath);
         var dir = Path.GetDirectoryName(projectPath)!;
@@ -1860,6 +1937,16 @@ public sealed partial class Interpreter
             Talk($"{records.Count} records copied.");
             return;
         }
+        if (type is "XLS" or "XL5" or "XL8")
+        {
+            // Excel opens SpreadsheetML (the Excel 2003 XML format) saved with an .xls extension.
+            var path = Path.Combine(Options.Default_, Path.HasExtension(target) ? target : target + ".xls");
+            WriteSpreadsheet(path, fields, records.Select(r => r.Item2));
+            Talk($"{records.Count} records copied.");
+            return;
+        }
+        if (type is "DIF" or "MOD" or "SYLK" or "WK1" or "WKS" or "WR1" or "WRK")
+            throw VfpException.NotSupported($"COPY TO/EXPORT TYPE {type} (use XLS, CSV, SDF or DELIMITED)");
         if (ext == ".dbf" || type is "FOXPLUS" or "FOX2X")
         {
             var path = Path.Combine(Options.Default_, Path.HasExtension(target) ? target : target + ".dbf");
@@ -1873,6 +1960,33 @@ public sealed partial class Interpreter
         var t = other.CreateTable(schema, free: true, path: jpt);
         foreach (var (del, vals) in records) t.Append(vals, del);
         Talk($"{records.Count} records copied.");
+    }
+
+    private static void WriteSpreadsheet(string path, IReadOnlyList<FieldDef> fields, IEnumerable<Value[]> rows)
+    {
+        XNamespace ss = "urn:schemas-microsoft-com:office:spreadsheet";
+        XElement Cell(Value v)
+        {
+            var (type, text) = v.Kind switch
+            {
+                ValueKind.Number or ValueKind.Currency => ("Number", v.AsNumber.ToString("R", CultureInfo.InvariantCulture)),
+                ValueKind.Logical => ("Boolean", v.AsBool ? "1" : "0"),
+                ValueKind.Date when !v.IsEmptyDate => ("DateTime", Julian.ToDate(v.JulianDay).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "T00:00:00.000"),
+                ValueKind.DateTime when !v.IsEmptyDate => ("DateTime", Julian.ToDateTime(v.JulianMs).ToString("yyyy-MM-ddTHH:mm:ss.fff", CultureInfo.InvariantCulture)),
+                ValueKind.Character => ("String", v.AsString.TrimEnd()),
+                _ => ("String", ""),
+            };
+            var cell = new XElement(ss + "Cell", new XElement(ss + "Data", new XAttribute(ss + "Type", type), text));
+            if (type == "DateTime") cell.Add(new XAttribute(ss + "StyleID", "d"));
+            return cell;
+        }
+        var table = new XElement(ss + "Table", new XElement(ss + "Row", fields.Select(f => new XElement(ss + "Cell", new XElement(ss + "Data", new XAttribute(ss + "Type", "String"), f.Name.ToLowerInvariant())))));
+        foreach (var r in rows) table.Add(new XElement(ss + "Row", r.Select(Cell)));
+        var doc = new XDocument(new XProcessingInstruction("mso-application", "progid=\"Excel.Sheet\""),
+            new XElement(ss + "Workbook", new XAttribute(XNamespace.Xmlns + "ss", ss.NamespaceName),
+                new XElement(ss + "Styles", new XElement(ss + "Style", new XAttribute(ss + "ID", "d"), new XElement(ss + "NumberFormat", new XAttribute(ss + "Format", "Short Date")))),
+                new XElement(ss + "Worksheet", new XAttribute(ss + "Name", Path.GetFileNameWithoutExtension(path)), table)));
+        doc.Save(path);
     }
 
     private string CsvText(Value v) => v.Kind switch

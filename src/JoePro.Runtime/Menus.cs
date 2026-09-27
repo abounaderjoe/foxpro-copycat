@@ -12,6 +12,13 @@ public sealed class MenuBarDef
     public string? Message { get; set; }
     public bool Skip { get; set; }
     public PadDef? Pad(string name) => Pads.FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+    public MenuBarDef Clone()
+    {
+        var m = new MenuBarDef { Name = Name, OnSelection = OnSelection, Message = Message, Skip = Skip };
+        m.Pads.AddRange(Pads.Select(p => (PadDef)p.CloneItem()));
+        return m;
+    }
 }
 
 public abstract class MenuItemDef
@@ -32,6 +39,8 @@ public abstract class MenuItemDef
     public bool IsSeparator => Prompt.Trim() == "\\-";
     /// <summary>The prompt with the \&lt; hot-key marker removed.</summary>
     public string Caption => Prompt.Replace("\\<", "").Replace("\\\\", "\\");
+
+    internal MenuItemDef CloneItem() => (MenuItemDef)MemberwiseClone();
 }
 
 public sealed class PadDef : MenuItemDef
@@ -57,6 +66,13 @@ public sealed class PopupDef
     public string? OnSelection { get; set; }
     public bool Skip { get; set; }
     public BarDef? Bar(string id) => Bars.FirstOrDefault(b => b.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+
+    public PopupDef Clone()
+    {
+        var p = new PopupDef { Name = Name, Shortcut = Shortcut, Title = Title, OnSelection = OnSelection, Skip = Skip };
+        p.Bars.AddRange(Bars.Select(b => (BarDef)b.CloneItem()));
+        return p;
+    }
 }
 
 /// <summary>
@@ -71,6 +87,38 @@ public sealed class MenuSystem
     public Dictionary<string, PopupDef> Popups { get; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>The menu bar shown at the top of the application window (null: the host's own menu).</summary>
     public string? ActiveMenu { get; set; }
+    private readonly Dictionary<string, Stack<MenuBarDef?>> _menuStack = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Stack<PopupDef?>> _popupStack = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>PUSH MENU / PUSH POPUP: saves the current definition.</summary>
+    public void Push(bool popup, string name)
+    {
+        if (popup) StackOf(_popupStack, name).Push(Popups.TryGetValue(name, out var p) ? p.Clone() : null);
+        else StackOf(_menuStack, name).Push(Menus.TryGetValue(name, out var m) ? m.Clone() : null);
+    }
+
+    /// <summary>POP MENU / POP POPUP: restores the last saved definition. False if nothing was pushed.</summary>
+    public bool Pop(bool popup, string name)
+    {
+        if (popup)
+        {
+            if (!_popupStack.TryGetValue(name, out var ps) || ps.Count == 0) return false;
+            if (ps.Pop() is { } p) Popups[name] = p; else Popups.Remove(name);
+        }
+        else
+        {
+            if (!_menuStack.TryGetValue(name, out var ms) || ms.Count == 0) return false;
+            if (ms.Pop() is { } m) Menus[name] = m; else Menus.Remove(name);
+        }
+        return true;
+    }
+
+    private static Stack<T> StackOf<T>(Dictionary<string, Stack<T>> d, string name)
+    {
+        if (!d.TryGetValue(name, out var s)) d[name] = s = new Stack<T>();
+        return s;
+    }
+
     public string? LastPad { get; set; }
     public string? LastMenu { get; set; }
     public string? LastPopup { get; set; }

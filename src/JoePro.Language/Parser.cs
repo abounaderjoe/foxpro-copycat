@@ -881,8 +881,13 @@ public sealed partial class Parser
             return new ReleaseStmt([], true, like, except);
         }
         if (MenuVerb("RELEASE") is { } releaseMenu) return releaseMenu;
-        if (AcceptKw("WINDOWS") || AcceptKw("PADS") || AcceptKw("CLASSLIB") || AcceptKw("LIBRARY") || AcceptKw("PROCEDURE")
-            || AcceptKw("WINDOW") || AcceptKw("BARS"))
+        if (Kw("CLASSLIB") || Kw("LIBRARY") || Kw("PROCEDURE"))
+        {
+            var rest = RawText(_p, _t.Count);
+            _p = _t.Count;
+            return new SetStmt("__RELEASE", rest, null, []);
+        }
+        if (AcceptKw("WINDOWS") || AcceptKw("PADS") || AcceptKw("WINDOW") || AcceptKw("BARS"))
         {
             _p = _t.Count;
             return new NoOpStmt("RELEASE");
@@ -911,7 +916,14 @@ public sealed partial class Parser
             return new OnErrorStmt(cmd);
         }
         if (OnMenuCommand() is { } menu) return menu;
-        _p = _t.Count; // ON KEY LABEL, ON SHUTDOWN, ON ESCAPE… (UI runtime; Phase 3)
+        if (Kw("KEY") || Kw("SHUTDOWN") || Kw("ESCAPE") || Kw("PAGE") || Kw("READERROR") || Kw("APLABOUT") || Kw("MACHELP"))
+        {
+            // ON KEY [LABEL key] [cmd], ON SHUTDOWN [cmd], ON ESCAPE [cmd]…: the runtime keeps the handlers.
+            var rest = RawText(_p, _t.Count);
+            _p = _t.Count;
+            return new SetStmt("__ON", rest, null, []);
+        }
+        _p = _t.Count; // ON EXIT BAR/MENU/PAD/POPUP
         return new NoOpStmt("ON");
     }
 

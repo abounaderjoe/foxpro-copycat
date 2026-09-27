@@ -26,7 +26,7 @@ public static class Program
                 "add" or "remove" or "restore" or "publish" or "pack" => Packages(cmd, args.Skip(1).ToArray()),
                 "sync" => Sync(args.Skip(1).ToArray()),
                 "version" or "--version" => Version(),
-                "functions" => Functions(args.Contains("--coverage")),
+                "functions" => Functions(args),
                 "lsp" => new JoePro.Tooling.LspServer(Console.OpenStandardInput(), Console.OpenStandardOutput()).Run(),
                 "dap" => new JoePro.Tooling.DapServer(Console.OpenStandardInput(), Console.OpenStandardOutput()).Run(),
                 "help" or "--help" or "-h" => Help(),
@@ -53,6 +53,7 @@ public static class Program
     private static Interpreter NewRuntime()
     {
         var rt = new Interpreter(new TextWriterOutput(Console.Out), Directory.GetCurrentDirectory());
+        rt.ReadLine = _ => Console.ReadLine();
         JoePro.Reports.ReportEngine.Attach(rt);
         Runtimes.Add(rt);
         rt.Status += msg =>
@@ -254,9 +255,14 @@ public static class Program
         }
     }
 
-    private static int Functions(bool coverage = false)
+    private static int Functions(string[] args)
     {
-        if (coverage)
+        if (args.Contains("--commands"))
+        {
+            foreach (var r in JoePro.Runtime.Builtins.CommandCoverage.Run()) Console.WriteLine($"{r.Status,-13} {r.Command,-24} {r.Detail}");
+            return 0;
+        }
+        if (args.Contains("--coverage"))
         {
             Console.Write(JoePro.Runtime.Builtins.VfpCatalog.CoverageMarkdown());
             return 0;

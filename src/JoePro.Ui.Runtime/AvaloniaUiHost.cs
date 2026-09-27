@@ -187,6 +187,27 @@ public sealed class AvaloniaUiHost : IUiHost
 
     public void MenusChanged() => MenusUpdated?.Invoke();
 
+    /// <summary>The FoxPro key label for a key press (ON KEY LABEL names: F2, CTRL+S, ALT+X, DNARROW, PGUP…), or null.</summary>
+    public static string? KeyLabel(Avalonia.Input.KeyEventArgs e)
+    {
+        string? name = e.Key switch
+        {
+            >= Avalonia.Input.Key.F1 and <= Avalonia.Input.Key.F12 => "F" + (e.Key - Avalonia.Input.Key.F1 + 1),
+            >= Avalonia.Input.Key.A and <= Avalonia.Input.Key.Z => ((char)('A' + (e.Key - Avalonia.Input.Key.A))).ToString(),
+            >= Avalonia.Input.Key.D0 and <= Avalonia.Input.Key.D9 => ((char)('0' + (e.Key - Avalonia.Input.Key.D0))).ToString(),
+            Avalonia.Input.Key.Enter => "ENTER", Avalonia.Input.Key.Escape => "ESC", Avalonia.Input.Key.Tab => "TAB",
+            Avalonia.Input.Key.Left => "LEFTARROW", Avalonia.Input.Key.Right => "RIGHTARROW", Avalonia.Input.Key.Up => "UPARROW", Avalonia.Input.Key.Down => "DNARROW",
+            Avalonia.Input.Key.Home => "HOME", Avalonia.Input.Key.End => "END", Avalonia.Input.Key.PageUp => "PGUP", Avalonia.Input.Key.PageDown => "PGDN",
+            Avalonia.Input.Key.Delete => "DEL", Avalonia.Input.Key.Insert => "INS", Avalonia.Input.Key.Back => "BACKSPACE", Avalonia.Input.Key.Space => "SPACEBAR",
+            _ => null,
+        };
+        if (name == null) return null;
+        var mods = e.KeyModifiers;
+        var prefix = (mods.HasFlag(Avalonia.Input.KeyModifiers.Control) ? "CTRL+" : "") + (mods.HasFlag(Avalonia.Input.KeyModifiers.Alt) ? "ALT+" : "")
+            + (mods.HasFlag(Avalonia.Input.KeyModifiers.Shift) ? "SHIFT+" : "");
+        return prefix + name;
+    }
+
     /// <summary>The Avalonia menu items for the active FoxPro menu bar (empty when there is none or SET SYSMENU OFF).</summary>
     public List<Control> ActiveMenuItems()
     {
@@ -337,6 +358,12 @@ public sealed class AvaloniaUiHost : IUiHost
         foreach (var p in new[] { "Caption", "Width", "Height", "Left", "Top", "AutoCenter", "BorderStyle", "BackColor", "Closable", "MaxButton", "MinButton", "TitleBar", "AlwaysOnTop", "WindowState" })
             ApplyWindow(form, w, p);
         AddMembers(form, canvas);
+        w.AddHandler(Avalonia.Input.InputElement.KeyDownEvent, (_, e) =>
+        {
+            if (_rt.KeyLabels.Count == 0 || KeyLabel(e) is not { } label || !_rt.KeyLabels.ContainsKey(label)) return;
+            e.Handled = true;
+            Guard(() => _rt.RunKeyLabel(label));
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         w.Activated += (_, _) => Guard(() => _rt.Raise(form, "Activate"));
         w.Deactivated += (_, _) => Guard(() => _rt.Raise(form, "Deactivate"));
         w.Closing += (_, e) =>
