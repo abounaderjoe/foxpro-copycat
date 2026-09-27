@@ -18,12 +18,16 @@ public sealed class DataSession : IDisposable
 
     public DataSession(SetOptions? options = null, IExpressionHost? host = null)
     {
-        Id = Interlocked.Increment(ref _nextId);
+        Uid = Interlocked.Increment(ref _nextId);
+        Id = Uid;
         Options = options ?? new SetOptions();
         ExpressionHost = host;
     }
 
-    public int Id { get; }
+    /// <summary>The data session number programs see (SET DATASESSION, DataSessionId); the interpreter numbers its sessions from 1.</summary>
+    public int Id { get; set; }
+    /// <summary>Unique across the process (lock ownership).</summary>
+    public int Uid { get; }
     public SetOptions Options { get; }
     public IExpressionHost? ExpressionHost { get; set; }
     public LockManager Locks { get; } = LockManager.Process;

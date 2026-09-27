@@ -133,6 +133,7 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Decision on @…SAY/GET, READ and DEFINE WINDOW: not supported (character-mode screens); they are listed with reasons and the runtime says so when it meets them | ✅ Decided |
 | Language reference generated from the function registry (`joepro docs --reference`); every implemented function has a signature and description, which also feed hover and completion | ✅ Done (see [language reference](../reference/language.md)) |
 | "For FoxPro developers" guide mapping VFP files, data, multi-user, language, forms, reports, IDE, builds and migration to Joe Pro | ✅ Done (see [guide](../guide/for-foxpro-developers.md)) |
+| SET commands: every VFP 9 SET classified in the coverage matrix; SET() reports every value set (with VFP's defaults); DATASESSION, ALTERNATE, CONSOLE, ASSERTS/ASSERT, NULLDISPLAY, MEMOWIDTH (MLINE/MEMLINES wrap), FDOW/FWEEK, SPACE, HEADINGS, FIXED, UNIQUE and MESSAGE take effect; SET PROCEDURE/CLASSLIB TO (saved list) restores. Data sessions are numbered from 1 per runtime, as in VFP | ✅ Done; 11 SET options are still accepted without effect (listed as missing) |
 | Performance and accessibility passes, localization, installer | ⏳ In progress |
 
 ## Screenshots

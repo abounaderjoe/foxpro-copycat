@@ -735,14 +735,40 @@ public static partial class Library
             "DATABASE" => S(c.Rt.Session.CurrentDatabase?.Name ?? ""),
             "ORDER" => S(c.Rt.Session.Current.Order?.Name ?? ""),
             "FILTER" => S(c.Rt.Session.Current.Filter?.Source ?? ""),
-            "MULTILOCKS" => S("ON"),
-            "REPROCESS" => N(0),
-            "MEMOWIDTH" => N(50),
-            "STRICTDATE" => N(1),
             "DATASESSION" => N(c.Rt.Session.Id),
+            "CONSOLE" => S(OnOff(o.Console)),
+            "ASSERTS" => S(OnOff(o.Asserts)),
+            "NULLDISPLAY" => S(o.NullDisplay ?? ".NULL."),
+            "MEMOWIDTH" => N(o.MemoWidth),
+            "FDOW" => N(o.Fdow),
+            "FWEEK" => N(o.Fweek),
+            "ALTERNATE" => S(c.Has(1) ? c.Rt.AlternateFile : OnOff(c.Rt.AlternateOn)),
+            "PROCEDURE" => S(string.Join(",", c.Rt.ProcedureFileNames)),
+            "CLASSLIB" => S(string.Join(",", c.Rt.ClassLibraries.Select(u => u.File ?? u.Name).Select(f => f.ToUpperInvariant()))),
+            _ when o.Values.TryGetValue(name, out var stored) => SetValue(name, stored),
+            _ when SetDefaults.TryGetValue(name, out var d) => SetValue(name, d),
             _ => Value.EmptyString,
         };
     }
+
+    /// <summary>VFP's defaults for the SET options that are stored rather than acted on.</summary>
+    private static readonly Dictionary<string, string> SetDefaults = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["MULTILOCKS"] = "OFF", ["REPROCESS"] = "0", ["STRICTDATE"] = "1", ["ESCAPE"] = "ON", ["BELL"] = "ON", ["NOTIFY"] = "ON",
+        ["CONFIRM"] = "OFF", ["CARRY"] = "OFF", ["STATUS"] = "OFF", ["ECHO"] = "OFF", ["FIXED"] = "OFF", ["UDFPARMS"] = "VALUE",
+        ["COMPATIBLE"] = "OFF", ["CURRENCY"] = "LEFT", ["LOCK"] = "OFF", ["REFRESH"] = "0", ["UNIQUE"] = "OFF", ["AUTOINCERROR"] = "ON",
+        ["TABLEVALIDATE"] = "3", ["VARCHARMAPPING"] = "OFF", ["SYSFORMATS"] = "OFF", ["LOGERRORS"] = "ON", ["PRINTER"] = "OFF",
+        ["DEVICE"] = "SCREEN", ["CLOCK"] = "OFF", ["CURSOR"] = "ON", ["TYPEAHEAD"] = "20", ["HELP"] = "ON", ["RESOURCE"] = "ON",
+        ["BLOCKSIZE"] = "64", ["FULLPATH"] = "ON", ["CPDIALOG"] = "ON", ["SQLBUFFERING"] = "OFF", ["OLEOBJECT"] = "ON",
+        ["TEXTMERGE"] = "OFF", ["DEBUG"] = "ON", ["ENGINEBEHAVIOR"] = "90", ["COLLATE"] = "MACHINE", ["DOHISTORY"] = "OFF",
+        ["KEYCOMP"] = "WINDOWS", ["BROWSEIME"] = "ON", ["CPCOMPILE"] = "1252", ["TALK"] = "ON", ["SAFETY"] = "ON",
+    };
+
+    private static Value SetValue(string name, string text) =>
+        double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n)
+        && name is "REPROCESS" or "STRICTDATE" or "REFRESH" or "TABLEVALIDATE" or "TYPEAHEAD" or "BLOCKSIZE" or "CPCOMPILE"
+            ? N(n) : S(text);
+
 
     private static Value Sys(CallContext c)
     {

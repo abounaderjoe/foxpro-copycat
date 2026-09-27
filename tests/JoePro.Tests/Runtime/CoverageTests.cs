@@ -214,6 +214,87 @@ public class CoverageTests : RuntimeHarness
     }
 
     [Fact]
+    public void Set_commands_are_all_classified_and_values_read_back()
+    {
+        Assert.All(VfpCatalog.SetCommands, kv => Assert.True(kv.Value.Status is VfpCatalog.SetStatus.Supported or VfpCatalog.SetStatus.Missing || !string.IsNullOrWhiteSpace(kv.Value.Reason), kv.Key));
+        var o = Run("""
+            ? SET("MULTILOCKS"), SET("REPROCESS"), SET("UDFPARMS")
+            SET MULTILOCKS ON
+            SET REPROCESS TO 5
+            SET CURRENCY TO "EUR"
+            ? SET("MULTILOCKS"), SET("REPROCESS"), SET("CURRENCY")
+            SET NULLDISPLAY TO "(none)"
+            ? .NULL.
+            SET NULLDISPLAY TO
+            SET MEMOWIDTH TO 10
+            t = "one two three four five"
+            ? MEMLINES(t), MLINE(t, 2), SET("MEMOWIDTH")
+            SET FDOW TO 2
+            ? DOW({^2024-01-01}, 0), DOW({^2024-01-01})
+            SET SPACE OFF
+            ? "a", "b"
+            SET SPACE ON
+            SET FIXED ON
+            SET DECIMALS TO 3
+            ? 1.5
+            SET FIXED OFF
+            """);
+        var lines = o.Trim().Split('\n').Select(l => string.Join(" ", l.Split(' ', StringSplitOptions.RemoveEmptyEntries))).ToArray();
+        Assert.Equal("OFF 0 VALUE", lines[0]);
+        Assert.Equal("ON 5 EUR", lines[1]);
+        Assert.Equal("(none)", lines[2]);
+        Assert.Equal("3 three four 10", lines[3]);
+        Assert.Equal("1 2", lines[4]);
+        Assert.Equal("ab", lines[5]);
+        Assert.Equal("1.500", lines[6]);
+    }
+
+    [Fact]
+    public void Set_alternate_console_datasession_and_assert()
+    {
+        var o = Run("""
+            SET ALTERNATE TO alt.txt
+            SET ALTERNATE ON
+            ? "to both"
+            SET CONSOLE OFF
+            ? "file only"
+            SET CONSOLE ON
+            SET ALTERNATE OFF
+            ? "screen only"
+            SET ALTERNATE TO
+            ? SET("ALTERNATE")
+            SET ASSERTS ON
+            ASSERT 1 = 2 MESSAGE "custom failure"
+            SET ASSERTS OFF
+            ASSERT .F.
+            """);
+        Assert.Contains("to both", o);
+        Assert.DoesNotContain("file only", o);
+        Assert.Contains("screen only", o);
+        var alt = File.ReadAllText(Path.Combine(Dir, "alt.txt"));
+        Assert.Contains("to both", alt);
+        Assert.Contains("file only", alt);
+        Assert.DoesNotContain("screen only", alt);
+        Assert.Single(StatusMessages, m => m.Contains("custom failure"));
+        Assert.Throws<JoePro.Core.VfpException>(() => Run("SET DATASESSION TO 999"));
+    }
+
+    [Fact]
+    public void Set_procedure_and_classlib_restore_from_a_saved_list()
+    {
+        File.WriteAllText(Path.Combine(Dir, "p1.prg"), "FUNCTION f1\nRETURN 1");
+        File.WriteAllText(Path.Combine(Dir, "p2.prg"), "FUNCTION f2\nRETURN 2");
+        var o = Run("""
+            SET PROCEDURE TO p1, p2
+            lcSaved = SET("PROCEDURE")
+            SET PROCEDURE TO
+            SET PROCEDURE TO (lcSaved)
+            ? f1() + f2()
+            """);
+        Assert.Equal("3", o.Trim());
+    }
+
+    [Fact]
     public void Table_information_functions()
     {
         var o = Run("""

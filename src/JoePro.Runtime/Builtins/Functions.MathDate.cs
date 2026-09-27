@@ -158,7 +158,7 @@ public static partial class Library
             var v = c[0];
             if (v.IsEmptyDate) return N(0);
             var first = c.Int(1, 1);
-            if (first == 0) first = 1;
+            if (first == 0) first = c.Options.Fdow;
             var dow = (int)D(v).DayOfWeek + 1; // 1 = Sunday
             return N((dow - first + 7) % 7 + 1);
         }));
@@ -223,7 +223,10 @@ public static partial class Library
             if (v.IsEmptyDate) return N(0);
             var d = D(v);
             var mode = c.Int(1, 1);
-            var firstDay = (DayOfWeek)((c.Int(2, 1) + 6) % 7);
+            if (mode == 0) mode = c.Options.Fweek;
+            var fd = c.Int(2, 1);
+            if (fd == 0) fd = c.Options.Fdow;
+            var firstDay = (DayOfWeek)((fd + 6) % 7);
             var rule = mode switch { 2 => CalendarWeekRule.FirstFourDayWeek, 3 => CalendarWeekRule.FirstFullWeek, _ => CalendarWeekRule.FirstDay };
             return N(CultureInfo.InvariantCulture.Calendar.GetWeekOfYear(d.ToDateTime(TimeOnly.MinValue), rule, firstDay));
         }));

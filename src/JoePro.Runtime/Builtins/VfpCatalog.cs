@@ -151,6 +151,83 @@ public static class VfpCatalog
         sb.Append(string.Join(", ", rows.Where(r => r.Status == CommandCoverage.Status.Supported).Select(r => r.Command))).Append("\n\n");
     }
 
+    public enum SetStatus { Supported, NoEffect, Missing, Unsupported }
+
+    private const string Unicode = "Text is Unicode, so there are no code pages to set.";
+    private const string CharMode = "Character-mode display settings have no meaning for forms.";
+
+    /// <summary>The VFP 9 SET commands: what Joe Pro does with each (SET() reports every value that was set).</summary>
+    public static readonly IReadOnlyDictionary<string, (SetStatus Status, string? Reason)> SetCommands = new Dictionary<string, (SetStatus, string?)>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ALTERNATE"] = (SetStatus.Supported, null), ["ANSI"] = (SetStatus.Supported, null), ["ASSERTS"] = (SetStatus.Supported, null),
+        ["CENTURY"] = (SetStatus.Supported, null), ["CLASSLIB"] = (SetStatus.Supported, null), ["COLLATE"] = (SetStatus.Supported, null),
+        ["CONSOLE"] = (SetStatus.Supported, null), ["COVERAGE"] = (SetStatus.Supported, null), ["DATABASE"] = (SetStatus.Supported, null),
+        ["DATASESSION"] = (SetStatus.Supported, null), ["DATE"] = (SetStatus.Supported, null), ["DECIMALS"] = (SetStatus.Supported, null),
+        ["DEFAULT"] = (SetStatus.Supported, null), ["DELETED"] = (SetStatus.Supported, null), ["ENGINEBEHAVIOR"] = (SetStatus.Supported, null),
+        ["EVENTTRACKING"] = (SetStatus.Supported, null), ["EXACT"] = (SetStatus.Supported, null), ["EXCLUSIVE"] = (SetStatus.Supported, null),
+        ["FDOW"] = (SetStatus.Supported, null), ["FILTER"] = (SetStatus.Supported, null), ["FIXED"] = (SetStatus.Supported, null),
+        ["FWEEK"] = (SetStatus.Supported, null), ["HEADINGS"] = (SetStatus.Supported, null), ["HOURS"] = (SetStatus.Supported, null),
+        ["MARK"] = (SetStatus.Supported, null), ["MARK OF"] = (SetStatus.Supported, null), ["MEMOWIDTH"] = (SetStatus.Supported, null),
+        ["MESSAGE"] = (SetStatus.Supported, null), ["NEAR"] = (SetStatus.Supported, null), ["NULL"] = (SetStatus.Supported, null),
+        ["NULLDISPLAY"] = (SetStatus.Supported, null), ["OPTIMIZE"] = (SetStatus.Supported, null), ["ORDER"] = (SetStatus.Supported, null),
+        ["PATH"] = (SetStatus.Supported, null), ["POINT"] = (SetStatus.Supported, null), ["PROCEDURE"] = (SetStatus.Supported, null),
+        ["RELATION"] = (SetStatus.Supported, null), ["SAFETY"] = (SetStatus.Supported, null), ["SECONDS"] = (SetStatus.Supported, null),
+        ["SEPARATOR"] = (SetStatus.Supported, null), ["SKIP OF"] = (SetStatus.Supported, null), ["SPACE"] = (SetStatus.Supported, null),
+        ["STEP"] = (SetStatus.Supported, null), ["SYSMENU"] = (SetStatus.Supported, null), ["TALK"] = (SetStatus.Supported, null),
+        ["TEXTMERGE"] = (SetStatus.Supported, null), ["UNIQUE"] = (SetStatus.Supported, null),
+
+        ["AUTOSAVE"] = (SetStatus.NoEffect, "Every change is committed by the engine; there are no buffers to flush."),
+        ["BELL"] = (SetStatus.NoEffect, CharMode), ["CLOCK"] = (SetStatus.NoEffect, CharMode), ["CURSOR"] = (SetStatus.NoEffect, CharMode),
+        ["STATUS"] = (SetStatus.NoEffect, CharMode), ["STATUS BAR"] = (SetStatus.NoEffect, "The IDE's status bar is always shown."),
+        ["NOTIFY"] = (SetStatus.NoEffect, "System messages go to the host's status area."), ["ECHO"] = (SetStatus.NoEffect, "Use the debugger's trace instead."),
+        ["ESCAPE"] = (SetStatus.NoEffect, "Programs are interrupted from the IDE's Stop command."), ["TYPEAHEAD"] = (SetStatus.NoEffect, "The keyboard buffer has no fixed size."),
+        ["CONFIRM"] = (SetStatus.NoEffect, CharMode), ["CARRY"] = (SetStatus.NoEffect, CharMode),
+        ["BLOCKSIZE"] = (SetStatus.NoEffect, "Memo storage is managed by the engine."), ["BROWSEIME"] = (SetStatus.NoEffect, "Input methods are controlled by the operating system."),
+        ["CPCOMPILE"] = (SetStatus.NoEffect, Unicode), ["CPDIALOG"] = (SetStatus.NoEffect, Unicode), ["NOCPTRANS"] = (SetStatus.NoEffect, Unicode),
+        ["DOHISTORY"] = (SetStatus.NoEffect, "The Command Window keeps its own history."), ["DEVELOPMENT"] = (SetStatus.NoEffect, "Programs always reload when their source changes."),
+        ["FULLPATH"] = (SetStatus.NoEffect, "DBF() always returns the full path."), ["HELP"] = (SetStatus.NoEffect, "Help comes from the documentation and editor hover."),
+        ["RESOURCE"] = (SetStatus.NoEffect, "IDE settings are stored per user automatically."), ["KEYCOMP"] = (SetStatus.NoEffect, "Keyboard behavior follows the platform."),
+        ["LOGERRORS"] = (SetStatus.NoEffect, "Compile errors are reported in the editor and build output."), ["MULTILOCKS"] = (SetStatus.NoEffect, "Table buffering works without it."),
+        ["OLEOBJECT"] = (SetStatus.NoEffect, "There is no OLE object search."), ["SQLBUFFERING"] = (SetStatus.Missing, null),
+        ["TABLEVALIDATE"] = (SetStatus.NoEffect, "The engine validates tables itself."), ["TOPIC"] = (SetStatus.NoEffect, "Help comes from the documentation and editor hover."),
+        ["TRBETWEEN"] = (SetStatus.NoEffect, "The debugger's trace pane shows what it steps through."), ["DEBUG"] = (SetStatus.NoEffect, "The debugger is always available in the IDE."),
+        ["INDEX"] = (SetStatus.NoEffect, "Every index tag of a table is always open."), ["LOCK"] = (SetStatus.NoEffect, "Reads never take locks; each sees committed data."),
+        ["REFRESH"] = (SetStatus.NoEffect, "Changes by other users are visible at once."), ["ODOMETER"] = (SetStatus.NoEffect, CharMode),
+
+        ["COMPATIBLE"] = (SetStatus.Missing, null), ["CURRENCY"] = (SetStatus.Missing, null), ["KEY"] = (SetStatus.Missing, null),
+        ["REPROCESS"] = (SetStatus.Missing, null), ["SKIP"] = (SetStatus.Missing, null), ["STRICTDATE"] = (SetStatus.Missing, null),
+        ["UDFPARMS"] = (SetStatus.Missing, null), ["VARCHARMAPPING"] = (SetStatus.Missing, null), ["AUTOINCERROR"] = (SetStatus.Missing, null),
+        ["SYSFORMATS"] = (SetStatus.Missing, null),
+
+        ["PRINTER"] = (SetStatus.Unsupported, "Direct printer streaming is not supported; print through REPORT FORM."),
+        ["DEVICE"] = (SetStatus.Unsupported, "Direct printer streaming is not supported; print through REPORT FORM."),
+        ["PDSETUP"] = (SetStatus.Unsupported, "Printer drivers are chosen in the report's page setup."),
+        ["MARGIN"] = (SetStatus.Unsupported, "Printer margins are set in the report's page setup."),
+        ["LIBRARY"] = (SetStatus.Unsupported, "FoxPro API libraries (.FLL) cannot be loaded; use .NET code."),
+        ["COLOR"] = (SetStatus.Unsupported, CharMode), ["COLOR OF SCHEME"] = (SetStatus.Unsupported, CharMode), ["COLOR SET"] = (SetStatus.Unsupported, CharMode),
+        ["BORDER"] = (SetStatus.Unsupported, CharMode), ["DELIMITERS"] = (SetStatus.Unsupported, CharMode), ["DISPLAY"] = (SetStatus.Unsupported, CharMode),
+        ["FORMAT"] = (SetStatus.Unsupported, CharMode), ["FUNCTION"] = (SetStatus.Unsupported, "Function-key macros are not supported; use ON KEY LABEL."),
+        ["INTENSITY"] = (SetStatus.Unsupported, CharMode), ["MACKEY"] = (SetStatus.Unsupported, "Keyboard macros are not supported; use ON KEY LABEL."),
+        ["MOUSE"] = (SetStatus.Unsupported, CharMode), ["PALETTE"] = (SetStatus.Unsupported, CharMode), ["READBORDER"] = (SetStatus.Unsupported, CharMode),
+        ["WINDOW OF MEMO"] = (SetStatus.Unsupported, "Memos are edited in the IDE's editor."),
+    };
+
+    private static void AppendSets(StringBuilder sb)
+    {
+        var rows = SetCommands.OrderBy(kv => kv.Key, StringComparer.Ordinal).ToList();
+        int Count(SetStatus st) => rows.Count(r => r.Value.Status == st);
+        sb.Append("## SET commands\n\n| | SET commands | Share |\n|---|---:|---:|\n");
+        foreach (var (st, label) in new[] { (SetStatus.Supported, "Supported"), (SetStatus.NoEffect, "Accepted, no effect needed (with a reason)"), (SetStatus.Unsupported, "Unsupported, with a reason"), (SetStatus.Missing, "Missing (accepted, stored for SET(), not acted on)") })
+            sb.Append($"| {label} | {Count(st)} | {100.0 * Count(st) / rows.Count:F1}% |\n");
+        sb.Append($"| **Total** | **{rows.Count}** | |\n\n");
+        sb.Append("### No effect needed\n\n| SET | Why |\n|---|---|\n");
+        foreach (var r in rows.Where(r => r.Value.Status == SetStatus.NoEffect)) sb.Append($"| SET {r.Key} | {r.Value.Reason} |\n");
+        sb.Append("\n### Unsupported SET commands\n\n| SET | Reason |\n|---|---|\n");
+        foreach (var r in rows.Where(r => r.Value.Status == SetStatus.Unsupported)) sb.Append($"| SET {r.Key} | {r.Value.Reason} |\n");
+        sb.Append("\n### Missing SET commands\n\n").Append(string.Join(", ", rows.Where(r => r.Value.Status == SetStatus.Missing).Select(r => "SET " + r.Key))).Append("\n\n");
+        sb.Append("### Supported SET commands\n\n").Append(string.Join(", ", rows.Where(r => r.Value.Status == SetStatus.Supported).Select(r => "SET " + r.Key))).Append("\n\n");
+    }
+
     /// <summary>Each VFP 9 function with its status: Supported, Unsupported (with the reason) or Missing.</summary>
     public static IEnumerable<(string Name, string Status, string? Reason)> Coverage()
     {
@@ -186,6 +263,7 @@ public static class VfpCatalog
             sb.Append(string.Join(", ", rows.Where(r => r.Status == "Missing").Select(r => r.Name + "()"))).Append("\n\n");
         }
         AppendCommands(sb);
+        AppendSets(sb);
         sb.Append("## Supported functions\n\n");
         foreach (var g in rows.Where(r => r.Status == "Supported").GroupBy(r => r.Name[0]))
             sb.Append($"**{g.Key}** ").Append(string.Join(", ", g.Select(r => r.Name + "()"))).Append("\n\n");

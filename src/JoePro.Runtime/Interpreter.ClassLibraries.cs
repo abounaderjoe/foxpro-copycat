@@ -77,6 +77,10 @@ public sealed partial class Interpreter
             current.Add(t);
         }
         if (current.Count > 0) names.Add(Join(current));
+        // (expression) and &macro name the libraries at run time, possibly as a comma list (SET("CLASSLIB") saved earlier).
+        names = names.SelectMany(n => n.StartsWith('(') ? Eval(Parser.ParseExpression(n)).AsString.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : n.StartsWith('&') ? GetVariable(n[1..].TrimEnd('.')).AsString.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : [n]).ToList();
         foreach (var n in names)
         {
             var unit = LoadLibrary(n);
@@ -190,7 +194,7 @@ public sealed partial class Interpreter
     public DataSession BeginPrivateSession()
     {
         var session = new DataSession(Options.Clone(), this);
-        Sessions.Add(session);
+        RegisterSession(session);
         return session;
     }
 

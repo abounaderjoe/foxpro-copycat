@@ -9,10 +9,10 @@ public static class Formatter
     /// <summary>Formats a value the way the ? command displays it.</summary>
     public static string ToDisplay(Value v, SetOptions o) => v.Kind switch
     {
-        ValueKind.Null => ".NULL.",
+        ValueKind.Null => o.NullDisplay ?? ".NULL.",
         ValueKind.Logical => v.AsBool ? ".T." : ".F.",
         // TODO(oracle): confirm VFP's display width rules for numbers; integers pad to 10 columns.
-        ValueKind.Number => FormatNumber(v.AsNumber, v.Decimals, o).PadLeft(10),
+        ValueKind.Number => FormatNumber(v.AsNumber, o.IsOn("FIXED", false) ? o.Decimals : v.Decimals, o).PadLeft(10),
         ValueKind.Currency => FormatNumber((double)v.AsCurrency, 4, o, v.AsCurrency),
         ValueKind.Character => v.AsString,
         ValueKind.Date => DateToString(v.JulianDay, o),

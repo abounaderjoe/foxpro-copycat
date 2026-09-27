@@ -20,7 +20,7 @@ public sealed class LockManager
     private static Remote.RemoteStoreConnection? RemoteOf(WorkArea wa) => wa.TableOrNull?.Store.Link as Remote.RemoteStoreConnection;
 
     // A lock's owner on the server: the data session and work area, as in VFP.
-    private static string Owner(WorkArea wa) => $"{wa.Session.Id}:{wa.Number}";
+    private static string Owner(WorkArea wa) => $"{wa.Session.Uid}:{wa.Number}";
 
     public bool TryLock(WorkArea wa, int recNo)
     {

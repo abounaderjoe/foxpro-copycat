@@ -159,6 +159,87 @@ Designer commands (CREATE/MODIFY FORM, REPORT, …) count as supported when they
 
 ?, ??, ACCEPT, ACTIVATE MENU, ACTIVATE POPUP, ACTIVATE SCREEN, ADD CLASS, ADD TABLE, ALTER TABLE, APPEND, APPEND FROM, APPEND FROM ARRAY, APPEND MEMO, APPEND PROCEDURES, ASSERT, AVERAGE, BEGIN TRANSACTION, BLANK, BROWSE, BUILD APP, BUILD DLL, BUILD EXE, BUILD MTDLL, BUILD PROJECT, CALCULATE, CANCEL, CD, CHANGE, CLEAR, CLOSE, CLOSE MEMO, CLOSE TABLES, COMPILE, COMPILE DATABASE, CONTINUE, COPY FILE, COPY MEMO, COPY PROCEDURES, COPY STRUCTURE, COPY STRUCTURE EXTENDED, COPY TO, COPY TO ARRAY, COUNT, CREATE, CREATE CLASS, CREATE CLASSLIB, CREATE CONNECTION, CREATE CURSOR, CREATE DATABASE, CREATE FORM, CREATE FROM, CREATE LABEL, CREATE MENU, CREATE PROJECT, CREATE QUERY, CREATE REPORT, CREATE SQL VIEW, CREATE TABLE, CREATE TRIGGER, DEACTIVATE MENU, DEACTIVATE POPUP, DEBUG, DEBUGOUT, DECLARE, DEFINE BAR, DEFINE CLASS, DEFINE MENU, DEFINE PAD, DEFINE POPUP, DELETE, DELETE CONNECTION, DELETE DATABASE, DELETE FILE, DELETE TAG, DELETE TRIGGER, DELETE VIEW, DIMENSION, DIR, DISPLAY, DISPLAY CONNECTIONS, DISPLAY DATABASE, DISPLAY FILES, DISPLAY MEMORY, DISPLAY OBJECTS, DISPLAY PROCEDURES, DISPLAY STATUS, DISPLAY STRUCTURE, DISPLAY TABLES, DISPLAY VIEWS, DO, DO CASE, DO FORM, DO WHILE, DOEVENTS, DROP TABLE, DROP VIEW, EDIT, END TRANSACTION, ERASE, ERROR, EXIT, EXPORT, EXTERNAL, FLUSH, FOR, FOR EACH, FUNCTION, GATHER, GETEXPR, GO, HIDE MENU, HIDE POPUP, IF, IMPORT, INDEX, INPUT, INSERT, INSERT INTO, JOIN, KEYBOARD, LABEL, LIST, LIST CONNECTIONS, LIST DATABASE, LIST FILES, LIST MEMORY, LIST OBJECTS, LIST PROCEDURES, LIST STATUS, LIST STRUCTURE, LIST TABLES, LIST VIEWS, LOCAL, LOCATE, LPARAMETERS, MD, MODIFY CLASS, MODIFY COMMAND, MODIFY DATABASE, MODIFY FILE, MODIFY FORM, MODIFY LABEL, MODIFY MENU, MODIFY PROCEDURE, MODIFY PROJECT, MODIFY QUERY, MODIFY REPORT, MODIFY STRUCTURE, MODIFY VIEW, MODIFY WINDOW, NOTE, ON BAR, ON ERROR, ON ESCAPE, ON KEY, ON KEY LABEL, ON PAD, ON SELECTION BAR, ON SELECTION MENU, ON SELECTION PAD, ON SELECTION POPUP, ON SHUTDOWN, OPEN DATABASE, PACK, PACK DATABASE, PARAMETERS, POP KEY, POP MENU, POP POPUP, PRIVATE, PROCEDURE, PUBLIC, PUSH KEY, PUSH MENU, PUSH POPUP, QUIT, RD, READ EVENTS, RECALL, REINDEX, RELEASE, RELEASE BAR, RELEASE CLASSLIB, RELEASE LIBRARY, RELEASE MENUS, RELEASE PAD, RELEASE POPUPS, RELEASE PROCEDURE, REMOVE CLASS, REMOVE TABLE, RENAME, RENAME CLASS, RENAME CONNECTION, RENAME TABLE, RENAME VIEW, REPLACE, REPLACE FROM ARRAY, REPORT FORM, RESTORE FROM, RESUME, RETRY, RETURN, ROLLBACK, RUN, SAVE TO, SCAN, SCATTER, SEEK, SELECT, SELECT - SQL, SET, SET CLASSLIB, SET DATABASE, SET DATASESSION, SET DEFAULT, SET FILTER, SET INDEX, SET LIBRARY, SET ORDER, SET PATH, SET PROCEDURE, SET RELATION, SET SKIP, SHOW MENU, SHOW POPUP, SKIP, SORT, STORE, SUM, SUSPEND, SYS, TEXT, TOTAL, TYPE, UNLOCK, UPDATE, USE, VALIDATE DATABASE, WAIT, WITH, ZAP, ZOOM WINDOW
 
+## SET commands
+
+| | SET commands | Share |
+|---|---:|---:|
+| Supported | 47 | 42.3% |
+| Accepted, no effect needed (with a reason) | 34 | 30.6% |
+| Unsupported, with a reason | 19 | 17.1% |
+| Missing (accepted, stored for SET(), not acted on) | 11 | 9.9% |
+| **Total** | **111** | |
+
+### No effect needed
+
+| SET | Why |
+|---|---|
+| SET AUTOSAVE | Every change is committed by the engine; there are no buffers to flush. |
+| SET BELL | Character-mode display settings have no meaning for forms. |
+| SET BLOCKSIZE | Memo storage is managed by the engine. |
+| SET BROWSEIME | Input methods are controlled by the operating system. |
+| SET CARRY | Character-mode display settings have no meaning for forms. |
+| SET CLOCK | Character-mode display settings have no meaning for forms. |
+| SET CONFIRM | Character-mode display settings have no meaning for forms. |
+| SET CPCOMPILE | Text is Unicode, so there are no code pages to set. |
+| SET CPDIALOG | Text is Unicode, so there are no code pages to set. |
+| SET CURSOR | Character-mode display settings have no meaning for forms. |
+| SET DEBUG | The debugger is always available in the IDE. |
+| SET DEVELOPMENT | Programs always reload when their source changes. |
+| SET DOHISTORY | The Command Window keeps its own history. |
+| SET ECHO | Use the debugger's trace instead. |
+| SET ESCAPE | Programs are interrupted from the IDE's Stop command. |
+| SET FULLPATH | DBF() always returns the full path. |
+| SET HELP | Help comes from the documentation and editor hover. |
+| SET INDEX | Every index tag of a table is always open. |
+| SET KEYCOMP | Keyboard behavior follows the platform. |
+| SET LOCK | Reads never take locks; each sees committed data. |
+| SET LOGERRORS | Compile errors are reported in the editor and build output. |
+| SET MULTILOCKS | Table buffering works without it. |
+| SET NOCPTRANS | Text is Unicode, so there are no code pages to set. |
+| SET NOTIFY | System messages go to the host's status area. |
+| SET ODOMETER | Character-mode display settings have no meaning for forms. |
+| SET OLEOBJECT | There is no OLE object search. |
+| SET REFRESH | Changes by other users are visible at once. |
+| SET RESOURCE | IDE settings are stored per user automatically. |
+| SET STATUS | Character-mode display settings have no meaning for forms. |
+| SET STATUS BAR | The IDE's status bar is always shown. |
+| SET TABLEVALIDATE | The engine validates tables itself. |
+| SET TOPIC | Help comes from the documentation and editor hover. |
+| SET TRBETWEEN | The debugger's trace pane shows what it steps through. |
+| SET TYPEAHEAD | The keyboard buffer has no fixed size. |
+
+### Unsupported SET commands
+
+| SET | Reason |
+|---|---|
+| SET BORDER | Character-mode display settings have no meaning for forms. |
+| SET COLOR | Character-mode display settings have no meaning for forms. |
+| SET COLOR OF SCHEME | Character-mode display settings have no meaning for forms. |
+| SET COLOR SET | Character-mode display settings have no meaning for forms. |
+| SET DELIMITERS | Character-mode display settings have no meaning for forms. |
+| SET DEVICE | Direct printer streaming is not supported; print through REPORT FORM. |
+| SET DISPLAY | Character-mode display settings have no meaning for forms. |
+| SET FORMAT | Character-mode display settings have no meaning for forms. |
+| SET FUNCTION | Function-key macros are not supported; use ON KEY LABEL. |
+| SET INTENSITY | Character-mode display settings have no meaning for forms. |
+| SET LIBRARY | FoxPro API libraries (.FLL) cannot be loaded; use .NET code. |
+| SET MACKEY | Keyboard macros are not supported; use ON KEY LABEL. |
+| SET MARGIN | Printer margins are set in the report's page setup. |
+| SET MOUSE | Character-mode display settings have no meaning for forms. |
+| SET PALETTE | Character-mode display settings have no meaning for forms. |
+| SET PDSETUP | Printer drivers are chosen in the report's page setup. |
+| SET PRINTER | Direct printer streaming is not supported; print through REPORT FORM. |
+| SET READBORDER | Character-mode display settings have no meaning for forms. |
+| SET WINDOW OF MEMO | Memos are edited in the IDE's editor. |
+
+### Missing SET commands
+
+SET AUTOINCERROR, SET COMPATIBLE, SET CURRENCY, SET KEY, SET REPROCESS, SET SKIP, SET SQLBUFFERING, SET STRICTDATE, SET SYSFORMATS, SET UDFPARMS, SET VARCHARMAPPING
+
+### Supported SET commands
+
+SET ALTERNATE, SET ANSI, SET ASSERTS, SET CENTURY, SET CLASSLIB, SET COLLATE, SET CONSOLE, SET COVERAGE, SET DATABASE, SET DATASESSION, SET DATE, SET DECIMALS, SET DEFAULT, SET DELETED, SET ENGINEBEHAVIOR, SET EVENTTRACKING, SET EXACT, SET EXCLUSIVE, SET FDOW, SET FILTER, SET FIXED, SET FWEEK, SET HEADINGS, SET HOURS, SET MARK, SET MARK OF, SET MEMOWIDTH, SET MESSAGE, SET NEAR, SET NULL, SET NULLDISPLAY, SET OPTIMIZE, SET ORDER, SET PATH, SET POINT, SET PROCEDURE, SET RELATION, SET SAFETY, SET SECONDS, SET SEPARATOR, SET SKIP OF, SET SPACE, SET STEP, SET SYSMENU, SET TALK, SET TEXTMERGE, SET UNIQUE
+
 ## Supported functions
 
 **A** ABS(), ACLASS(), ACOPY(), ACOS(), ADATABASES(), ADBOBJECTS(), ADDBS(), ADDPROPERTY(), ADEL(), ADIR(), AELEMENT(), AERROR(), AEVENTS(), AFIELDS(), AFONT(), AGETCLASS(), AGETFILEVERSION(), AINS(), ALANGUAGE(), ALEN(), ALIAS(), ALINES(), ALLTRIM(), AMEMBERS(), ANETRESOURCES(), APRINTERS(), APROCINFO(), ASC(), ASCAN(), ASELOBJ(), ASESSIONS(), ASIN(), ASORT(), ASQLHANDLES(), ASTACKINFO(), ASUBSCRIPT(), AT(), ATAGINFO(), ATAN(), ATC(), ATCC(), ATCLINE(), ATLINE(), ATN2(), AT_C(), AUSED(), AVCXCLASSES()

@@ -104,7 +104,7 @@ public sealed partial class Interpreter
                 if (o.FindProperty("DataSession")?.Value is { Kind: ValueKind.Number } ds && ds.AsNumber == 2)
                 {
                     var session = new DataSession(Options.Clone(), this);
-                    Sessions.Add(session);
+                    RegisterSession(session);
                     _formSessions[o] = session;
                     o.Set("DataSessionId", Value.Number(session.Id));
                     Session = session;

@@ -71,7 +71,7 @@ public sealed partial class Interpreter
             case IndexStmt ix:
             {
                 var wa = Session.Current;
-                var kind = ix.Kind switch { "UNIQUE" => TagKind.Unique, "CANDIDATE" => TagKind.Candidate, _ => TagKind.Regular };
+                var kind = ix.Kind switch { "UNIQUE" => TagKind.Unique, "CANDIDATE" => TagKind.Candidate, _ => Options.IsOn("UNIQUE", false) ? TagKind.Unique : TagKind.Regular };
                 var tag = new TagDef(ix.Tag, ExprPrinter.Print(ix.Key), ix.For != null ? ExprPrinter.Print(ix.For) : null, ix.Descending, kind);
                 wa.Table.CreateTag(tag);
                 wa.SetOrder(ix.Tag);
@@ -1011,13 +1011,31 @@ public sealed partial class Interpreter
                 else dbg.StartCoverage(Path.Combine(Options.Default_, file), additive);
                 break;
             }
-            case "MULTILOCKS" or "REPROCESS" or "STATUS" or "ECHO" or "CONSOLE" or "ESCAPE" or "BELL" or "NOTIFY"
-                or "CPDIALOG" or "STRICTDATE" or "FIXED" or "UDFPARMS" or "COMPATIBLE" or "MEMOWIDTH" or "HELP"
+            case "DATASESSION":
+                SetDataSession(Num());
+                break;
+            case "CONSOLE": o.Console = On(); EnsureRouter(); break;
+            case "ASSERTS": o.Asserts = On(); break;
+            case "NULLDISPLAY": o.NullDisplay = st.Expr != null || st.Value != null ? Text().Trim('"', '\'') : null; break;
+            case "MEMOWIDTH": o.MemoWidth = Math.Clamp(Num(), 8, 8192); break;
+            case "FDOW": o.Fdow = Math.Clamp(Num(), 1, 7); break;
+            case "FWEEK": o.Fweek = Math.Clamp(Num(), 1, 3); break;
+            case "ALTERNATE":
+                SetAlternate(st, st.Expr != null ? Text() : st.Value);
+                break;
+            case "MESSAGE":
+                // SET MESSAGE TO [cText]: the status bar message.
+                StoreSetting(st);
+                if (st.Expr != null) Notify(Text());
+                break;
+            case "MULTILOCKS" or "REPROCESS" or "STATUS" or "ECHO" or "ESCAPE" or "BELL" or "NOTIFY"
+                or "CPDIALOG" or "STRICTDATE" or "FIXED" or "UDFPARMS" or "COMPATIBLE" or "HELP"
                 or "RESOURCE" or "CURSOR" or "TYPEAHEAD" or "CARRY" or "CONFIRM" or "FULLPATH" or "UNIQUE" or "LOCK"
-                or "REFRESH" or "CURRENCY" or "CLOCK" or "ROLLOVER" or "BLOCKSIZE" or "NULLDISPLAY" or "VARCHARMAPPING"
-                or "TABLEVALIDATE" or "LIBRARY" or "DATASESSION" or "ASSERTS"
-                or "AUTOINCERROR" or "INDEX" or "KEY" or "SKIP" or "DEBUG" or "ALTERNATE" or "PRINTER" or "DEVICE" or "LOGERRORS"
-                or "MESSAGE" or "FDOW" or "FWEEK" or "SYSFORMATS" or "NOCPTRANS" or "OLEOBJECT" or "SQLBUFFERING" or "":
+                or "REFRESH" or "CURRENCY" or "CLOCK" or "ROLLOVER" or "BLOCKSIZE" or "VARCHARMAPPING"
+                or "TABLEVALIDATE" or "LIBRARY"
+                or "AUTOINCERROR" or "INDEX" or "KEY" or "SKIP" or "DEBUG" or "PRINTER" or "DEVICE" or "LOGERRORS"
+                or "SYSFORMATS" or "NOCPTRANS" or "OLEOBJECT" or "SQLBUFFERING" or "SPACE" or "HEADINGS" or "":
+                StoreSetting(st);
                 if (!UnsupportedSettings.Contains(st.Option)) UnsupportedSettings.Add(st.Option);
                 break;
             default:
@@ -1122,7 +1140,10 @@ public sealed partial class Interpreter
                 Directory.Delete(dir);
                 break;
             }
-            case "FLUSH" or "UNLOCK" or "DOEVENTS" or "EXTERNAL" or "SLEEP" or "LOCK" or "VALIDATE" or "ASSERT":
+            case "ASSERT":
+                AssertCommand(rest);
+                break;
+            case "FLUSH" or "UNLOCK" or "DOEVENTS" or "EXTERNAL" or "SLEEP" or "LOCK" or "VALIDATE":
                 if (verb == "UNLOCK") foreach (var w in Session.OpenWorkAreas()) w.Unlock();
                 break;
             case "BUILD":
@@ -1714,7 +1735,7 @@ public sealed partial class Interpreter
         var widths = cols.Select((c, i) => Math.Max(c.Header.Length, Math.Max(fieldWidths?[i] ?? 0, rows.Count == 0 ? 0 : rows.Max(r => r.Cells[i].Length)))).ToList();
         var numeric = ls.Fields == null ? wa.Table.Fields.Select(f => f.Type is 'N' or 'F' or 'I' or 'B' or 'Y').ToList() : cols.Select(_ => false).ToList();
         string Row(IEnumerable<string> cells) => string.Join(" ", cells.Select((c, i) => numeric[i] ? c.PadLeft(widths[i]) : c.PadRight(widths[i]))).TrimEnd();
-        WriteLine((ls.Off ? "" : "Record# ") + Row(cols.Select(c => c.Header)));
+        if (Options.IsOn("HEADINGS", true)) WriteLine((ls.Off ? "" : "Record# ") + Row(cols.Select(c => c.Header)));
         foreach (var r in rows)
             WriteLine((ls.Off ? "" : r.RecNo.ToString().PadLeft(7) + (r.Deleted ? "*" : " ")) + Row(r.Cells));
     }

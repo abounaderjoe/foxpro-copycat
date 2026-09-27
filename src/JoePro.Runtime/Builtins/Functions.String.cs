@@ -230,11 +230,15 @@ public static partial class Library
         Add("TEXTMERGE", c => S(c.Rt.TextMerge(c.Str(0))));
         Add("MLINE", c =>
         {
-            var lines = SplitLines(c.Str(0));
+            // MLINE(memo, n [, nOffset]): lines wrap at SET MEMOWIDTH; nOffset starts the count at a character position.
+            var text = c[0].IsNull ? "" : c.Str(0);
+            var offset = c.Int(2, 0);
+            if (offset > 0) text = offset < text.Length ? text[offset..] : "";
+            var lines = WrapLines(text, c.Options.MemoWidth);
             var n = c.Int(1);
-            return S(n >= 1 && n <= lines.Length ? lines[n - 1] : "");
+            return S(n >= 1 && n <= lines.Count ? lines[n - 1] : "");
         });
-        Add("MEMLINES", c => N(c[0].IsEmpty ? 0 : SplitLines(c.Str(0)).Length));
+        Add("MEMLINES", c => N(c[0].IsEmpty ? 0 : WrapLines(c.Str(0), c.Options.MemoWidth).Count));
         Add("SOUNDEX", c => S(Soundex(c.Str(0))));
         Add("DIFFERENCE", c =>
         {
@@ -317,6 +321,25 @@ public static partial class Library
             if (flags.Contains('R')) b = b.Reverse().ToArray();
             return Value.Binary(b);
         });
+    }
+
+    /// <summary>Lines of a memo as MLINE() sees them: split at line breaks, and long lines wrapped at word boundaries to the width.</summary>
+    internal static List<string> WrapLines(string s, int width)
+    {
+        var result = new List<string>();
+        foreach (var line in SplitLines(s))
+        {
+            var rest = line;
+            while (rest.Length > width)
+            {
+                var cut = rest.LastIndexOf(' ', width);
+                if (cut <= 0) cut = width;
+                result.Add(rest[..cut].TrimEnd());
+                rest = rest[cut..].TrimStart(' ');
+            }
+            result.Add(rest);
+        }
+        return result;
     }
 
     internal static string[] SplitLines(string s) =>

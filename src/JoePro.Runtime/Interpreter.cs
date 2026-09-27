@@ -72,7 +72,7 @@ public sealed partial class Interpreter : IExpressionHost
         var options = new SetOptions();
         if (defaultDirectory != null) options.Default_ = Path.GetFullPath(defaultDirectory);
         Session = new DataSession(options, this);
-        Sessions.Add(Session);
+        RegisterSession(Session);
         _frame = new Frame("(command)", null);
         SetPublic("_TALLY", Value.Number(0));
     }
@@ -855,7 +855,12 @@ public sealed partial class Interpreter : IExpressionHost
                 return Flow.Normal;
             case SetProcedureStmt sp:
                 if (!sp.Additive) _procedureFiles.Clear();
-                foreach (var f in sp.Files) _procedureFiles.Add(LoadProgram(NameValue(f)));
+                foreach (var f in sp.Files)
+                    foreach (var file in NameValue(f).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        var unit = LoadProgram(file);
+                        if (!_procedureFiles.Contains(unit)) _procedureFiles.Add(unit);
+                    }
                 return Flow.Normal;
             case CompileStmt c:
                 LoadProgram(NameValue(c.File));
@@ -886,7 +891,7 @@ public sealed partial class Interpreter : IExpressionHost
         else if (p.NewLine && _printedSomething) Output.NewLine();
         for (int i = 0; i < p.Items.Count; i++)
         {
-            if (i > 0) Output.Write(" ");
+            if (i > 0 && Options.IsOn("SPACE", true)) Output.Write(" ");
             Output.Write(Formatter.ToDisplay(Eval(p.Items[i]), Options));
         }
         _printedSomething = true;
