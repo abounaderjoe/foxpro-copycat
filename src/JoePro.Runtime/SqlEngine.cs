@@ -940,7 +940,12 @@ internal static class SqlEngine
             if (given[i]) continue;
             vals[i] = string.IsNullOrWhiteSpace(fields[i].DefaultExpr) ? fields[i].BlankValue() : rt.EvalInArea(wa, fields[i].DefaultExpr!);
         }
+        // Autoincrementing fields: a value given in the INSERT is an error (SET AUTOINCERROR ON), else it is kept.
+        var autoGiven = Enumerable.Range(0, fields.Count).Where(i => given[i] && fields[i].AutoIncNext != null).ToList();
+        if (autoGiven.Count > 0 && rt.Options.IsOn("AUTOINCERROR", true))
+            throw new VfpException(2088, $"Field {fields[autoGiven[0]].Name.ToUpperInvariant()} is read-only.");
         rt.AppendWithDefaults(wa, vals);
+        if (autoGiven.Count > 0) wa.Replace(autoGiven.Select(i => (i, vals[i])).ToList());
         foreach (var i in Enumerable.Range(0, fields.Count).Where(i => given[i] && !string.IsNullOrWhiteSpace(fields[i].RuleExpr)))
         {
             if (!Interpreter.Truthy(rt.EvalInArea(wa, fields[i].RuleExpr!)))

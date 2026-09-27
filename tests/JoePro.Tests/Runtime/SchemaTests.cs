@@ -51,8 +51,8 @@ public class SchemaTests : RuntimeHarness
     public void Referential_integrity_cascades_and_restricts()
     {
         Sales();
-        // Changing a customer's key cascades to its orders.
-        Run("SELECT customer\nLOCATE FOR id = 1\nREPLACE id WITH 10");
+        // Changing a customer's key cascades to its orders (the key is autoincrementing, so as in VFP that needs AUTOINCERROR OFF).
+        Run("SET AUTOINCERROR OFF\nSELECT customer\nLOCATE FOR id = 1\nREPLACE id WITH 10");
         Assert.Equal("2", CountOrders("custid = 10"));
         // Inserting an order for a missing customer is restricted, and nothing is inserted.
         var ex = Assert.Throws<VfpException>(() => Run("INSERT INTO orders (custid, amount) VALUES (99, 1)"));

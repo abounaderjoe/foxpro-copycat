@@ -678,6 +678,7 @@ public sealed partial class Interpreter
     /// <summary>REPLACE with field/record validation rules and the update trigger (database tables).</summary>
     internal void ReplaceWithRules(WorkArea wa, List<(int, Value)> assignments)
     {
+        foreach (var (idx, v) in assignments) CheckAutoIncWrite(wa, idx, v);
         var before = wa.Current?.Clone();
         var keys = RiKeys(wa);
         void Change()
@@ -733,6 +734,15 @@ public sealed partial class Interpreter
     }
 
     /// <summary>APPEND BLANK / INSERT: applies field default values, then the insert trigger.</summary>
+    /// <summary>SET AUTOINCERROR ON (the default): changing an autoincrementing field is an error (2088).</summary>
+    internal void CheckAutoIncWrite(WorkArea wa, int field, Value v)
+    {
+        var f = wa.Table.Fields[field];
+        if (f.AutoIncNext == null || !Options.IsOn("AUTOINCERROR", true)) return;
+        if (wa.Current != null && VfpCompare.Compare(wa.Get(field), v, StringCompareMode.Padded) == 0) return; // unchanged (GATHER of the same value)
+        throw new VfpException(2088, $"Field {f.Name.ToUpperInvariant()} is read-only.");
+    }
+
     internal void AppendWithDefaults(WorkArea wa, Value[]? values)
     {
         var fields = wa.Table.Fields;

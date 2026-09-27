@@ -349,6 +349,24 @@ public class CoverageTests : RuntimeHarness
     }
 
     [Fact]
+    public void Set_autoincerror_guards_autoincrementing_fields()
+    {
+        Run("CREATE CURSOR ai (id I AUTOINC, name C(5))\nINSERT INTO ai (name) VALUES (\"a\")");
+        Assert.Equal(2088, Assert.Throws<JoePro.Core.VfpException>(() => Run("INSERT INTO ai (id, name) VALUES (50, \"b\")")).Number);
+        Assert.Equal(2088, Assert.Throws<JoePro.Core.VfpException>(() => Run("REPLACE id WITH 7")).Number);
+        var o = Run("""
+            SCATTER MEMVAR
+            GATHER MEMVAR
+            SET AUTOINCERROR OFF
+            INSERT INTO ai (id, name) VALUES (50, "b")
+            ? id, RECCOUNT()
+            INSERT INTO ai (name) VALUES ("c")   && the counter moved on when 50 was inserted; numbers are never reused
+            ? id
+            """);
+        Assert.Equal("50 2 3", string.Join(" ", o.Trim().Split((char[])[' ', '\n'], StringSplitOptions.RemoveEmptyEntries)));
+    }
+
+    [Fact]
     public void Set_procedure_and_classlib_restore_from_a_saved_list()
     {
         File.WriteAllText(Path.Combine(Dir, "p1.prg"), "FUNCTION f1\nRETURN 1");
