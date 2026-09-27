@@ -496,6 +496,37 @@ public sealed class WorkArea : IRecord
         }
     }
 
+    /// <summary>
+    /// Moves forward to the next visible record matching a SQL prefilter: from the current record when
+    /// <paramref name="inclusive"/>, else after it. Reaching the end leaves the work area at EOF. Returns false, without
+    /// moving, when the fast path does not apply (buffered changes pending); the caller then walks record by record.
+    /// </summary>
+    public bool MoveToCandidate(string where, (string, object?)[] args, bool inclusive = true)
+    {
+        if (_buffer.Count > 0 || TableOrNull == null) return false;
+        if (Eof) return true;
+        var recNo = _current!.RecNo;
+        if (recNo < 0) return false;
+        bool outsideIndex = false;
+        Position? Where()
+        {
+            var p = CurrentPosition();
+            outsideIndex = p == null; // not in the controlling index (a FOR-filtered tag): walk instead
+            return p;
+        }
+        foreach (var row in Table.ScanWhere(Order, recNo, Where, inclusive, Options.Deleted, where, args))
+        {
+            if (!IsVisible(row)) continue;
+            SetCurrent(row);
+            Bof = false;
+            return true;
+        }
+        if (outsideIndex) return false;
+        SetCurrent(null);
+        Bof = false;
+        return true;
+    }
+
     /// <summary>SEEK: positions on the first record whose index key matches <paramref name="key"/>.</summary>
     public bool Seek(Value key, TagDef? tag = null)
     {

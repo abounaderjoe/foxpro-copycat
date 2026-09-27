@@ -141,6 +141,59 @@ public sealed partial class Table
         }
     }
 
+    /// <summary>The SQL column that stores a field (for prefilters built by the runtime).</summary>
+    public string ColumnSql(int fieldIndex) => Col(Fields[fieldIndex]);
+
+    private sealed class WhereCache
+    {
+        public required string Key { get; init; }
+        public required List<(RowData Row, byte[]? Key)> Rows { get; init; }
+        public required bool Complete { get; init; }
+        public Dictionary<int, int> Index { get; } = new();
+        public required long WriteVersion { get; init; }
+        public required long DataVersion { get; init; }
+    }
+
+    private WhereCache? _whereCache;
+
+    /// <summary>
+    /// Rows after (or at) record <paramref name="recNo"/> in the given order that match a SQL condition over the columns
+    /// (a prefilter: the caller still checks each row). Batches are cached, so walking candidate to candidate costs one
+    /// query per batch while nothing is written. Parameter names in <paramref name="args"/> must start with "$p".
+    /// </summary>
+    public IEnumerable<RowData> ScanWhere(TagDef? order, int recNo, Func<Position?> position, bool inclusive, bool skipDeleted, string where, (string, object?)[] args)
+    {
+        var key = $"{order?.Name}|{skipDeleted}|{where}|{string.Join("\u0001", args.Select(a => Convert.ToString(a.Item2, System.Globalization.CultureInfo.InvariantCulture)))}";
+        var c = _whereCache;
+        int next;
+        if (c != null && c.Key == key && c.WriteVersion == Store.WriteVersion && c.DataVersion == Store.DataVersion() && c.Index.TryGetValue(recNo, out var at))
+            next = inclusive ? at : at + 1;
+        else
+        {
+            var pos = position();
+            if (pos == null) yield break;
+            c = Fetch(pos.Value, inclusive, FirstBatchSize);
+            next = 0;
+        }
+        while (true)
+        {
+            while (next < c.Rows.Count) yield return c.Rows[next++].Row;
+            if (c.Complete || c.Rows.Count == 0) yield break;
+            var (lastRow, lastKey) = c.Rows[^1];
+            c = Fetch(new Position(lastKey, lastRow.RecNo), false, NextBatchSize(c.Rows.Count));
+            next = 0;
+        }
+
+        WhereCache Fetch(Position from, bool incl, int size)
+        {
+            var batch = FetchBatch(order, true, from, incl, skipDeleted, size, where, args);
+            var wc = new WhereCache { Key = key, Rows = batch, Complete = batch.Count < size, WriteVersion = Store.WriteVersion, DataVersion = Store.DataVersion() };
+            for (int i = 0; i < batch.Count; i++) wc.Index[batch[i].Row.RecNo] = i;
+            _whereCache = wc;
+            return wc;
+        }
+    }
+
     private static bool OutsideRange(byte[]? key, byte[]? a, byte[]? b)
     {
         if (key == null) return true; // excluded from the index (FOR clause)
@@ -185,10 +238,16 @@ public sealed partial class Table
         c.WriteVersion = Store.WriteVersion;
     }
 
-    private List<(RowData Row, byte[]? Key)> FetchBatch(TagDef? order, bool forward, Position? from, bool inclusive, bool skipDeleted, int size)
+    private List<(RowData Row, byte[]? Key)> FetchBatch(TagDef? order, bool forward, Position? from, bool inclusive, bool skipDeleted, int size,
+        string? extraWhere = null, (string, object?)[]? extraArgs = null)
     {
         var where = new List<string>();
         var args = new List<(string, object?)>();
+        if (extraWhere != null)
+        {
+            where.Add("(" + extraWhere + ")");
+            if (extraArgs != null) args.AddRange(extraArgs);
+        }
         string orderBy;
         string keySel = "";
         if (order == null)

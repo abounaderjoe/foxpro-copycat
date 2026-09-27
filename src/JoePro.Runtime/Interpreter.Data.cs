@@ -488,12 +488,15 @@ public sealed partial class Interpreter
             // Collect matching records first so that changing key fields cannot skip or repeat records.
             var recs = new List<int>();
             int n = 0;
+            Session.Select(wa.Number);
+            var spf = scope.While == null && limit == int.MaxValue ? Prefilter.Build(this, wa, scope.For) : null;
+            if (spf != null) FirstCandidate(wa, ref spf);
             while (!wa.Eof && n < limit)
             {
                 if (!While()) break;
                 if (Passes()) recs.Add(wa.RecNo);
                 n++;
-                wa.Skip();
+                Advance(wa, ref spf);
             }
             foreach (var r in recs)
             {
@@ -505,6 +508,9 @@ public sealed partial class Interpreter
             return count;
         }
         int seen = 0;
+        Session.Select(wa.Number);
+        var pf = scope.While == null && limit == int.MaxValue ? Prefilter.Build(this, wa, scope.For) : null;
+        if (pf != null) FirstCandidate(wa, ref pf);
         while (!wa.Eof && seen < limit)
         {
             Session.Select(wa.Number);
@@ -512,9 +518,27 @@ public sealed partial class Interpreter
             if (Passes()) { action(); count++; }
             seen++;
             if (seen >= limit) break;
-            wa.Skip();
+            Advance(wa, ref pf);
         }
         return count;
+    }
+
+    /// <summary>Moves to the first record the prefilter lets through (from the current one); drops the prefilter when it cannot apply.</summary>
+    private static void FirstCandidate(WorkArea wa, ref Prefilter? pf)
+    {
+        if (!wa.MoveToCandidate(pf!.Where, pf.Args, inclusive: true)) pf = null;
+    }
+
+    /// <summary>The end-of-loop SKIP: straight to the next candidate while the prefilter applies, else one record.</summary>
+    private static void Advance(WorkArea wa, ref Prefilter? pf)
+    {
+        if (pf != null)
+        {
+            if (wa.Eof) return;
+            if (wa.MoveToCandidate(pf.Where, pf.Args, inclusive: false)) return;
+            pf = null;
+        }
+        wa.Skip();
     }
 
     private Flow ExecScan(ScanStmt sc)
@@ -528,6 +552,8 @@ public sealed partial class Interpreter
         else if (kind == "RECORD") wa.Go((int)Eval(scope.Count!).AsNumber);
         int limit = kind is "NEXT" ? (int)Eval(scope.Count!).AsNumber : kind == "RECORD" ? 1 : int.MaxValue;
         int seen = 0;
+        var pf = scope.While == null && limit == int.MaxValue ? Prefilter.Build(this, wa, scope.For) : null;
+        if (pf != null) FirstCandidate(wa, ref pf);
         while (!wa.Eof && seen < limit)
         {
             Session.Select(wa.Number);
@@ -541,7 +567,7 @@ public sealed partial class Interpreter
             }
             seen++;
             if (wa.Eof || seen >= limit) break;
-            wa.Skip();
+            Advance(wa, ref pf);
         }
         Session.Select(wa.Number);
         return Flow.Normal;
@@ -572,6 +598,8 @@ public sealed partial class Interpreter
         try
         {
             int n = 0;
+            var pf = @while == null && limit == int.MaxValue ? Prefilter.Build(this, wa, @for) : null;
+            if (pf != null) FirstCandidate(wa, ref pf);
             while (!wa.Eof && n < limit)
             {
                 if (@while != null && !Truthy(Eval(@while))) break;
@@ -581,7 +609,7 @@ public sealed partial class Interpreter
                     return;
                 }
                 n++;
-                wa.Skip();
+                Advance(wa, ref pf);
             }
             wa.Found = false;
             if (!wa.Eof) { wa.GoBottom(); if (!wa.Eof) wa.Skip(); }

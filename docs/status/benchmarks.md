@@ -13,19 +13,42 @@ Each workload runs once to warm up, then three times; the best time is reported.
 
 | Benchmark | Workload | Best of 3 (ms) | Operations/s |
 |---|---|---:|---:|
-| Interpreter loop | FOR 1..1,000,000 with arithmetic and IF | 288.1 | 3,471,564 |
-| String building | 100,000 concatenations + STRTRAN/UPPER | 86.3 | 1,158,981 |
-| INSERT INTO (table) | 100,000 rows into an indexed table | 3558.1 | 28,105 |
-| APPEND BLANK + REPLACE | 100,000 rows | 1095.6 | 91,275 |
-| SCAN FOR + SUM | scan 100,000 rows, sum where cust < 500 | 198.5 | 503,702 |
-| SEEK (indexed) | 50,000 random SEEKs | 504.9 | 99,037 |
-| LOCATE (unindexed) | 20 LOCATEs, each scanning the whole table | 3893.5 | 5 |
-| SELECT GROUP BY | group 100,000 rows into 1,000 groups | 290.5 | 344,180 |
-| SELECT JOIN (hash) | 100,000 orders joined to 1,000 customers | 1074.4 | 93,072 |
-| UPDATE-SQL | update 100,000 rows | 1468.3 | 68,107 |
-| Object method calls | 100,000 method calls | 107.4 | 930,722 |
+| Interpreter loop | FOR 1..1,000,000 with arithmetic and IF | 213.2 | 4,691,398 |
+| String building | 100,000 concatenations + STRTRAN/UPPER | 65.3 | 1,532,379 |
+| INSERT INTO (table) | 100,000 rows into an indexed table | 3042.2 | 32,871 |
+| APPEND BLANK + REPLACE | 100,000 rows | 914.3 | 109,374 |
+| SCAN FOR + SUM | scan 100,000 rows, sum where cust < 500 | 117.3 | 852,293 |
+| SEEK (indexed) | 50,000 random SEEKs | 449.9 | 111,140 |
+| LOCATE (unindexed) | 20 LOCATEs, each scanning the whole table | 164.9 | 121 |
+| SELECT GROUP BY | group 100,000 rows into 1,000 groups | 290.7 | 344,036 |
+| SELECT JOIN (hash) | 100,000 orders joined to 1,000 customers | 954.1 | 104,813 |
+| UPDATE-SQL | update 100,000 rows | 1481.2 | 67,511 |
+| Object method calls | 100,000 method calls | 94.5 | 1,058,747 |
 
 Machine: Ubuntu 24.04.4 LTS, 4 logical CPUs, .NET 10.0.12, X64.
+
+## FOR conditions pushed down to SQL (Phase 7)
+
+`LOCATE`, `CONTINUE`, `SCAN FOR` and the scoped commands (`COUNT`, `SUM`, `REPLACE`, `DELETE`, `COPY TO`, … `FOR`)
+turn the parts of the FOR condition that compare a field with a constant into a SQL condition, and jump from
+candidate to candidate instead of evaluating every record. This does the job Rushmore does in VFP, without
+needing an index. The SQL is only a prefilter: every record it lets through still has the whole FOR condition
+evaluated, so results cannot change, and anything that cannot be expressed that way (function calls on fields,
+SET COLLATE other than MACHINE, character comparisons other than `=`) is left to the record-by-record check.
+It is skipped while buffered changes are pending or when a WHILE clause is given. `PrefilterTests` checks 32
+conditions under five combinations of SET EXACT, SET DELETED, SET ORDER and SET FILTER against
+record-by-record evaluation.
+
+| Benchmark | Before | After | Speed-up |
+|---|---:|---:|---:|
+| LOCATE (unindexed), 20 × 100,000 rows | 3279.7 ms | 164.9 ms | ≈ 20× |
+| SCAN FOR + SUM (half the rows match) | 208.7 ms | 117.3 ms | ≈ 1.8× |
+
+Single-row `INSERT` was profiled too. With the table's two index tags, about 80% of the time is SQLite itself
+(the B-tree inserts and, outside a transaction, the commit). On this VM, a bare SQLite autocommit insert costs
+28–37 µs, which is the same order as the Joe Pro figure. Inside `BEGIN TRANSACTION` an insert costs about 20 µs,
+and roughly half of that is the Microsoft.Data.Sqlite layer. Replacing that layer is a possible later gain,
+not done yet.
 
 ## Before and after the storage work
 
