@@ -136,7 +136,8 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | SET commands: every VFP 9 SET classified in the coverage matrix; SET() reports every value set (with VFP's defaults); DATASESSION, ALTERNATE, CONSOLE, ASSERTS/ASSERT, NULLDISPLAY, MEMOWIDTH (MLINE/MEMLINES wrap), FDOW/FWEEK, SPACE, HEADINGS, FIXED, UNIQUE and MESSAGE take effect; SET PROCEDURE/CLASSLIB TO (saved list) restores. Data sessions are numbered from 1 per runtime, as in VFP | ✅ Done; 11 SET options are still accepted without effect (listed as missing) |
 | Performance: FOR conditions pushed down to SQL as a prefilter for LOCATE/CONTINUE, SCAN FOR and scoped commands (the Rushmore equivalent), verified against record-by-record evaluation; INSERT profiled | ✅ LOCATE ≈ 20×, SCAN FOR ≈ 1.8× faster ([benchmarks](benchmarks.md)) |
 | Accessibility: every interactive control in the IDE and its 12 designers and tool windows has a screen-reader name (from its tooltip, its label, its tab, its placeholder, or set explicitly), enforced by an automated audit; every menu command has a unique access key and is in the command palette; forms that applications run name their inputs from ToolTipText, StatusBarText or the label beside them | ✅ Done (audit tests in `AccessibilityTests`). A manual pass with NVDA/VoiceOver on real desktops is still to do |
-| Localization, installer | ⏳ Next |
+| Localization framework: string catalogs per culture (English text as key, built-in JSON plus user overrides), pseudo-locale to find text that bypasses the catalog, German catalog for the menus and command palette, tests for coverage, stale entries and access keys (see [translating the IDE](../reference/localization.md)) | ✅ Framework done; designer panels and dialogs still to route through it |
+| Installer, auto-update, crash reporting | ⏳ Next |
 
 ## Screenshots
 

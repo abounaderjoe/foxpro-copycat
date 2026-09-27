@@ -26,4 +26,7 @@
     <ProjectReference Include="..\JoePro.Tooling\JoePro.Tooling.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Localization\*.json" />
+  </ItemGroup>
 </Project>

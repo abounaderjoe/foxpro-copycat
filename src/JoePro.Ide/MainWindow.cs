@@ -1034,7 +1034,7 @@ public sealed class MainWindow : Window
     {
         MenuItem Item(string header, string? action = null, string? gesture = null, Action? run = null)
         {
-            var mi = new MenuItem { Header = header };
+            var mi = new MenuItem { Header = Strings.T(header) };
             if (gesture != null) mi.InputGesture = KeyGesture.Parse(gesture);
             var r = run ?? (action != null ? Action(action).Run : null);
             if (r != null) mi.Click += (_, _) => r();
@@ -1044,7 +1044,7 @@ public sealed class MainWindow : Window
         {
             Items =
             {
-                new MenuItem { Header = "_File", Items =
+                new MenuItem { Header = Strings.T("_File"), Items =
                 {
                     Item("_New Program", "New program", "Ctrl+N"),
                     Item("New _Form", "New form"),
@@ -1060,7 +1060,7 @@ public sealed class MainWindow : Window
                     new Separator(),
                     Item("E_xit", run: Close),
                 } },
-                new MenuItem { Header = "_View", Items =
+                new MenuItem { Header = Strings.T("_View"), Items =
                 {
                     Item("_Command Window", "Command window", "Ctrl+F2"),
                     Item("Command _Palette", gesture: "Ctrl+Shift+P", run: () => Palette.Open()),
@@ -1069,7 +1069,7 @@ public sealed class MainWindow : Window
                     Item("_Dark Theme", "Theme: dark"),
                     Item("_System Theme", "Theme: follow system"),
                 } },
-                new MenuItem { Header = "_Table", Items =
+                new MenuItem { Header = Strings.T("_Table"), Items =
                 {
                     Item("_Browse", "Browse current table"),
                     Item("Display _Structure", "Display structure"),
@@ -1077,7 +1077,7 @@ public sealed class MainWindow : Window
                     Item("Modify _Database…", "Modify database…"),
                     Item("_Close All Tables", "Close all tables"),
                 } },
-                new MenuItem { Header = "F_orm", Items =
+                new MenuItem { Header = Strings.T("F_orm"), Items =
                 {
                     Item("_Undo", "Form: undo"),
                     Item("_Redo", "Form: redo"),
@@ -1098,7 +1098,7 @@ public sealed class MainWindow : Window
                     Item("Add Table to _Data Environment…", "Form: add table to data environment…"),
                     Item("Edit as _Code", "Edit form as code"),
                 } },
-                new MenuItem { Header = "_Class", Items =
+                new MenuItem { Header = Strings.T("_Class"), Items =
                 {
                     Item("New _Property…", "Class: new property…"),
                     Item("New _Method…", "Class: new method…"),
@@ -1107,12 +1107,12 @@ public sealed class MainWindow : Window
                     new Separator(),
                     Item("Class _Browser…", "Class browser…"),
                 } },
-                new MenuItem { Header = "_Program", Items =
+                new MenuItem { Header = Strings.T("_Program"), Items =
                 {
                     Item("_Run", "Run program", "Ctrl+E"),
                     Item("Clear _Screen", "Clear screen"),
                 } },
-                new MenuItem { Header = "_Debug", Items =
+                new MenuItem { Header = Strings.T("_Debug"), Items =
                 {
                     Item("_Continue", "Debug: continue", "F5"),
                     Item("Step _Over", "Debug: step over", "F10"),
@@ -1125,7 +1125,7 @@ public sealed class MainWindow : Window
                     Item("Break on _Errors", "Debug: break on errors"),
                     Item("Step Into _Program", "Debug: step into program"),
                 } },
-                new MenuItem { Header = "_Help", Items = { Item("_About Joe Pro", "About Joe Pro") } },
+                new MenuItem { Header = Strings.T("_Help"), Items = { Item("_About Joe Pro", "About Joe Pro") } },
             },
         };
     }

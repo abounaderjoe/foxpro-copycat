@@ -8,7 +8,10 @@ namespace JoePro.Ide;
 
 public sealed record PaletteAction(string Title, string Shortcut, Action Run)
 {
-    public override string ToString() => Shortcut.Length > 0 ? $"{Title}    {Shortcut}" : Title;
+    /// <summary>The title in the user's language (<see cref="Title"/> stays English: it identifies the action).</summary>
+    public string DisplayTitle => Strings.T(Title);
+
+    public override string ToString() => Shortcut.Length > 0 ? $"{DisplayTitle}    {Shortcut}" : DisplayTitle;
 }
 
 /// <summary>
@@ -65,7 +68,7 @@ public sealed class CommandPalette : Border
     private void Filter()
     {
         var q = Input.Text ?? "";
-        var hits = _actions.Where(a => q.Length == 0 || a.Title.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+        var hits = _actions.Where(a => q.Length == 0 || a.Title.Contains(q, StringComparison.OrdinalIgnoreCase) || a.DisplayTitle.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
         Results.ItemsSource = hits;
         Results.SelectedIndex = hits.Count > 0 ? 0 : -1;
     }
@@ -86,7 +89,7 @@ public sealed class CommandPalette : Border
     {
         var text = Input.Text ?? "";
         Close();
-        if (Results.SelectedItem is PaletteAction a && (text.Length == 0 || a.Title.Contains(text, StringComparison.OrdinalIgnoreCase))) a.Run();
+        if (Results.SelectedItem is PaletteAction a && (text.Length == 0 || a.Title.Contains(text, StringComparison.OrdinalIgnoreCase) || a.DisplayTitle.Contains(text, StringComparison.OrdinalIgnoreCase))) a.Run();
         else if (text.Trim().Length > 0) _runCommand(text);
     }
 }
