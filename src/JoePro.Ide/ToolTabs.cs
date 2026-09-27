@@ -46,7 +46,7 @@ public sealed class MemoEditorTab : DocumentTab
     public TextEditor Editor { get; }
     public bool IsDirty => _dirty;
 
-    private void UpdateTitle() => Title = $"{Alias.ToLowerInvariant()}.{Field.ToLowerInvariant()} (record {RecNo})" + (_dirty ? " •" : "");
+    private void UpdateTitle() => Title = Strings.F("{0}.{1} (record {2})", Alias.ToLowerInvariant(), Field.ToLowerInvariant(), RecNo) + (_dirty ? " •" : "");
 
     /// <summary>Writes the text into the record it was read from (the record pointer is left where it is).</summary>
     public void Save()
@@ -67,7 +67,7 @@ public sealed class ConnectionEditorTab : DocumentTab
 {
     private readonly Store _database;
     private readonly TextBox _name = new(), _dataSource = new(), _user = new(), _password = new() { PasswordChar = '•' }, _db = new(),
-        _connString = new() { AcceptsReturn = false, Watermark = "Driver=…;Server=…  or  Provider=sqlite;Data Source=file.db" };
+        _connString = new() { AcceptsReturn = false, Watermark = Strings.T("Driver=…;Server=…  or  Provider=sqlite;Data Source=file.db") };
     private readonly TextBlock _message = new() { Opacity = 0.8, TextWrapping = TextWrapping.Wrap };
 
     public ConnectionEditorTab(Store database, string? name)
@@ -84,6 +84,7 @@ public sealed class ConnectionEditorTab : DocumentTab
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("160,*"), Margin = new Thickness(12), RowSpacing = 6 };
         void Row(string label, Control box)
         {
+            label = Strings.T(label);
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             var l = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetRow(l, grid.RowDefinitions.Count - 1);
@@ -99,21 +100,21 @@ public sealed class ConnectionEditorTab : DocumentTab
         Row("Password:", _password);
         Row("Database:", _db);
         Row("Connection string:", _connString);
-        var save = new Button { Content = "Save" };
+        var save = new Button { Content = Strings.T("Save") };
         save.Click += (_, _) => Save();
-        var test = new Button { Content = "Test connection" };
+        var test = new Button { Content = Strings.T("Test connection") };
         test.Click += (_, _) => TestRequested?.Invoke(Build().BuildConnectString());
         Content = new StackPanel
         {
             Children =
             {
-                new TextBlock { Text = $"Connection in database {database.Name.ToLowerInvariant()}. A connection string overrides the other settings.", Margin = new Thickness(12, 12, 12, 0), Opacity = 0.8 },
+                new TextBlock { Text = Strings.F("Connection in database {0}. A connection string overrides the other settings.", database.Name.ToLowerInvariant()), Margin = new Thickness(12, 12, 12, 0), Opacity = 0.8 },
                 grid,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(12, 0), Children = { save, test } },
                 new Border { Child = _message, Margin = new Thickness(12, 8) },
             },
         };
-        Title = "Connection " + (OriginalName ?? "(new)").ToLowerInvariant();
+        Title = Strings.T("Connection ") + (OriginalName ?? "(new)").ToLowerInvariant();
     }
 
     public string? OriginalName { get; private set; }
@@ -148,8 +149,8 @@ public sealed class ConnectionEditorTab : DocumentTab
             }
             _database.SaveConnection(c);
             OriginalName = c.Name;
-            Title = "Connection " + c.Name.ToLowerInvariant();
-            ShowMessage("Saved.");
+            Title = Strings.T("Connection ") + c.Name.ToLowerInvariant();
+            ShowMessage(Strings.T("Saved."));
         }
         catch (VfpException ex) { ShowMessage(ex.Message); }
     }
@@ -164,7 +165,7 @@ public sealed class ConnectionEditorTab : DocumentTab
 /// <summary>HELP [topic]: the language reference in the IDE, searchable, from the same docs as hover and completion.</summary>
 public sealed class HelpTab : DocumentTab
 {
-    private readonly TextBox _search = new() { Watermark = "Search functions and commands" };
+    private readonly TextBox _search = new() { Watermark = Strings.T("Search functions and commands") };
     private readonly ListBox _list = new();
     private readonly TextBlock _detail = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(12), FontSize = 13 };
     private readonly List<(string Name, string Text)> _topics;
@@ -174,8 +175,8 @@ public sealed class HelpTab : DocumentTab
         _topics = FunctionDocs.Functions.Select(kv => (kv.Key.ToUpperInvariant() + "()", $"{kv.Value.Signature}\n\n{kv.Value.Summary}" + (kv.Value.Returns.Length > 0 ? $"\n\nReturns: {kv.Value.Returns}" : "")))
             .Concat(FunctionDocs.Commands.Select(kv => (kv.Key.ToUpperInvariant(), kv.Value)))
             .OrderBy(t => t.Item1, StringComparer.Ordinal).ToList();
-        Avalonia.Automation.AutomationProperties.SetName(_list, "Help topics");
-        Avalonia.Automation.AutomationProperties.SetName(_search, "Search help");
+        Avalonia.Automation.AutomationProperties.SetName(_list, Strings.T("Help topics"));
+        Avalonia.Automation.AutomationProperties.SetName(_search, Strings.T("Search help"));
         _search.TextChanged += (_, _) => Fill(_search.Text ?? "");
         _list.SelectionChanged += (_, _) => { if (_list.SelectedItem is string s) Show(s); };
         var left = new DockPanel { Width = 260 };
@@ -187,11 +188,10 @@ public sealed class HelpTab : DocumentTab
         root.Children.Add(left);
         root.Children.Add(new ScrollViewer { Content = _detail });
         Content = root;
-        Title = "Help";
+        Title = Strings.T("Help");
         Fill("");
         if (!string.IsNullOrWhiteSpace(topic)) Select(topic);
-        else _detail.Text = "Choose a function or command on the left, or type to search. The full reference is in docs/reference/language.md; " +
-                            "what Joe Pro supports compared with Visual FoxPro 9 is in docs/reference/coverage.md.";
+        else _detail.Text = Strings.T("Choose a function or command on the left, or type to search. The full reference is in docs/reference/language.md; what Joe Pro supports compared with Visual FoxPro 9 is in docs/reference/coverage.md.");
     }
 
     public string DetailText => _detail.Text ?? "";
@@ -208,7 +208,7 @@ public sealed class HelpTab : DocumentTab
             hit = _topics.FirstOrDefault(x => x.Name.StartsWith(t, StringComparison.Ordinal));
         }
         if (hit.Name != null) { _list.SelectedItem = hit.Name; Show(hit.Name); }
-        else _detail.Text = $"No help topic for {topic}.";
+        else _detail.Text = Strings.F("No help topic for {0}.", topic);
     }
 
     private void Fill(string q)

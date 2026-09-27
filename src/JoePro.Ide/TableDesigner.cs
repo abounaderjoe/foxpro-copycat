@@ -21,7 +21,7 @@ public sealed class TableDesignerTab : DocumentTab
     }
 
     public TableDesigner Designer { get; }
-    private void UpdateTitle() => Title = Designer.Design.Name.ToLowerInvariant() + " · structure" + (Designer.IsDirty ? " •" : "");
+    private void UpdateTitle() => Title = Strings.F("{0} · structure", Designer.Design.Name.ToLowerInvariant()) + (Designer.IsDirty ? " •" : "");
 }
 
 /// <summary>
@@ -44,8 +44,8 @@ public sealed class TableDesigner : UserControl
     private readonly Store? _database;
     private readonly string? _freePath;
     private readonly TextBox _name = new() { Width = 220 };
-    private readonly ListBox _fields = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Fields", FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
-    private readonly ListBox _tags = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Index tags", FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
+    private readonly ListBox _fields = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = Strings.T("Fields"), FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
+    private readonly ListBox _tags = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = Strings.T("Index tags"), FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
     private readonly StackPanel _fieldEditor = new() { Spacing = 4, Margin = new Thickness(10, 8) };
     private readonly StackPanel _tagEditor = new() { Spacing = 4, Margin = new Thickness(10, 8) };
     private readonly TextBlock _changes = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.85, Margin = new Thickness(0, 4) };
@@ -69,8 +69,8 @@ public sealed class TableDesigner : UserControl
 
         Button B(string text, string tip, Action act)
         {
-            var b = new Button { Content = text, Padding = new Thickness(8, 2), FontSize = 12 };
-            ToolTip.SetTip(b, tip);
+            var b = new Button { Content = Strings.T(text), Padding = new Thickness(8, 2), FontSize = 12 };
+            ToolTip.SetTip(b, Strings.T(tip));
             b.Click += (_, _) => act();
             return b;
         }
@@ -120,9 +120,9 @@ public sealed class TableDesigner : UserControl
         {
             Items =
             {
-                new TabItem { FontSize = 14, Header = "Fields", Content = fieldsTab },
-                new TabItem { FontSize = 14, Header = "Indexes", Content = tagsTab },
-                new TabItem { FontSize = 14, Header = "Table", Content = new ScrollViewer { Content = TablePage() } },
+                new TabItem { FontSize = 14, Header = Strings.T("Fields"), Content = fieldsTab },
+                new TabItem { FontSize = 14, Header = Strings.T("Indexes"), Content = tagsTab },
+                new TabItem { FontSize = 14, Header = Strings.T("Table"), Content = new ScrollViewer { Content = TablePage() } },
             },
         };
         var header = new StackPanel
@@ -130,7 +130,7 @@ public sealed class TableDesigner : UserControl
             Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(8),
             Children =
             {
-                new TextBlock { Text = "Table", VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = Strings.T("Table"), VerticalAlignment = VerticalAlignment.Center },
                 _name,
                 new TextBlock { Text = database != null ? $"in database {database.Name.ToLowerInvariant()}" : "free table", VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 },
             },
@@ -142,7 +142,7 @@ public sealed class TableDesigner : UserControl
             {
                 B("Show script", "The FoxPro commands that make these changes", () => ScriptRequested?.Invoke(Design.Name.ToLowerInvariant() + "-changes.prg", Script())),
                 B("Revert", "Discard the changes", Revert),
-                new Button { Content = "Save", Classes = { "accent" }, Padding = new Thickness(12, 2) },
+                new Button { Content = Strings.T("Save"), Classes = { "accent" }, Padding = new Thickness(12, 2) },
             },
         };
         ((Button)bottomButtons.Children[^1]).Click += (_, _) => Save();
@@ -183,7 +183,7 @@ public sealed class TableDesigner : UserControl
         var errors = Design.Validate();
         _errors.Text = string.Join("\n", errors);
         var changes = Changes;
-        _changes.Text = changes.Count == 0 ? "No changes."
+        _changes.Text = changes.Count == 0 ? Strings.T("No changes.")
             : string.Join("\n", changes.Take(8).Select(c => "• " + c.Description)) + (changes.Count > 8 ? $"\n… and {changes.Count - 8} more." : "")
               + (changes.Any(c => c.NeedsRebuild) && _original != null ? "\nSaving rebuilds the table (its records are copied into the new structure)." : "");
         if (changed) Changed?.Invoke();
@@ -262,8 +262,8 @@ public sealed class TableDesigner : UserControl
 
     private Control Labeled(string label, Control editor, string? tip = null)
     {
-        var l = new TextBlock { Text = label, Width = 130, VerticalAlignment = VerticalAlignment.Center };
-        if (tip != null) ToolTip.SetTip(l, tip);
+        var l = new TextBlock { Text = Strings.T(label), Width = 130, VerticalAlignment = VerticalAlignment.Center };
+        if (tip != null) ToolTip.SetTip(l, Strings.T(tip));
         var row = new DockPanel { Margin = new Thickness(0, 1) };
         DockPanel.SetDock(l, Dock.Left);
         row.Children.Add(l);
@@ -288,7 +288,7 @@ public sealed class TableDesigner : UserControl
 
     private CheckBox Check(string text, bool value, Action<bool> changed, bool enabled = true)
     {
-        var box = new CheckBox { Content = text, IsChecked = value, IsEnabled = enabled };
+        var box = new CheckBox { Content = Strings.T(text), IsChecked = value, IsEnabled = enabled };
         box.IsCheckedChanged += (_, _) => { if (!_loading) changed(box.IsChecked == true); };
         return box;
     }
@@ -296,7 +296,7 @@ public sealed class TableDesigner : UserControl
     private void ShowField()
     {
         _fieldEditor.Children.Clear();
-        if (SelectedField is not { } fd) { _fieldEditor.Children.Add(new TextBlock { Text = "Insert a field to start.", Opacity = 0.7 }); return; }
+        if (SelectedField is not { } fd) { _fieldEditor.Children.Add(new TextBlock { Text = Strings.T("Insert a field to start."), Opacity = 0.7 }); return; }
         _loading = true;
         var f = fd.Field;
         var t = char.ToUpperInvariant(f.Type);
@@ -332,15 +332,15 @@ public sealed class TableDesigner : UserControl
             _fieldEditor.Children.Add(Labeled("Next value", Text(next.ToString(CultureInfo.InvariantCulture), v => UpdateField(x => x with { AutoIncNext = long.TryParse(v, out var n) ? n : x.AutoIncNext }))));
             _fieldEditor.Children.Add(Labeled("Step", Text(f.AutoIncStep.ToString(CultureInfo.InvariantCulture), v => UpdateField(x => x with { AutoIncStep = ParseInt(v, x.AutoIncStep) }))));
         }
-        _fieldEditor.Children.Add(new TextBlock { Text = "Display", FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) });
+        _fieldEditor.Children.Add(new TextBlock { Text = Strings.T("Display"), FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) });
         _fieldEditor.Children.Add(Labeled("Caption", Text(f.Caption, v => UpdateField(x => x with { Caption = Blank(v) })), "The label forms and grids show for the field"));
         _fieldEditor.Children.Add(Labeled("Format", Text(f.Format, v => UpdateField(x => x with { Format = Blank(v) }))));
         _fieldEditor.Children.Add(Labeled("Input mask", Text(f.InputMask, v => UpdateField(x => x with { InputMask = Blank(v) }))));
         _fieldEditor.Children.Add(Labeled("Display class", Text(f.DisplayClass, v => UpdateField(x => x with { DisplayClass = Blank(v) })), "The class the Form Designer uses when the field is dropped on a form"));
         _fieldEditor.Children.Add(Labeled("Class library", Text(f.DisplayClassLibrary, v => UpdateField(x => x with { DisplayClassLibrary = Blank(v) }))));
         _fieldEditor.Children.Add(Labeled("Comment", Text(f.Comment, v => UpdateField(x => x with { Comment = Blank(v) }))));
-        _fieldEditor.Children.Add(new TextBlock { Text = "Validation", FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) });
-        if (!IsDatabaseTable) _fieldEditor.Children.Add(new TextBlock { Text = "Defaults and rules need a table in a database.", Opacity = 0.7 });
+        _fieldEditor.Children.Add(new TextBlock { Text = Strings.T("Validation"), FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) });
+        if (!IsDatabaseTable) _fieldEditor.Children.Add(new TextBlock { Text = Strings.T("Defaults and rules need a table in a database."), Opacity = 0.7 });
         var rule = Text(f.RuleExpr, v => UpdateField(x => x with { RuleExpr = Blank(v) }), "expression that must be true");
         var ruleText = Text(f.RuleText, v => UpdateField(x => x with { RuleText = Blank(v) }), "message when the rule fails");
         var def = Text(f.DefaultExpr, v => UpdateField(x => x with { DefaultExpr = Blank(v) }), "expression");
@@ -405,7 +405,7 @@ public sealed class TableDesigner : UserControl
     private void ShowTag()
     {
         _tagEditor.Children.Clear();
-        if (SelectedTag is not { } t) { _tagEditor.Children.Add(new TextBlock { Text = "No indexes.", Opacity = 0.7 }); return; }
+        if (SelectedTag is not { } t) { _tagEditor.Children.Add(new TextBlock { Text = Strings.T("No indexes."), Opacity = 0.7 }); return; }
         _loading = true;
         var kinds = IsDatabaseTable ? TagKinds : TagKinds[..3];
         var kind = new ComboBox { ItemsSource = kinds, SelectedIndex = Math.Min((int)t.Kind, kinds.Length - 1), HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -432,22 +432,22 @@ public sealed class TableDesigner : UserControl
     private Control TablePage()
     {
         var page = new StackPanel { Spacing = 4, Margin = new Thickness(12), MaxWidth = 700, HorizontalAlignment = HorizontalAlignment.Left };
-        if (!IsDatabaseTable) page.Children.Add(new TextBlock { Text = "Record rules, triggers and comments need a table in a database.", Opacity = 0.7 });
+        if (!IsDatabaseTable) page.Children.Add(new TextBlock { Text = Strings.T("Record rules, triggers and comments need a table in a database."), Opacity = 0.7 });
         TextBox Box(string key, string? value, Action<string?> set, string? watermark = null)
         {
-            var box = Text(value, v => { set(Blank(v)); Touch(); }, watermark);
+            var box = Text(value, v => { set(Blank(v)); Touch(); }, watermark is null ? null : Strings.T(watermark));
             box.IsEnabled = IsDatabaseTable;
             _tableBoxes[key] = box;
             return box;
         }
-        page.Children.Add(new TextBlock { Text = "Record validation", FontWeight = FontWeight.SemiBold });
+        page.Children.Add(new TextBlock { Text = Strings.T("Record validation"), FontWeight = FontWeight.SemiBold });
         page.Children.Add(Labeled("Rule", Box("rule", Design.RuleExpr, v => Design.RuleExpr = v, "expression checked when a record is saved")));
         page.Children.Add(Labeled("Message", Box("ruletext", Design.RuleText, v => Design.RuleText = v)));
-        page.Children.Add(new TextBlock { Text = "Triggers", FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) });
+        page.Children.Add(new TextBlock { Text = Strings.T("Triggers"), FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) });
         page.Children.Add(Labeled("Insert trigger", Box("insert", Design.InsertTrigger, v => Design.InsertTrigger = v, "expression; false refuses the insert")));
         page.Children.Add(Labeled("Update trigger", Box("update", Design.UpdateTrigger, v => Design.UpdateTrigger = v)));
         page.Children.Add(Labeled("Delete trigger", Box("delete", Design.DeleteTrigger, v => Design.DeleteTrigger = v)));
-        page.Children.Add(new TextBlock { Text = "Comment", FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) });
+        page.Children.Add(new TextBlock { Text = Strings.T("Comment"), FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) });
         page.Children.Add(Box("comment", Design.Comment, v => Design.Comment = v));
         return page;
     }
@@ -460,7 +460,7 @@ public sealed class TableDesigner : UserControl
     public bool Save()
     {
         if (Design.Validate() is { Count: > 0 } errors) { Status?.Invoke(errors[0]); return false; }
-        if (_original != null && Changes.Count == 0) { Status?.Invoke("No changes to save."); return true; }
+        if (_original != null && Changes.Count == 0) { Status?.Invoke(Strings.T("No changes to save.")); return true; }
         try
         {
             var path = _freePath ?? (_database == null ? System.IO.Path.Combine(_ide.Runtime.Options.Default_, Design.Name.ToLowerInvariant() + Store.FreeTableExtension) : null);
@@ -475,7 +475,7 @@ public sealed class TableDesigner : UserControl
             FillTags();
             Touch(changed: false);
             Saved?.Invoke();
-            Status?.Invoke($"Saved {Design.Name.ToLowerInvariant()}{(rebuilt ? " (the table was rebuilt)" : "")}.");
+            Status?.Invoke(Strings.F("Saved {0}{1}.", Design.Name.ToLowerInvariant(), (rebuilt ? " (the table was rebuilt)" : "")));
             return true;
         }
         catch (Exception ex) when (ex is VfpException or InvalidOperationException or IOException or ArgumentException)

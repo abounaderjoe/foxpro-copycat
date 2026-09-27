@@ -32,7 +32,7 @@ public sealed class App : Application
             var window = new MainWindow(session);
             var crashes = CrashReports.TakeNew();
             if (crashes.Count > 0)
-                window.Opened += (_, _) => window.SetStatus($"Joe Pro closed unexpectedly last time. The report is in {crashes[^1]} (nothing was sent).");
+                window.Opened += (_, _) => window.SetStatus(Strings.F("Joe Pro closed unexpectedly last time. The report is in {0} (nothing was sent).", crashes[^1]));
             desktop.MainWindow = window;
             desktop.Exit += (_, _) => session.Dispose();
             if (StartFile != null) window.Opened += (_, _) => window.OpenAny(StartFile);

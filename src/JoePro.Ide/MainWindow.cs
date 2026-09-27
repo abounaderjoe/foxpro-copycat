@@ -31,7 +31,7 @@ public sealed class MainWindow : Window
     {
         Accessibility.Install();
         _session = session;
-        Title = "Joe Pro";
+        Title = Strings.T("Joe Pro");
         Width = 1280;
         Height = 820;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -52,7 +52,7 @@ public sealed class MainWindow : Window
         session.Reports.PreviewHandler = (report, _) => { OpenPreview(report); return true; };
         session.CommandCompleted += AfterCommand;
         session.StatusMessage += m => _status.Text = m;
-        session.ErrorRaised += ex => _status.Text = $"Error {ex.Number}: {ex.Message}";
+        session.ErrorRaised += ex => _status.Text = Strings.F("Error {0}: {1}", ex.Number, ex.Message);
         session.QuitRequested += Close;
 
         BuildActions();
@@ -126,7 +126,7 @@ public sealed class MainWindow : Window
         };
         session.Screen.Write($"{Interpreter.VersionString}. Type commands in the Command window below; Ctrl+Shift+P opens the command palette.");
         session.Screen.NewLine();
-        _status.Text = "Ready";
+        _status.Text = Strings.T("Ready");
         AfterCommand();
     }
 
@@ -177,11 +177,11 @@ public sealed class MainWindow : Window
 
     private void ToggleBreakpoint()
     {
-        if (ActiveEditor is not { FilePath: { } path } tab) { SetStatus("Save the program before setting breakpoints."); return; }
+        if (ActiveEditor is not { FilePath: { } path } tab) { SetStatus(Strings.T("Save the program before setting breakpoints.")); return; }
         var line = tab.Editor.TextArea.Caret.Line;
         var on = Debugger.Engine.ToggleLineBreakpoint(path, line);
         tab.Breakpoints?.InvalidateVisual();
-        SetStatus(on ? $"Breakpoint set at line {line}." : $"Breakpoint cleared at line {line}.");
+        SetStatus(Strings.F(on ? "Breakpoint set at line {0}." : "Breakpoint cleared at line {0}.", line));
     }
 
     private bool IsDark => ActualThemeVariant == ThemeVariant.Dark;
@@ -204,8 +204,9 @@ public sealed class MainWindow : Window
         DataSession.Refresh();
         var wa = _session.Runtime.Session.Current;
         _position.Text = wa.InUse
-            ? $"{wa.Alias}  Record {(wa.Eof ? "EOF" : wa.RecNo.ToString())}/{wa.RecordCount}{(wa.Order != null ? "  Order " + wa.Order.Name : "")}  ·  Session {_session.Runtime.Session.Id}"
-            : $"No table in work area {wa.Number}  ·  Session {_session.Runtime.Session.Id}";
+            ? Strings.F("{0}  Record {1}/{2}", wa.Alias, wa.Eof ? "EOF" : wa.RecNo.ToString(), wa.RecordCount) + (wa.Order != null ? Strings.F("  Order {0}", wa.Order.Name) : "")
+              + Strings.F("  ·  Session {0}", _session.Runtime.Session.Id)
+            : Strings.F("No table in work area {0}", wa.Number) + Strings.F("  ·  Session {0}", _session.Runtime.Session.Id);
     }
 
     // ---- Documents -------------------------------------------------------------------
@@ -295,8 +296,8 @@ public sealed class MainWindow : Window
                 tab.TestRequested += cs =>
                 {
                     var h = _session.Runtime.Evaluate($"SQLSTRINGCONNECT([{cs.Replace("]", "")}])");
-                    if (h.AsNumber > 0) { _session.Runtime.Evaluate($"SQLDISCONNECT({h.AsNumber})"); tab.ShowMessage("Connected."); }
-                    else tab.ShowMessage("Could not connect. " + _session.Runtime.LastErrorMessage);
+                    if (h.AsNumber > 0) { _session.Runtime.Evaluate($"SQLDISCONNECT({h.AsNumber})"); tab.ShowMessage(Strings.T("Connected.")); }
+                    else tab.ShowMessage(Strings.T("Could not connect. ") + _session.Runtime.LastErrorMessage);
                 };
                 OpenDocument(tab);
                 return true;
@@ -418,7 +419,7 @@ public sealed class MainWindow : Window
         tab.Designer.Status += SetStatus;
         tab.Designer.SaveAsRequested += () => _ = SaveMenuAs(tab.Designer);
         OpenDocument(tab);
-        if (legacy) SetStatus($"{System.IO.Path.GetFileName(path)} was converted; saving writes {System.IO.Path.GetFileName(target)}.");
+        if (legacy) SetStatus(Strings.F("{0} was converted; saving writes {1}.", System.IO.Path.GetFileName(path), System.IO.Path.GetFileName(target)));
         return tab;
     }
 
@@ -426,8 +427,8 @@ public sealed class MainWindow : Window
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "Save menu", SuggestedFileName = "menu1.jpmenu", DefaultExtension = "jpmenu",
-            FileTypeChoices = [new FilePickerFileType("Joe Pro menu") { Patterns = ["*.jpmenu"] }],
+            Title = Strings.T("Save menu"), SuggestedFileName = "menu1.jpmenu", DefaultExtension = "jpmenu",
+            FileTypeChoices = [new FilePickerFileType(Strings.T("Joe Pro menu")) { Patterns = ["*.jpmenu"] }],
         });
         if (file?.TryGetLocalPath() is { } path) designer.Save(path);
     }
@@ -489,10 +490,10 @@ public sealed class MainWindow : Window
         var ext = label ? "jplabel" : "jpreport";
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = label ? "Save label" : "Save report",
+            Title = label ? Strings.T("Save label") : Strings.T("Save report"),
             SuggestedFileName = (label ? "label1." : "report1.") + ext,
             DefaultExtension = ext,
-            FileTypeChoices = [new FilePickerFileType(label ? "Joe Pro label" : "Joe Pro report") { Patterns = ["*." + ext] }],
+            FileTypeChoices = [new FilePickerFileType(Strings.T(label ? "Joe Pro label" : "Joe Pro report")) { Patterns = ["*." + ext] }],
         });
         if (file?.TryGetLocalPath() is not { } path) return;
         designer.Save(path);
@@ -549,7 +550,7 @@ public sealed class MainWindow : Window
     {
         if (!Debugger.IsPaused || ActiveEditor is not { } tab) return;
         var line = tab.Editor.TextArea.Caret.Line;
-        if (!Debugger.SetNextStatement(line)) SetStatus($"Line {line} is not a statement in a block that is running now.");
+        if (!Debugger.SetNextStatement(line)) SetStatus(Strings.F("Line {0} is not a statement in a block that is running now.", line));
     }
 
     /// <summary>Saves the active program and runs it (DO for .prg, DO FORM for .jpform).</summary>
@@ -578,10 +579,10 @@ public sealed class MainWindow : Window
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "Save program",
+            Title = Strings.T("Save program"),
             SuggestedFileName = tab.SuggestedName ?? "program.prg",
             DefaultExtension = "prg",
-            FileTypeChoices = [new FilePickerFileType("FoxPro program") { Patterns = ["*.prg"] }, new FilePickerFileType("Joe Pro form") { Patterns = ["*.jpform"] }],
+            FileTypeChoices = [new FilePickerFileType(Strings.T("FoxPro program")) { Patterns = ["*.prg"] }, new FilePickerFileType(Strings.T("Joe Pro form")) { Patterns = ["*.jpform"] }],
         });
         if (file?.TryGetLocalPath() is { } path) tab.Save(path);
     }
@@ -590,10 +591,10 @@ public sealed class MainWindow : Window
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "Save form",
+            Title = Strings.T("Save form"),
             SuggestedFileName = designer.Session.ClassName.ToLowerInvariant() + ".jpform",
             DefaultExtension = "jpform",
-            FileTypeChoices = [new FilePickerFileType("Joe Pro form") { Patterns = ["*.jpform"] }],
+            FileTypeChoices = [new FilePickerFileType(Strings.T("Joe Pro form")) { Patterns = ["*.jpform"] }],
         });
         if (file?.TryGetLocalPath() is not { } path) return;
         designer.Save(path);
@@ -610,7 +611,7 @@ public sealed class MainWindow : Window
         if (Documents.SelectedItem is MemoEditorTab memoTab)
         {
             memoTab.Save();
-            SetStatus($"Saved {memoTab.Alias.ToLowerInvariant()}.{memoTab.Field.ToLowerInvariant()} in record {memoTab.RecNo}.");
+            SetStatus(Strings.F("Saved {0}.{1} in record {2}.", memoTab.Alias.ToLowerInvariant(), memoTab.Field.ToLowerInvariant(), memoTab.RecNo));
             return;
         }
         if (Documents.SelectedItem is ConnectionEditorTab connTab)
@@ -628,9 +629,9 @@ public sealed class MainWindow : Window
             try
             {
                 procs.Save();
-                SetStatus($"Saved the stored procedures of {procs.Database.Name.ToLowerInvariant()}.");
+                SetStatus(Strings.F("Saved the stored procedures of {0}.", procs.Database.Name.ToLowerInvariant()));
             }
-            catch (JoePro.Language.CompileException ex) { SetStatus($"Not saved: line {ex.Line}: {ex.Message}"); }
+            catch (JoePro.Language.CompileException ex) { SetStatus(Strings.F("Not saved: line {0}: {1}", ex.Line, ex.Message)); }
             return;
         }
         if (ActiveMenuDesigner is { } menu)
@@ -661,12 +662,12 @@ public sealed class MainWindow : Window
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Open",
+            Title = Strings.T("Open"),
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.scx", "*.jpclass", "*.vcx", "*.jpreport", "*.frx", "*.jplabel", "*.lbx", "*.jpmenu", "*.mnx", "*.jpproj", "*.pjx", "*.jpapp", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
-                new FilePickerFileType("All files") { Patterns = ["*"] },
+                new FilePickerFileType(Strings.T("FoxPro and Joe Pro files")) { Patterns = ["*.prg", "*.jpform", "*.scx", "*.jpclass", "*.vcx", "*.jpreport", "*.frx", "*.jplabel", "*.lbx", "*.jpmenu", "*.mnx", "*.jpproj", "*.pjx", "*.jpapp", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
+                new FilePickerFileType(Strings.T("All files")) { Patterns = ["*"] },
             ],
         });
         if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) OpenAny(path);
@@ -725,8 +726,8 @@ public sealed class MainWindow : Window
         if (ActiveDesigner is not { } designer) return;
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Add table to the data environment",
-            FileTypeFilter = [new FilePickerFileType("Tables") { Patterns = ["*.jpt", "*.dbf"] }],
+            Title = Strings.T("Add table to the data environment"),
+            FileTypeFilter = [new FilePickerFileType(Strings.T("Tables")) { Patterns = ["*.jpt", "*.dbf"] }],
         });
         if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) designer.AddTable(path);
     }
@@ -735,8 +736,8 @@ public sealed class MainWindow : Window
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Class library",
-            FileTypeFilter = [new FilePickerFileType("Class libraries") { Patterns = ["*.jpclass", "*.vcx"] }],
+            Title = Strings.T("Class library"),
+            FileTypeFilter = [new FilePickerFileType(Strings.T("Class libraries")) { Patterns = ["*.jpclass", "*.vcx"] }],
         });
         if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) OpenClassBrowser(path);
     }
@@ -749,8 +750,8 @@ public sealed class MainWindow : Window
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "New database", SuggestedFileName = "data.jpdb", DefaultExtension = "jpdb",
-            FileTypeChoices = [new FilePickerFileType("Joe Pro database") { Patterns = ["*.jpdb"] }],
+            Title = Strings.T("New database"), SuggestedFileName = "data.jpdb", DefaultExtension = "jpdb",
+            FileTypeChoices = [new FilePickerFileType(Strings.T("Joe Pro database")) { Patterns = ["*.jpdb"] }],
         });
         if (file?.TryGetLocalPath() is not { } path) return;
         if (!File.Exists(path)) Run($"CREATE DATABASE \"{path}\"");
@@ -762,8 +763,8 @@ public sealed class MainWindow : Window
         if (_session.Runtime.Session.CurrentDatabase is { } current) { OpenDatabaseDesigner(current.Path); return; }
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Database",
-            FileTypeFilter = [new FilePickerFileType("Joe Pro databases") { Patterns = ["*.jpdb"] }],
+            Title = Strings.T("Database"),
+            FileTypeFilter = [new FilePickerFileType(Strings.T("Joe Pro databases")) { Patterns = ["*.jpdb"] }],
         });
         if (files.Count > 0 && files[0].TryGetLocalPath() is { } path) OpenDatabaseDesigner(path);
     }
@@ -803,8 +804,8 @@ public sealed class MainWindow : Window
         {
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
-                Title = "Add a free table to the database",
-                FileTypeFilter = [new FilePickerFileType("Tables") { Patterns = ["*.jpt", "*.dbf"] }],
+                Title = Strings.T("Add a free table to the database"),
+                FileTypeFilter = [new FilePickerFileType(Strings.T("Tables")) { Patterns = ["*.jpt", "*.dbf"] }],
             });
             if (files.Count > 0 && files[0].TryGetLocalPath() is { } table)
             {
@@ -816,8 +817,8 @@ public sealed class MainWindow : Window
         {
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
-                Title = "The other version of the database (the one to upgrade)",
-                FileTypeFilter = [new FilePickerFileType("Joe Pro databases") { Patterns = ["*.jpdb"] }],
+                Title = Strings.T("The other version of the database (the one to upgrade)"),
+                FileTypeFilter = [new FilePickerFileType(Strings.T("Joe Pro databases")) { Patterns = ["*.jpdb"] }],
             });
             if (files.Count > 0 && files[0].TryGetLocalPath() is { } other)
             {
@@ -888,7 +889,7 @@ public sealed class MainWindow : Window
             {
                 var r = LegacyQueryConverter.Convert(path);
                 doc = r.Document;
-                SetStatus($"{Path.GetFileName(path)} was converted; saving writes {Path.GetFileName(target)}." + (r.Findings.Count > 0 ? " " + r.Findings[0].Message : ""));
+                SetStatus(Strings.F("{0} was converted; saving writes {1}.", Path.GetFileName(path), Path.GetFileName(target)) + (r.Findings.Count > 0 ? " " + r.Findings[0].Message : ""));
             }
             else doc = QueryDocument.Load(path);
         }
@@ -913,8 +914,8 @@ public sealed class MainWindow : Window
         {
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                Title = "Save query", SuggestedFileName = "query1.jpquery", DefaultExtension = "jpquery",
-                FileTypeChoices = [new FilePickerFileType("Joe Pro query") { Patterns = ["*.jpquery"] }],
+                Title = Strings.T("Save query"), SuggestedFileName = "query1.jpquery", DefaultExtension = "jpquery",
+                FileTypeChoices = [new FilePickerFileType(Strings.T("Joe Pro query")) { Patterns = ["*.jpquery"] }],
             });
             if (file?.TryGetLocalPath() is { } p) designer.Save(p);
         };
@@ -937,7 +938,7 @@ public sealed class MainWindow : Window
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Sync configuration", FileTypeFilter = [new FilePickerFileType("Joe Pro sync") { Patterns = ["joesync.json"] }],
+            Title = Strings.T("Sync configuration"), FileTypeFilter = [new FilePickerFileType(Strings.T("Joe Pro sync")) { Patterns = ["joesync.json"] }],
         });
         if (files.Count > 0 && files[0].TryGetLocalPath() is { } path)
         {
@@ -974,7 +975,7 @@ public sealed class MainWindow : Window
             if (wizard.SetDefaultWhenDone) Run($"SET DEFAULT TO \"{target}\"");
             if (wizard.OpenProjectWhenDone && wizard.ConvertedProjects.Count > 0) OpenProject(wizard.ConvertedProjects[0]);
             if (wizard.ShowReportWhenDone) OpenMigrationReport(report);
-            SetStatus($"Migrated into {target}: {report.ReadinessScore:P0} of the findings need no action.");
+            SetStatus(Strings.F("Migrated into {0}: {1:P0} of the findings need no action.", target, report.ReadinessScore));
         };
         OpenDocument(new MigrationWizardTab(wizard));
         return wizard;
@@ -1028,7 +1029,7 @@ public sealed class MainWindow : Window
         A("Form: center vertically", "", () => ActiveDesigner?.Align("CenterVertically"));
         A("Form: bring to front", "", () => ActiveDesigner?.ZOrder(true));
         A("Form: send to back", "", () => ActiveDesigner?.ZOrder(false));
-        A("Form: snap to grid", "", () => { if (ActiveDesigner is { } d) { d.SnapToGrid = !d.SnapToGrid; SetStatus($"Snap to grid: {(d.SnapToGrid ? "on" : "off")}"); } });
+        A("Form: snap to grid", "", () => { if (ActiveDesigner is { } d) { d.SnapToGrid = !d.SnapToGrid; SetStatus(Strings.F("Snap to grid: {0}", (d.SnapToGrid ? "on" : "off"))); } });
         A("Form: add table to data environment…", "", () => _ = AddTableToDataEnvironment());
         A("Go to definition", "F12", () => ActiveEditor?.Intelligence?.GoToDefinition());
         A("Show completions", "Ctrl+Space", () => ActiveEditor?.Intelligence?.ShowCompletion());
@@ -1054,7 +1055,7 @@ public sealed class MainWindow : Window
         A("Debug: stop", "Shift+F5", () => Debugger.Resume(DebugAction.Cancel));
         A("Debug: set next statement", "Ctrl+Shift+F10", SetNextStatement);
         A("Debug: toggle breakpoint", "F9", ToggleBreakpoint);
-        A("Debug: break on errors", "", () => { Debugger.Engine.BreakOnErrors = !Debugger.Engine.BreakOnErrors; SetStatus($"Break on unhandled errors: {(Debugger.Engine.BreakOnErrors ? "on" : "off")}"); });
+        A("Debug: break on errors", "", () => { Debugger.Engine.BreakOnErrors = !Debugger.Engine.BreakOnErrors; SetStatus(Strings.F("Break on unhandled errors: {0}", (Debugger.Engine.BreakOnErrors ? "on" : "off"))); });
         A("Debug: step into program", "", () => { Debugger.Engine.RequestPause(); RunActive(); });
     }
 

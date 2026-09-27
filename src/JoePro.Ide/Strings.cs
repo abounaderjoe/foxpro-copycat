@@ -21,17 +21,20 @@ public static class Strings
 
     static Strings() => Use(Environment.GetEnvironmentVariable("JOEPRO_UI_CULTURE") is { Length: > 0 } c ? c : CultureInfo.CurrentUICulture.Name);
 
-    /// <summary>The translation of <paramref name="english"/> in the current culture (the English text when there is none).</summary>
     /// <summary>Every text the IDE has asked to translate (for catalog checks).</summary>
     public static IReadOnlyCollection<string> Requested => _requested;
     private static readonly HashSet<string> _requested = new();
 
+    /// <summary>The translation of <paramref name="english"/> in the current culture (the English text when there is none).</summary>
     public static string T(string english)
     {
         lock (_requested) _requested.Add(english);
         if (Culture == PseudoLocale) return Pseudo(english);
         return _catalog.TryGetValue(english, out var t) && t.Length > 0 ? t : english;
     }
+
+    /// <summary>A translated format string filled in: F("Page {0} of {1}", n, total).</summary>
+    public static string F(string english, params object?[] args) => string.Format(CultureInfo.CurrentCulture, T(english), args);
 
     /// <summary>Switches the culture: "de-CH" uses de-CH.json, then de.json.</summary>
     public static void Use(string culture)

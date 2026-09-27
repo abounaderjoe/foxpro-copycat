@@ -13,7 +13,7 @@ public static class ReportDialogs
 {
     private static Window Dialog(string title, Control content, double width = 460) => new()
     {
-        Title = title, Width = width, SizeToContent = SizeToContent.Height, CanResize = false,
+        Title = Strings.T(title), Width = width, SizeToContent = SizeToContent.Height, CanResize = false,
         WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = new Border { Padding = new Thickness(12), Child = content },
     };
 
@@ -24,7 +24,7 @@ public static class ReportDialogs
     }
 
     private static Control Row(string label, Control editor) =>
-        new DockPanel { Margin = new Thickness(0, 3), Children = { new TextBlock { Text = label, Width = 130, VerticalAlignment = VerticalAlignment.Center }, editor } };
+        new DockPanel { Margin = new Thickness(0, 3), Children = { new TextBlock { Text = Strings.T(label), Width = 130, VerticalAlignment = VerticalAlignment.Center }, editor } };
 
     private static StackPanel ButtonRow(IEnumerable<Button> buttons)
     {
@@ -39,10 +39,10 @@ public static class ReportDialogs
         var s = d.Session;
         var list = new ListBox { Height = 140 };
         var expr = new TextBox();
-        var newPage = new CheckBox { Content = "Start each group on a new page" };
-        var newColumn = new CheckBox { Content = "Start each group in a new column" };
-        var resetPage = new CheckBox { Content = "Reset page number to 1 for each group" };
-        var reprint = new CheckBox { Content = "Reprint group header on each page" };
+        var newPage = new CheckBox { Content = Strings.T("Start each group on a new page") };
+        var newColumn = new CheckBox { Content = Strings.T("Start each group in a new column") };
+        var resetPage = new CheckBox { Content = Strings.T("Reset page number to 1 for each group") };
+        var reprint = new CheckBox { Content = Strings.T("Reprint group header on each page") };
         var minSpace = new TextBox { Text = "0" };
         void Fill()
         {
@@ -58,7 +58,7 @@ public static class ReportDialogs
             expr.Text = g.Expression; newPage.IsChecked = g.NewPage; newColumn.IsChecked = g.NewColumn; resetPage.IsChecked = g.ResetPageNumber;
             reprint.IsChecked = g.ReprintHeader; minSpace.Text = g.MinSpace.ToString(System.Globalization.CultureInfo.InvariantCulture);
         };
-        Button B(string text, Action act) { var b = new Button { Content = text }; b.Click += (_, _) => { act(); Fill(); }; return b; }
+        Button B(string text, Action act) { var b = new Button { Content = Strings.T(text) }; b.Click += (_, _) => { act(); Fill(); }; return b; }
         var add = B("Add", () => { if ((expr.Text ?? "").Trim() is { Length: > 0 } e) { s.AddGroup(e); list.SelectedIndex = s.Document.Groups.Count - 1; } });
         var apply = B("Apply", () =>
         {
@@ -76,12 +76,12 @@ public static class ReportDialogs
         var remove = B("Remove", () => { if (list.SelectedIndex >= 0) s.RemoveGroup(list.SelectedIndex + 1); });
         var up = B("Outward", () => { if (list.SelectedIndex > 0) { s.MoveGroupInward(list.SelectedIndex); list.SelectedIndex--; } });
         var down = B("Inward", () => { if (list.SelectedIndex >= 0) { s.MoveGroupInward(list.SelectedIndex + 1); list.SelectedIndex++; } });
-        var close = new Button { Content = "Close", IsCancel = true };
+        var close = new Button { Content = Strings.T("Close"), IsCancel = true };
         var dialog = Dialog("Data Grouping", new StackPanel
         {
             Children =
             {
-                new TextBlock { Text = "Groups (outermost first)", FontWeight = FontWeight.SemiBold },
+                new TextBlock { Text = Strings.T("Groups (outermost first)"), FontWeight = FontWeight.SemiBold },
                 list,
                 Row("Group on expression", expr),
                 newPage, newColumn, resetPage, reprint,
@@ -104,12 +104,12 @@ public static class ReportDialogs
         var initial = new TextBox();
         var calc = new ComboBox { ItemsSource = Enum.GetNames<CalcType>(), SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
         var reset = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        var release = new CheckBox { Content = "Release after the report", IsChecked = true };
+        var release = new CheckBox { Content = Strings.T("Release after the report"), IsChecked = true };
         void FillResets()
         {
             reset.Items.Clear();
             reset.Items.Add("Report"); reset.Items.Add("Page"); reset.Items.Add("Column");
-            for (int i = 0; i < s.Document.Groups.Count; i++) reset.Items.Add($"Group {i + 1}: {s.Document.Groups[i].Expression}");
+            for (int i = 0; i < s.Document.Groups.Count; i++) reset.Items.Add(Strings.F("Group {0}: {1}", i + 1, s.Document.Groups[i].Expression));
             reset.SelectedIndex = 0;
         }
         void Fill()
@@ -133,17 +133,17 @@ public static class ReportDialogs
             ResetGroup = Math.Max(0, reset.SelectedIndex - 2),
         };
         var message = new TextBlock { Foreground = Brushes.IndianRed };
-        Button B(string text, Action act) { var b = new Button { Content = text }; b.Click += (_, _) => { message.Text = ""; act(); Fill(); }; return b; }
+        Button B(string text, Action act) { var b = new Button { Content = Strings.T(text) }; b.Click += (_, _) => { message.Text = ""; act(); Fill(); }; return b; }
         var add = B("Add", () =>
         {
             var v = FromFields();
-            if (!System.Text.RegularExpressions.Regex.IsMatch(v.Name, @"^[A-Za-z_]\w*$")) { message.Text = "Give the variable a valid name."; return; }
-            if (s.Document.Variables.Any(x => x.Name.Equals(v.Name, StringComparison.OrdinalIgnoreCase))) { message.Text = $"{v.Name} already exists."; return; }
+            if (!System.Text.RegularExpressions.Regex.IsMatch(v.Name, @"^[A-Za-z_]\w*$")) { message.Text = Strings.T("Give the variable a valid name."); return; }
+            if (s.Document.Variables.Any(x => x.Name.Equals(v.Name, StringComparison.OrdinalIgnoreCase))) { message.Text = Strings.F("{0} already exists.", v.Name); return; }
             s.Update($"Add variable {v.Name}", doc => doc.Variables.Add(v));
         });
         var apply = B("Apply", () => { var i = list.SelectedIndex; if (i >= 0) { var v = FromFields(); s.Update($"Edit variable {v.Name}", doc => doc.Variables[i] = v); } });
         var remove = B("Remove", () => { var i = list.SelectedIndex; if (i >= 0) s.Update("Remove variable", doc => doc.Variables.RemoveAt(i)); });
-        var close = new Button { Content = "Close", IsCancel = true };
+        var close = new Button { Content = Strings.T("Close"), IsCancel = true };
         var dialog = Dialog("Report Variables", new StackPanel
         {
             Children =
@@ -161,13 +161,13 @@ public static class ReportDialogs
     public static void TitleSummary(ReportDesigner d)
     {
         var doc = d.Session.Document;
-        var title = new CheckBox { Content = "Title band", IsChecked = doc.Band(BandKind.Title) != null };
-        var titlePage = new CheckBox { Content = "Title on its own page", IsChecked = doc.TitleOnNewPage, Margin = new Thickness(20, 0, 0, 0) };
-        var summary = new CheckBox { Content = "Summary band", IsChecked = doc.Band(BandKind.Summary) != null };
-        var summaryPage = new CheckBox { Content = "Summary on its own page", IsChecked = doc.SummaryOnNewPage, Margin = new Thickness(20, 0, 0, 0) };
-        var columns = new CheckBox { Content = "Column header and footer bands", IsChecked = doc.Band(BandKind.ColumnHeader) != null };
-        var ok = new Button { Content = "OK", IsDefault = true };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var title = new CheckBox { Content = Strings.T("Title band"), IsChecked = doc.Band(BandKind.Title) != null };
+        var titlePage = new CheckBox { Content = Strings.T("Title on its own page"), IsChecked = doc.TitleOnNewPage, Margin = new Thickness(20, 0, 0, 0) };
+        var summary = new CheckBox { Content = Strings.T("Summary band"), IsChecked = doc.Band(BandKind.Summary) != null };
+        var summaryPage = new CheckBox { Content = Strings.T("Summary on its own page"), IsChecked = doc.SummaryOnNewPage, Margin = new Thickness(20, 0, 0, 0) };
+        var columns = new CheckBox { Content = Strings.T("Column header and footer bands"), IsChecked = doc.Band(BandKind.ColumnHeader) != null };
+        var ok = new Button { Content = Strings.T("OK"), IsDefault = true };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
         var dialog = Dialog("Title/Summary", new StackPanel { Children = { title, titlePage, summary, summaryPage, columns, ButtonRow([ok, cancel]) } }, 360);
         ok.Click += (_, _) =>
         {
@@ -195,7 +195,7 @@ public static class ReportDialogs
         var width = new TextBox { Text = N(doc.PageWidth) };
         var height = new TextBox { Text = N(doc.PageHeight) };
         paper.SelectionChanged += (_, _) => { if (Papers.FirstOrDefault(p => p.Name == (string?)paper.SelectedItem) is { Name: not null } p) { width.Text = N(p.W); height.Text = N(p.H); } };
-        var landscape = new CheckBox { Content = "Landscape", IsChecked = doc.Landscape };
+        var landscape = new CheckBox { Content = Strings.T("Landscape"), IsChecked = doc.Landscape };
         var left = new TextBox { Text = N(doc.LeftMargin) };
         var right = new TextBox { Text = N(doc.RightMargin) };
         var top = new TextBox { Text = N(doc.TopMargin) };
@@ -203,10 +203,10 @@ public static class ReportDialogs
         var cols = new TextBox { Text = doc.Columns.ToString() };
         var colWidth = new TextBox { Text = N(doc.ColumnWidth) };
         var spacing = new TextBox { Text = N(doc.ColumnSpacing) };
-        var across = new CheckBox { Content = "Print columns across (left to right)", IsChecked = doc.ColumnOrder == ColumnOrder.Across };
+        var across = new CheckBox { Content = Strings.T("Print columns across (left to right)"), IsChecked = doc.ColumnOrder == ColumnOrder.Across };
         var message = new TextBlock { Foreground = Brushes.IndianRed };
-        var ok = new Button { Content = "OK", IsDefault = true };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var ok = new Button { Content = Strings.T("OK"), IsDefault = true };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
         var dialog = Dialog("Page Setup", new StackPanel
         {
             Children =
@@ -233,7 +233,7 @@ public static class ReportDialogs
                 });
                 dialog.Close();
             }
-            catch (FormatException) { message.Text = "Enter numbers (inches) for the sizes and a whole number of columns."; }
+            catch (FormatException) { message.Text = Strings.T("Enter numbers (inches) for the sizes and a whole number of columns."); }
         };
         cancel.Click += (_, _) => dialog.Close();
         Show(d, dialog);
@@ -248,12 +248,12 @@ public static class ReportDialogs
             SyntaxHighlighting = FoxProHighlighting.Get(false),
             Text = d.Session.Document.DataEnvironment ?? "DEFINE CLASS ReportDataEnvironment AS DataEnvironment\n    PROCEDURE BeforeOpenTables\n    ENDPROC\nENDDEFINE\n",
         };
-        var table = new TextBox { Watermark = "table file (for example customer.jpt)" };
-        var addTable = new Button { Content = "Add table" };
+        var table = new TextBox { Watermark = Strings.T("table file (for example customer.jpt)") };
+        var addTable = new Button { Content = Strings.T("Add table") };
         var message = new TextBlock { Foreground = Brushes.IndianRed, TextWrapping = TextWrapping.Wrap };
-        var ok = new Button { Content = "OK", IsDefault = false };
-        var remove = new Button { Content = "No data environment" };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var ok = new Button { Content = Strings.T("OK"), IsDefault = false };
+        var remove = new Button { Content = Strings.T("No data environment") };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
         var dialog = Dialog("Data Environment", new StackPanel
         {
             Children = { editor, new DockPanel { Margin = new Thickness(0, 6), Children = { addTable, table } }, message, ButtonRow([remove, ok, cancel]) },
@@ -289,11 +289,11 @@ public static class ReportDialogs
         var aliases = rt.Session.OpenWorkAreas().Select(w => w.Alias).ToList();
         if (aliases.Count == 0) throw new InvalidOperationException("Open a table first (USE, or add one to the data environment).");
         var alias = new ComboBox { ItemsSource = aliases, SelectedItem = rt.Session.Current.InUse ? rt.Session.Current.Alias : aliases[0], HorizontalAlignment = HorizontalAlignment.Stretch };
-        var columnar = new RadioButton { Content = "Columns (one row per record)", IsChecked = true, GroupName = "layout" };
-        var form = new RadioButton { Content = "Form (one field per line)", GroupName = "layout" };
-        var ok = new Button { Content = "OK", IsDefault = true };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
-        var dialog = Dialog("Quick Report", new StackPanel { Children = { Row("Table", alias), columnar, form, new TextBlock { Text = "The current layout is replaced (Undo brings it back).", Opacity = 0.7 }, ButtonRow([ok, cancel]) } }, 400);
+        var columnar = new RadioButton { Content = Strings.T("Columns (one row per record)"), IsChecked = true, GroupName = "layout" };
+        var form = new RadioButton { Content = Strings.T("Form (one field per line)"), GroupName = "layout" };
+        var ok = new Button { Content = Strings.T("OK"), IsDefault = true };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
+        var dialog = Dialog("Quick Report", new StackPanel { Children = { Row("Table", alias), columnar, form, new TextBlock { Text = Strings.T("The current layout is replaced (Undo brings it back)."), Opacity = 0.7 }, ButtonRow([ok, cancel]) } }, 400);
         ok.Click += (_, _) => { d.QuickReport((string)alias.SelectedItem!, columnar.IsChecked == true); dialog.Close(); };
         cancel.Click += (_, _) => dialog.Close();
         Show(d, dialog);
@@ -305,9 +305,9 @@ public static class ReportDialogs
         var list = new ListBox { Height = 260 };
         foreach (var p in LabelPresets.All) list.Items.Add(p.Name);
         list.SelectedIndex = 0;
-        var ok = new Button { Content = "OK", IsDefault = true };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
-        var dialog = Dialog("New Label", new StackPanel { Children = { new TextBlock { Text = "Label layout", FontWeight = FontWeight.SemiBold }, list, ButtonRow([ok, cancel]) } }, 480);
+        var ok = new Button { Content = Strings.T("OK"), IsDefault = true };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
+        var dialog = Dialog("New Label", new StackPanel { Children = { new TextBlock { Text = Strings.T("Label layout"), FontWeight = FontWeight.SemiBold }, list, ButtonRow([ok, cancel]) } }, 480);
         ok.Click += (_, _) => { chosen(LabelPresets.All[Math.Max(0, list.SelectedIndex)]); dialog.Close(); };
         cancel.Click += (_, _) => dialog.Close();
         list.DoubleTapped += (_, _) => { chosen(LabelPresets.All[Math.Max(0, list.SelectedIndex)]); dialog.Close(); };

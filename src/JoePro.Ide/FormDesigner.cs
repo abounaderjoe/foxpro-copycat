@@ -53,7 +53,7 @@ public sealed class FormDesigner : UserControl
     private readonly TextBlock _formTitle = new() { Margin = new Thickness(8, 4), FontWeight = FontWeight.SemiBold };
     private readonly TextBlock _message = new() { Margin = new Thickness(12), Foreground = Brushes.IndianRed, TextWrapping = TextWrapping.Wrap };
     private readonly ListBox _toolbox = new();
-    private readonly TreeView _dataEnvironment = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Data environment", MinHeight = 80 };
+    private readonly TreeView _dataEnvironment = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = Strings.T("Data environment"), MinHeight = 80 };
     private readonly TextEditor _code;
     private readonly TextBlock _codeTitle = new() { Margin = new Thickness(6, 3), FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
     private readonly Grid _centerGrid;
@@ -89,7 +89,7 @@ public sealed class FormDesigner : UserControl
             ShowLineNumbers = true,
             SyntaxHighlighting = FoxProHighlighting.Get(dark),
         };
-        Avalonia.Automation.AutomationProperties.SetName(_code, "Method code");
+        Avalonia.Automation.AutomationProperties.SetName(_code, Strings.T("Method code"));
         _code.Options.ConvertTabsToSpaces = true;
         _code.Options.IndentationSize = 3;
         _code.LostFocus += (_, _) => CommitCode();
@@ -203,13 +203,13 @@ public sealed class FormDesigner : UserControl
             _overlay.Width = _adorners.Width = Rendered.Width;
             _overlay.Height = _adorners.Height = Rendered.Height;
             _formTitle.Text = IsClass
-                ? $"{Session.ClassName}  ·  based on {Session.Class.ParentClass}{(Session.Class.ParentLibrary != null ? " of " + Session.Class.ParentLibrary : "")}"
+                ? Strings.F("{0}  ·  based on {1}", Session.ClassName, Session.Class.ParentClass + (Session.Class.ParentLibrary != null ? Strings.F(" of {0}", Session.Class.ParentLibrary) : ""))
                 : Prop(obj, "Caption") is { Kind: ValueKind.Character } c ? c.AsString : name;
         }
         catch (Exception ex) when (ex is VfpException or CompileException)
         {
             RenderError = ex.Message;
-            _message.Text = "The form cannot be displayed: " + ex.Message;
+            _message.Text = Strings.T("The form cannot be displayed: ") + ex.Message;
         }
         _selection.RemoveAll(p => Find(p) == null);
         if (_selection.Count == 0) _selection.Add("");
@@ -588,7 +588,7 @@ public sealed class FormDesigner : UserControl
         var parent = ContainerAt(p);
         if (parent.Length == 0 && Root != null && !CanContain(Root.Class.BaseClass))
         {
-            Status?.Invoke($"A {Root.Class.BaseClass} cannot contain other objects.");
+            Status?.Invoke(Strings.F("A {0} cannot contain other objects.", Root.Class.BaseClass));
             return "";
         }
         var origin = parent.Length == 0 || Find(parent) is not { } po || RectOf(po.Class.BaseClass == "Page" ? po.Parent! : po) is not { } pr
@@ -820,7 +820,7 @@ public sealed class FormDesigner : UserControl
                 _rt.ExecuteCommand($"USE \"{target}\" ALIAS {alias} AGAIN IN 0 NOUPDATE");
                 wa = _rt.Session.FindAlias(alias);
             }
-            catch (VfpException ex) { Status?.Invoke($"Cannot open {alias}: {ex.Message}"); }
+            catch (VfpException ex) { Status?.Invoke(Strings.F("Cannot open {0}: {1}", alias, ex.Message)); }
         }
         return wa?.Table.Fields ?? (IReadOnlyList<FieldDef>)[];
     }
@@ -923,12 +923,12 @@ public sealed class FormDesigner : UserControl
         else ClassFileWriter.Save(Session.File, FilePath);
         Session.MarkSaved();
         Saved?.Invoke();
-        Status?.Invoke($"Saved {System.IO.Path.GetFileName(FilePath)}.");
+        Status?.Invoke(Strings.F("Saved {0}.", System.IO.Path.GetFileName(FilePath)));
     }
 
     public void Run()
     {
-        if (FilePath == null) { Status?.Invoke("Save the form before running it."); return; }
+        if (FilePath == null) { Status?.Invoke(Strings.T("Save the form before running it.")); return; }
         Save();
         RunRequested?.Invoke(RunCommand());
     }
@@ -1011,7 +1011,7 @@ public sealed class FormDesigner : UserControl
 
     public void RemoveMember(string name)
     {
-        if (!Session.MemberExists(name)) { Status?.Invoke($"{name} is inherited; remove it in the class that defines it."); return; }
+        if (!Session.MemberExists(name)) { Status?.Invoke(Strings.F("{0} is inherited; remove it in the class that defines it.", name)); return; }
         if (_codeMethod != null && _codePath == "" && _codeMethod.Equals(name, StringComparison.OrdinalIgnoreCase)) _codeMethod = null;
         Session.RemoveMember(name);
     }
@@ -1046,12 +1046,12 @@ public sealed class FormDesigner : UserControl
     {
         Button B(string text, string tip, Action act)
         {
-            var b = new Button { Content = text, Padding = new Thickness(8, 2), FontSize = 12 };
-            ToolTip.SetTip(b, tip);
+            var b = new Button { Content = Strings.T(text), Padding = new Thickness(8, 2), FontSize = 12 };
+            ToolTip.SetTip(b, Strings.T(tip));
             b.Click += (_, _) => act();
             return b;
         }
-        var snap = new CheckBox { Content = "Snap to grid", IsChecked = SnapToGrid, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0) };
+        var snap = new CheckBox { Content = Strings.T("Snap to grid"), IsChecked = SnapToGrid, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0) };
         snap.IsCheckedChanged += (_, _) => SnapToGrid = snap.IsChecked == true;
         return new WrapPanel
         {

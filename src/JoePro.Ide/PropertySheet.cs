@@ -17,11 +17,11 @@ namespace JoePro.Ide;
 /// </summary>
 public sealed class PropertySheet : UserControl
 {
-    private readonly ComboBox _objects = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Object", HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(4) };
-    private readonly TextBox _search = new() { Watermark = "Search properties", Margin = new Thickness(4, 0, 4, 4) };
-    private readonly ComboBox _category = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Property category", HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(4, 0, 4, 4) };
+    private readonly ComboBox _objects = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = Strings.T("Object"), HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(4) };
+    private readonly TextBox _search = new() { Watermark = Strings.T("Search properties"), Margin = new Thickness(4, 0, 4, 4) };
+    private readonly ComboBox _category = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = Strings.T("Property category"), HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(4, 0, 4, 4) };
     private readonly StackPanel _rows = new() { Spacing = 0 };
-    private readonly ListBox _methods = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Methods" };
+    private readonly ListBox _methods = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = Strings.T("Methods") };
     private readonly TabControl _tabs = new() { Padding = new Thickness(0) };
     private bool _loading;
 
@@ -58,8 +58,8 @@ public sealed class PropertySheet : UserControl
         DockPanel.SetDock(descriptionBorder, Dock.Bottom);
         props.Children.Add(descriptionBorder);
         props.Children.Add(new ScrollViewer { Content = _rows });
-        _tabs.Items.Add(new TabItem { Header = "Properties", Content = props, FontSize = 13 });
-        _tabs.Items.Add(new TabItem { Header = "Methods", Content = _methods, FontSize = 13 });
+        _tabs.Items.Add(new TabItem { Header = Strings.T("Properties"), Content = props, FontSize = 13 });
+        _tabs.Items.Add(new TabItem { Header = Strings.T("Methods"), Content = _methods, FontSize = 13 });
         var root = new DockPanel();
         DockPanel.SetDock(_objects, Dock.Top);
         root.Children.Add(_objects);
@@ -190,6 +190,7 @@ public sealed class PropertySheet : UserControl
             var label = new TextBlock
             {
                 Text = name,
+                Classes = { "data" }, // a FoxPro property name, not interface text
                 FontWeight = stored != null ? FontWeight.Bold : FontWeight.Normal,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(4, 1),
@@ -218,7 +219,7 @@ public sealed class PropertySheet : UserControl
             };
             box.LostFocus += (_, _) => CommitIfChanged();
             box.GotFocus += (_, _) => sheet.ShowDescription(name);
-            var reset = new MenuItem { Header = "Reset to default", IsEnabled = stored != null && !readOnly };
+            var reset = new MenuItem { Header = Strings.T("Reset to default"), IsEnabled = stored != null && !readOnly };
             reset.Click += (_, _) => sheet.Reset(name);
             ContextMenu = new ContextMenu { Items = { reset } };
             Grid.SetColumn(box, 1);
@@ -329,5 +330,5 @@ public static class PropertyHelp
         ["WordWrap"] = "Wraps text onto several lines.",
     };
 
-    public static string? For(string property) => Text.GetValueOrDefault(property);
+    public static string? For(string property) => Text.GetValueOrDefault(property) is { } t ? Strings.T(t) : null;
 }

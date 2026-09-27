@@ -40,7 +40,7 @@ public sealed class CommandPalette : Border
         CornerRadius = new CornerRadius(6);
         BorderThickness = new Thickness(1);
         BoxShadow = BoxShadows.Parse("0 6 24 0 #50000000");
-        Input = new TextBox { Watermark = "Type an action, or a FoxPro command and press Enter" };
+        Input = new TextBox { Watermark = Strings.T("Type an action, or a FoxPro command and press Enter") };
         Results = new ListBox { MaxHeight = 280 };
         Child = new DockPanel { Children = { Input, Results } };
         DockPanel.SetDock(Input, Dock.Top);

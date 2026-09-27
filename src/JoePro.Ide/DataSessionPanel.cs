@@ -13,13 +13,13 @@ public sealed class DataSessionPanel : UserControl
     public DataSessionPanel(IdeSession session, Action<string> run)
     {
         _session = session;
-        List = new ListBox { [Avalonia.Automation.AutomationProperties.NameProperty] = "Work areas", FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
+        List = new ListBox { [Avalonia.Automation.AutomationProperties.NameProperty] = Strings.T("Work areas"), FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 12 };
         List.DoubleTapped += (_, _) => { if (Selected is { } w) run($"SELECT {w.Number}\nBROWSE"); };
-        var browse = new Button { Content = "Browse" };
+        var browse = new Button { Content = Strings.T("Browse") };
         browse.Click += (_, _) => { if (Selected is { } w) run($"SELECT {w.Number}\nBROWSE"); };
-        var select = new Button { Content = "Select" };
+        var select = new Button { Content = Strings.T("Select") };
         select.Click += (_, _) => { if (Selected is { } w) run($"SELECT {w.Number}"); };
-        var close = new Button { Content = "Close" };
+        var close = new Button { Content = Strings.T("Close") };
         close.Click += (_, _) => { if (Selected is { } w) run($"USE IN {w.Number}"); };
         var buttons = new WrapPanel { Margin = new Thickness(4), Children = { browse, select, close } };
         foreach (var b in buttons.Children.OfType<Button>()) b.Margin = new Thickness(2);

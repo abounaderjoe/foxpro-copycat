@@ -57,7 +57,7 @@ public sealed class CodeEditorTab : DocumentTab
             SyntaxHighlighting = FoxProHighlighting.Get(dark),
             Padding = new Thickness(4),
         };
-        Avalonia.Automation.AutomationProperties.SetName(Editor, "Code editor");
+        Avalonia.Automation.AutomationProperties.SetName(Editor, Strings.T("Code editor"));
         Editor.Options.ConvertTabsToSpaces = true;
         Editor.Options.IndentationSize = 3;
         if (path != null && File.Exists(path)) Editor.Text = File.ReadAllText(path);
@@ -125,12 +125,12 @@ public sealed class BrowseTab : DocumentTab
     {
         Model = model;
         Grid = host.CreateGrid(model, readOnly: false);
-        var refresh = new Button { Content = "Refresh" };
+        var refresh = new Button { Content = Strings.T("Refresh") };
         refresh.Click += (_, _) => { model.Load(); Title = model.Title; changed(); };
-        var append = new Button { Content = "Append record" };
+        var append = new Button { Content = Strings.T("Append record") };
         append.Click += (_, _) => { model.AppendRow(); Title = model.Title; Grid.SelectedIndex = model.Rows.Count - 1; changed(); };
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(6), Children = { refresh, append,
-            new TextBlock { Text = "Ctrl+T toggles the deleted mark", VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 } } };
+            new TextBlock { Text = Strings.T("Ctrl+T toggles the deleted mark"), VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 } } };
         var dock = new DockPanel();
         DockPanel.SetDock(toolbar, Dock.Top);
         dock.Children.Add(toolbar);
@@ -150,7 +150,7 @@ public sealed class ScreenTab : TabItem
 
     public ScreenTab(ScreenOutput screen)
     {
-        Header = "Screen";
+        Header = Strings.T("Screen");
         FontSize = 13;
         MinHeight = 32;
         Padding = new Thickness(10, 4);

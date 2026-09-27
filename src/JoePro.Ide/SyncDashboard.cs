@@ -14,7 +14,7 @@ public sealed class SyncDashboardTab : DocumentTab
     {
         Dashboard = dashboard;
         Content = dashboard;
-        Title = "Sync · " + System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(dashboard.ConfigPath));
+        Title = Strings.T("Sync · ") + System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(dashboard.ConfigPath));
     }
 
     public SyncDashboard Dashboard { get; }
@@ -39,8 +39,8 @@ public sealed class SyncDashboard : UserControl, IDisposable
         _engine = new SyncEngine(ConfigPath);
         Button B(string text, string tip, Action act)
         {
-            var b = new Button { Content = text, Padding = new Thickness(8, 2), FontSize = 12 };
-            ToolTip.SetTip(b, tip);
+            var b = new Button { Content = Strings.T(text), Padding = new Thickness(8, 2), FontSize = 12 };
+            ToolTip.SetTip(b, Strings.T(tip));
             b.Click += (_, _) =>
             {
                 try { act(); }
@@ -55,7 +55,7 @@ public sealed class SyncDashboard : UserControl, IDisposable
             {
                 B("Run cycle", "Exchange the changes made since the last cycle", () => RunCycle()),
                 B("Refresh", "Reload the status", Refresh),
-                B("Write VFP programs", "Write joesync_agent.prg (and the trigger installer) into the legacy folder", () => { _engine.WriteLegacyPrograms(); _message.Text = "Programs written to " + _engine.Config.Legacy; }),
+                B("Write VFP programs", "Write joesync_agent.prg (and the trigger installer) into the legacy folder", () => { _engine.WriteLegacyPrograms(); _message.Text = Strings.T("Programs written to ") + _engine.Config.Legacy; }),
                 B("Cut over…", "Make Joe Pro the system of record", () => _message.Text = string.Join(" ", Cutover())),
             },
         };
@@ -65,9 +65,9 @@ public sealed class SyncDashboard : UserControl, IDisposable
             Children =
             {
                 _summary,
-                new TextBlock { Text = "Recent cycles", FontWeight = FontWeight.SemiBold },
+                new TextBlock { Text = Strings.T("Recent cycles"), FontWeight = FontWeight.SemiBold },
                 _cycles,
-                new TextBlock { Text = "Conflicts to review", FontWeight = FontWeight.SemiBold },
+                new TextBlock { Text = Strings.T("Conflicts to review"), FontWeight = FontWeight.SemiBold },
                 _conflicts,
                 _message,
             },
@@ -89,7 +89,7 @@ public sealed class SyncDashboard : UserControl, IDisposable
     {
         var c = _engine.RunCycle();
         Refresh();
-        _message.Text = $"Cycle done: {c.AppliedToJoe} change(s) applied to Joe Pro, {c.AppliedToLegacy} sent to the VFP agent, {c.Conflicts} conflict(s), {c.Errors} error(s).";
+        _message.Text = Strings.F("Cycle done: {0} change(s) applied to Joe Pro, {1} sent to the VFP agent, {2} conflict(s), {3} error(s).", c.AppliedToJoe, c.AppliedToLegacy, c.Conflicts, c.Errors);
         return c;
     }
 
@@ -112,13 +112,13 @@ public sealed class SyncDashboard : UserControl, IDisposable
     public void Refresh()
     {
         var st = _engine.Status();
-        _summary.Text = (st.LastCycleUtc is { } t ? $"Last cycle {t.ToLocalTime():g} ({st.Lag!.Value.TotalSeconds:0} s ago)." : "No cycle has run yet.")
+        _summary.Text = (st.LastCycleUtc is { } t ? Strings.F("Last cycle {0:g} ({1:0} s ago).", t.ToLocalTime(), st.Lag!.Value.TotalSeconds) : Strings.T("No cycle has run yet."))
             + $"  Waiting for the VFP agent: {st.PendingBatches} batch(es), {st.PendingRows} row(s).  Blocked rows: {st.Blocked}.  Open conflicts: {st.OpenConflicts}."
             + (st.CutOver ? "  Cut over: Joe Pro is the system of record." : $"  System of record: {string.Join(", ", _engine.Config.Tables.Select(x => $"{x.Name} {x.Authority.ToString().ToLowerInvariant()}"))}.");
         _cycles.ItemsSource = st.Recent.Select(Line).ToList();
         _conflicts.Children.Clear();
         var open = _engine.State.Conflicts();
-        if (open.Count == 0) _conflicts.Children.Add(new TextBlock { Text = "No conflicts.", Opacity = 0.7 });
+        if (open.Count == 0) _conflicts.Children.Add(new TextBlock { Text = Strings.T("No conflicts."), Opacity = 0.7 });
         foreach (var c in open)
         {
             var id = c.Id;
@@ -135,7 +135,7 @@ public sealed class SyncDashboard : UserControl, IDisposable
                 ("Dismiss", () => { _engine.Dismiss(id); Refresh(); }),
             })
             {
-                var b = new Button { Content = label, FontSize = 11, Padding = new Thickness(6, 0), Margin = new Thickness(2, 0) };
+                var b = new Button { Content = Strings.T(label), FontSize = 11, Padding = new Thickness(6, 0), Margin = new Thickness(2, 0) };
                 b.Click += (_, _) =>
                 {
                     try { act(); }
@@ -146,7 +146,7 @@ public sealed class SyncDashboard : UserControl, IDisposable
             _conflicts.Children.Add(row);
         }
         foreach (var (table, key, reason) in _engine.State.Blocked())
-            _conflicts.Children.Add(new TextBlock { Text = $"Blocked: {table} {key}: {reason}", Foreground = Brushes.IndianRed, TextWrapping = TextWrapping.Wrap });
+            _conflicts.Children.Add(new TextBlock { Text = Strings.F("Blocked: {0} {1}: {2}", table, key, reason), Foreground = Brushes.IndianRed, TextWrapping = TextWrapping.Wrap });
     }
 
     public void Dispose() => _engine.Dispose();

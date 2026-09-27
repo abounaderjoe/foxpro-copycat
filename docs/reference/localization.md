@@ -11,8 +11,8 @@ override those in `de.json`.
 
 ## Catalogs
 
-- Built-in catalogs live in `src/JoePro.Ide/Localization/<culture>.json`. German (`de`) is included and covers
-  the menus and the command palette.
+- Built-in catalogs live in `src/JoePro.Ide/Localization/<culture>.json`. The IDE ships in English only; no other catalog is included (it would cover
+  the menus, palette, designers and dialogs).
 - A file with the same name in the user's settings folder (`%APPDATA%\Joe Pro\Localization` on Windows,
   `~/.config/Joe Pro/Localization` on Linux and macOS) overrides the built-in one. Use it to try a translation
   without rebuilding.

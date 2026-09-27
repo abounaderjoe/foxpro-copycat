@@ -15,7 +15,7 @@ public sealed class ProjectManagerTab : DocumentTab
     {
         Manager = pm;
         Content = pm;
-        void Update() => Title = "Project: " + System.IO.Path.GetFileName(pm.ProjectPath) + (pm.IsDirty ? " •" : "");
+        void Update() => Title = Strings.T("Project: ") + System.IO.Path.GetFileName(pm.ProjectPath) + (pm.IsDirty ? " •" : "");
         pm.Changed += Update;
         Update();
     }
@@ -31,8 +31,8 @@ public sealed class ProjectManager : UserControl
 {
     private readonly IdeSession _ide;
     private readonly TabControl _tabs = new() { Padding = new Thickness(0) };
-    private readonly TextBox _filter = new() { Watermark = "Filter files", Margin = new Thickness(4) };
-    private readonly TextBox _search = new() { Watermark = "Find in project files", Margin = new Thickness(4) };
+    private readonly TextBox _filter = new() { Watermark = Strings.T("Filter files"), Margin = new Thickness(4) };
+    private readonly TextBox _search = new() { Watermark = Strings.T("Find in project files"), Margin = new Thickness(4) };
     private readonly ListBox _results = new() { MaxHeight = 220 };
     private readonly TextBlock _info = new() { Margin = new Thickness(6, 2), Opacity = 0.8, TextWrapping = TextWrapping.Wrap };
     private string? _selected;
@@ -61,8 +61,8 @@ public sealed class ProjectManager : UserControl
         _results.DoubleTapped += (_, _) => { if (_results.SelectedItem is ListBoxItem { Tag: SearchHit hit }) OpenAt(hit); };
         Button B(string text, string tip, Action act)
         {
-            var b = new Button { Content = text, Padding = new Thickness(8, 2), FontSize = 12 };
-            ToolTip.SetTip(b, tip);
+            var b = new Button { Content = Strings.T(text), Padding = new Thickness(8, 2), FontSize = 12 };
+            ToolTip.SetTip(b, Strings.T(tip));
             b.Click += (_, _) =>
             {
                 try { act(); }
@@ -148,28 +148,28 @@ public sealed class ProjectManager : UserControl
             Tag = f.Path,
             Opacity = f.Exclude ? 0.65 : 1,
         };
-        TreeView Tree() { var t = new TreeView(); Avalonia.Automation.AutomationProperties.SetName(t, "Project files"); t.SelectionChanged += (_, _) => { if (t.SelectedItem is TreeViewItem { Tag: string p }) { _selected = p; ShowInfo(); } }; t.DoubleTapped += (_, _) => { if (_selected != null) Open(_selected); }; return t; }
+        TreeView Tree() { var t = new TreeView(); Avalonia.Automation.AutomationProperties.SetName(t, Strings.T("Project files")); t.SelectionChanged += (_, _) => { if (t.SelectedItem is TreeViewItem { Tag: string p }) { _selected = p; ShowInfo(); } }; t.DoubleTapped += (_, _) => { if (_selected != null) Open(_selected); }; return t; }
         var all = Tree();
         foreach (var path in Visible("All")) all.Items.Add(FileNode(Project.Find(path)!));
-        _tabs.Items.Add(new TabItem { Header = "All", Content = all, FontSize = 13 });
+        _tabs.Items.Add(new TabItem { Header = Strings.T("All"), Content = all, FontSize = 13 });
         foreach (var (tab, groups) in Categories)
         {
             var tree = Tree();
             var visible = Visible(tab).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var (group, types) in groups)
             {
-                var node = new TreeViewItem { Header = group, IsExpanded = true };
+                var node = new TreeViewItem { Header = Strings.T(group), IsExpanded = true };
                 foreach (var f in Project.Files.Where(f => types.Contains(f.Type) && visible.Contains(f.Path))) node.Items.Add(FileNode(f));
                 tree.Items.Add(node);
             }
-            _tabs.Items.Add(new TabItem { Header = tab, Content = tree, FontSize = 13 });
+            _tabs.Items.Add(new TabItem { Header = Strings.T(tab), Content = tree, FontSize = 13 });
         }
         _tabs.SelectedIndex = Math.Max(0, keep);
         ShowInfo();
     }
 
     private void ShowInfo() =>
-        _info.Text = $"Main program: {Project.Main ?? "(none)"}   ·   {Project.Files.Count} file(s)" + (_selected is { } s && Project.Find(s) is { } f ? $"   ·   {f.Path} ({f.Type}{(f.Exclude ? ", excluded" : "")})" : "");
+        _info.Text = Strings.F("Main program: {0}   ·   {1} file(s)", Project.Main ?? "(none)", Project.Files.Count) + (_selected is { } s && Project.Find(s) is { } f ? $"   ·   {f.Path} ({f.Type}{(f.Exclude ? ", excluded" : "")})" : "");
 
     // ---- Commands ----------------------------------------------------------------------------------
 
@@ -213,7 +213,7 @@ public sealed class ProjectManager : UserControl
         Project.Save(ProjectPath);
         IsDirty = false;
         Changed?.Invoke();
-        Status?.Invoke($"Saved {System.IO.Path.GetFileName(ProjectPath)}.");
+        Status?.Invoke(Strings.F("Saved {0}.", System.IO.Path.GetFileName(ProjectPath)));
     }
 
     private string Full(string rel) => System.IO.Path.GetFullPath(System.IO.Path.Combine(ProjectDir, rel));
@@ -291,7 +291,7 @@ public sealed class ProjectManager : UserControl
             _ => ProjectBuilder.Check(Project, ProjectDir),
         };
         Status?.Invoke(result.Succeeded
-            ? (kind.Equals("PROJECT", StringComparison.OrdinalIgnoreCase) ? $"No errors in {result.Files.Count} file(s)." : $"Built {result.Output}.")
+            ? (kind.Equals("PROJECT", StringComparison.OrdinalIgnoreCase) ? Strings.F("No errors in {0} file(s).", result.Files.Count) : Strings.F("Built {0}.", result.Output))
               + (result.Warnings.Count > 0 ? $" {result.Warnings.Count} warning(s): " + string.Join("; ", result.Warnings.Take(3).Select(w => $"{w.File}: {w.Message}")) : "")
             : $"{result.Errors.Count} error(s): " + string.Join("; ", result.Errors.Take(3).Select(e => $"{e.File}{(e.Line > 0 ? $"({e.Line})" : "")}: {e.Message}")));
         return result;
@@ -323,7 +323,7 @@ public sealed class ProjectManager : UserControl
         _results.Items.Clear();
         foreach (var hit in Search(text))
             _results.Items.Add(new ListBoxItem { Content = $"{hit.File}({hit.Line}): {hit.Text}", Tag = hit, FontSize = 12, Padding = new Thickness(6, 2), MinHeight = 0 });
-        Status?.Invoke($"{_results.Items.Count} match(es) for \"{text}\".");
+        Status?.Invoke(Strings.F("{0} match(es) for \"{1}\".", _results.Items.Count, text));
     }
 
     private void OpenAt(SearchHit hit) => OpenRequested?.Invoke(Full(hit.File) + "#" + hit.Line);
@@ -333,7 +333,7 @@ public sealed class ProjectManager : UserControl
     private async Task AddWithPicker()
     {
         if (TopLevel.GetTopLevel(this) is not { } top) return;
-        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Add files to the project", AllowMultiple = true });
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = Strings.T("Add files to the project"), AllowMultiple = true });
         foreach (var f in files) if (f.TryGetLocalPath() is { } p) AddFile(p);
     }
 
@@ -341,13 +341,13 @@ public sealed class ProjectManager : UserControl
     {
         var kinds = new[] { ProjectFileType.Program, ProjectFileType.Form, ProjectFileType.Report, ProjectFileType.Label, ProjectFileType.Menu, ProjectFileType.ClassLibrary, ProjectFileType.Text };
         var kind = new ComboBox { ItemsSource = kinds.Select(k => k.ToString()).ToList(), SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var name = new TextBox { Watermark = "name (for example forms/customer)" };
+        var name = new TextBox { Watermark = Strings.T("name (for example forms/customer)") };
         var message = new TextBlock { Foreground = Brushes.IndianRed };
-        var ok = new Button { Content = "Create", IsDefault = true };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var ok = new Button { Content = Strings.T("Create"), IsDefault = true };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
         var dialog = new Window
         {
-            Title = "New File", Width = 400, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Title = Strings.T("New File"), Width = 400, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Content = new Border { Padding = new Thickness(12), Child = new StackPanel { Spacing = 6, Children = { kind, name, message, new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Children = { ok, cancel } } } } },
         };
         ok.Click += (_, _) =>
@@ -369,7 +369,7 @@ public sealed class ProjectManager : UserControl
         var version = PackageManager.Add(Project, ProjectDir, name, at > 0 ? spec[(at + 1)..].Trim() : null, string.IsNullOrWhiteSpace(source) ? null : source.Trim());
         PackageManager.UsePackages(_ide.Runtime, ProjectDir);
         Save();
-        Status?.Invoke($"Added {name} {version}.");
+        Status?.Invoke(Strings.F("Added {0} {1}.", name, version));
         return version;
     }
 
@@ -377,14 +377,14 @@ public sealed class ProjectManager : UserControl
     {
         PackageManager.Remove(Project, ProjectDir, name);
         Save();
-        Status?.Invoke($"Removed {name}.");
+        Status?.Invoke(Strings.F("Removed {0}.", name));
     }
 
     public PackageManager.RestoreResult RestorePackages(bool update = false)
     {
         var result = PackageManager.Restore(Project, ProjectDir, update);
         PackageManager.UsePackages(_ide.Runtime, ProjectDir);
-        Status?.Invoke($"{result.Packages.Count} package(s): " + string.Join(", ", result.Packages.Select(p => $"{p.Name} {p.Version}")));
+        Status?.Invoke(Strings.F("{0} package(s): ", result.Packages.Count) + string.Join(", ", result.Packages.Select(p => $"{p.Name} {p.Version}")));
         return result;
     }
 
@@ -392,7 +392,7 @@ public sealed class ProjectManager : UserControl
     {
         Save();
         var path = PackageManager.Publish(Project, ProjectDir, System.IO.Path.IsPathRooted(registry) || registry.Contains("://") ? registry : System.IO.Path.GetFullPath(System.IO.Path.Combine(ProjectDir, registry)));
-        Status?.Invoke($"Published {Project.Name} {Project.Version}.");
+        Status?.Invoke(Strings.F("Published {0} {1}.", Project.Name, Project.Version));
         return path;
     }
 
@@ -404,9 +404,9 @@ public sealed class ProjectManager : UserControl
             var locked = PackageManager.ReadLock(ProjectDir).ToDictionary(l => l.Name, StringComparer.OrdinalIgnoreCase);
             list.ItemsSource = Project.Dependencies.Select(d => $"{d.Name,-20}{d.Version,-10}{(locked.TryGetValue(d.Name, out var l) ? "installed " + l.Version : "not installed")}{(d.Source != null ? "  from " + d.Source : "")}").ToList();
         }
-        var spec = new TextBox { Watermark = "package or package@range (^1.2, 1.0.0)" };
-        var source = new TextBox { Watermark = "source (empty for the registry; a folder or git+url#tag)" };
-        var registry = new TextBox { Text = Project.Registry ?? PackageManager.DefaultRegistry ?? "", Watermark = "registry folder or URL" };
+        var spec = new TextBox { Watermark = Strings.T("package or package@range (^1.2, 1.0.0)") };
+        var source = new TextBox { Watermark = Strings.T("source (empty for the registry; a folder or git+url#tag)") };
+        var registry = new TextBox { Text = Project.Registry ?? PackageManager.DefaultRegistry ?? "", Watermark = Strings.T("registry folder or URL") };
         var message = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.85 };
         void Act(Action a)
         {
@@ -419,10 +419,10 @@ public sealed class ProjectManager : UserControl
             }
             catch (Exception ex) when (ex is VfpException or IOException or HttpRequestException or InvalidOperationException) { message.Text = ex.Message; }
         }
-        Button B(string text, Action a) { var b = new Button { Content = text }; b.Click += (_, _) => Act(a); return b; }
+        Button B(string text, Action a) { var b = new Button { Content = Strings.T(text) }; b.Click += (_, _) => Act(a); return b; }
         var dialog = new Window
         {
-            Title = $"Packages · {Project.Name}", Width = 560, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Title = Strings.F("Packages · {0}", Project.Name), Width = 560, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Content = new Border
             {
                 Padding = new Thickness(12),
@@ -431,18 +431,18 @@ public sealed class ProjectManager : UserControl
                     Spacing = 6,
                     Children =
                     {
-                        new TextBlock { Text = "Registry" }, registry,
-                        new TextBlock { Text = "Dependencies" }, list,
+                        new TextBlock { Text = Strings.T("Registry") }, registry,
+                        new TextBlock { Text = Strings.T("Dependencies") }, list,
                         spec, source,
                         new WrapPanel
                         {
                             Children =
                             {
-                                B("Add", () => message.Text = $"Installed {AddPackage(spec.Text ?? "", source.Text)}."),
+                                B("Add", () => message.Text = Strings.F("Installed {0}.", AddPackage(spec.Text ?? "", source.Text))),
                                 B("Remove", () => { if (list.SelectedIndex >= 0) RemovePackage(Project.Dependencies[list.SelectedIndex].Name); }),
                                 B("Restore", () => message.Text = string.Join(" ", RestorePackages().Messages.DefaultIfEmpty("Up to date."))),
                                 B("Update", () => message.Text = string.Join(" ", RestorePackages(update: true).Messages.DefaultIfEmpty("Up to date."))),
-                                B($"Publish {Project.Name} {Project.Version}", () => message.Text = "Published to " + PublishPackage((registry.Text ?? "").Trim())),
+                                B($"Publish {Project.Name} {Project.Version}", () => message.Text = Strings.T("Published to ") + PublishPackage((registry.Text ?? "").Trim())),
                             },
                         },
                         message,
@@ -456,15 +456,15 @@ public sealed class ProjectManager : UserControl
 
     private void BuildDialog()
     {
-        var kind = new ComboBox { ItemsSource = new[] { "Check the project (BUILD PROJECT)", "Application .jpapp (BUILD APP)", "Executable folder (BUILD EXE)" }, SelectedIndex = 1, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var kind = new ComboBox { ItemsSource = new[] { "Check the project (BUILD PROJECT)", "Application .jpapp (BUILD APP)", "Executable folder (BUILD EXE)" }.Select(Strings.T).ToArray(), SelectedIndex = 1, HorizontalAlignment = HorizontalAlignment.Stretch };
         var output = new TextBox { Text = System.IO.Path.Combine(ProjectDir, Project.Output ?? Project.Name) };
         var version = new TextBox { Text = Project.Version };
-        var ok = new Button { Content = "Build", IsDefault = true };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var ok = new Button { Content = Strings.T("Build"), IsDefault = true };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
         var dialog = new Window
         {
-            Title = "Build", Width = 480, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = new Border { Padding = new Thickness(12), Child = new StackPanel { Spacing = 6, Children = { kind, new TextBlock { Text = "Output" }, output, new TextBlock { Text = "Version" }, version, new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Children = { ok, cancel } } } } },
+            Title = Strings.T("Build"), Width = 480, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new Border { Padding = new Thickness(12), Child = new StackPanel { Spacing = 6, Children = { kind, new TextBlock { Text = Strings.T("Output") }, output, new TextBlock { Text = Strings.T("Version") }, version, new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Children = { ok, cancel } } } } },
         };
         ok.Click += (_, _) =>
         {

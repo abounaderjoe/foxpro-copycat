@@ -18,7 +18,7 @@ public static class MemberDialogs
 
     private static Window Dialog(string title, Control content, double width = 420) => new()
     {
-        Title = title,
+        Title = Strings.T(title),
         Width = width,
         SizeToContent = SizeToContent.Height,
         CanResize = false,
@@ -33,7 +33,7 @@ public static class MemberDialogs
     }
 
     private static Control Row(string label, Control editor) =>
-        new DockPanel { Margin = new Thickness(0, 3), Children = { new TextBlock { Text = label, Width = 110, VerticalAlignment = VerticalAlignment.Center }, editor } };
+        new DockPanel { Margin = new Thickness(0, 3), Children = { new TextBlock { Text = Strings.T(label), Width = 110, VerticalAlignment = VerticalAlignment.Center }, editor } };
 
     /// <summary>New Property or New Method: Add keeps the dialog open for the next one, as in VFP.</summary>
     public static void NewMember(FormDesigner designer, bool isMethod)
@@ -41,12 +41,12 @@ public static class MemberDialogs
         var name = new TextBox();
         var visibility = new ComboBox { ItemsSource = Visibilities, SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
         var initial = new TextBox { Text = ".F." };
-        var access = new CheckBox { Content = "Access method" };
-        var assign = new CheckBox { Content = "Assign method" };
+        var access = new CheckBox { Content = Strings.T("Access method") };
+        var assign = new CheckBox { Content = Strings.T("Assign method") };
         var description = new TextBox { AcceptsReturn = true, Height = 60, TextWrapping = TextWrapping.Wrap };
         var message = new TextBlock { Foreground = Brushes.IndianRed, TextWrapping = TextWrapping.Wrap };
-        var add = new Button { Content = "Add", IsDefault = true };
-        var close = new Button { Content = "Close", IsCancel = true };
+        var add = new Button { Content = Strings.T("Add"), IsDefault = true };
+        var close = new Button { Content = Strings.T("Close"), IsCancel = true };
         var panel = new StackPanel
         {
             Children =
@@ -93,10 +93,10 @@ public static class MemberDialogs
         var visibility = new ComboBox { ItemsSource = Visibilities, HorizontalAlignment = HorizontalAlignment.Stretch };
         var description = new TextBox { AcceptsReturn = true, Height = 60, TextWrapping = TextWrapping.Wrap };
         var info = new TextBlock { Opacity = 0.8, TextWrapping = TextWrapping.Wrap };
-        var apply = new Button { Content = "Apply" };
-        var remove = new Button { Content = "Remove" };
-        var code = new Button { Content = "Edit code" };
-        var close = new Button { Content = "Close", IsCancel = true };
+        var apply = new Button { Content = Strings.T("Apply") };
+        var remove = new Button { Content = Strings.T("Remove") };
+        var code = new Button { Content = Strings.T("Edit code") };
+        var close = new Button { Content = Strings.T("Close"), IsCancel = true };
         void Fill()
         {
             list.Items.Clear();
@@ -117,7 +117,7 @@ public static class MemberDialogs
             description.Text = m?.Description ?? "";
             visibility.IsEnabled = description.IsEnabled = apply.IsEnabled = remove.IsEnabled = own;
             code.IsEnabled = m?.Kind == "Method";
-            info.Text = m == null ? "" : m.InheritedFrom != null ? $"Defined in {m.InheritedFrom}." : "";
+            info.Text = m == null ? "" : m.InheritedFrom != null ? Strings.F("Defined in {0}.", m.InheritedFrom) : "";
         };
         apply.Click += (_, _) =>
         {
@@ -162,14 +162,14 @@ public static class MemberDialogs
         var description = new TextBox { AcceptsReturn = true, Height = 70, TextWrapping = TextWrapping.Wrap, Text = cls.Description ?? "" };
         var icon = new TextBox { Text = cls.Icon ?? "" };
         var containerIcon = new TextBox { Text = cls.ContainerIcon ?? "" };
-        var olePublic = new CheckBox { Content = "OLE public", IsChecked = cls.OlePublic };
-        var ok = new Button { Content = "OK", IsDefault = true };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var olePublic = new CheckBox { Content = Strings.T("OLE public"), IsChecked = cls.OlePublic };
+        var ok = new Button { Content = Strings.T("OK"), IsDefault = true };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
         var panel = new StackPanel
         {
             Children =
             {
-                new TextBlock { Text = $"{cls.Name}  ·  based on {cls.ParentClass}{(cls.ParentLibrary != null ? " of " + cls.ParentLibrary : "")}", FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 6) },
+                new TextBlock { Text = Strings.F("{0}  ·  based on {1}", cls.Name, cls.ParentClass + (cls.ParentLibrary != null ? Strings.F(" of {0}", cls.ParentLibrary) : "")), FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 6) },
                 Row("Description", description),
                 Row("Toolbar icon", icon),
                 Row("Container icon", containerIcon),

@@ -55,8 +55,8 @@ public sealed class DatabaseDesigner : UserControl
         LoadLayout();
         Button B(string text, string tip, Action act)
         {
-            var b = new Button { Content = text, Padding = new Thickness(8, 2), FontSize = 12 };
-            ToolTip.SetTip(b, tip);
+            var b = new Button { Content = Strings.T(text), Padding = new Thickness(8, 2), FontSize = 12 };
+            ToolTip.SetTip(b, Strings.T(tip));
             b.Click += (_, _) => Try(act);
             return b;
         }
@@ -274,7 +274,7 @@ public sealed class DatabaseDesigner : UserControl
                 Text = $"{mark} {t.Name.ToLowerInvariant()}  {t.Expression}", FontSize = 11, Height = RowHeight, Padding = new Thickness(8, 1),
                 TextTrimming = TextTrimming.CharacterEllipsis, Opacity = 0.85, Tag = (name, t.Name), Cursor = new Cursor(StandardCursorType.Cross),
             };
-            ToolTip.SetTip(row, "Drag to a child table's index to relate them");
+            ToolTip.SetTip(row, Strings.T("Drag to a child table's index to relate them"));
             row.PointerPressed += (_, e) =>
             {
                 _linkFrom = (name, t.Name);
@@ -397,26 +397,26 @@ public sealed class DatabaseDesigner : UserControl
         _side.Children.Clear();
         if (SelectedRelation is { } r)
         {
-            _side.Children.Add(Heading("Relation"));
-            _side.Children.Add(Note($"Parent: {r.ParentTable.ToLowerInvariant()}, index {r.ParentTag.ToLowerInvariant()}\nChild: {r.ChildTable.ToLowerInvariant()}, index {r.ChildTag.ToLowerInvariant()}"));
-            _side.Children.Add(Heading("Referential integrity"));
+            _side.Children.Add(Heading(Strings.T("Relation")));
+            _side.Children.Add(Note(Strings.F("Parent: {0}, index {1}\nChild: {2}, index {3}", r.ParentTable.ToLowerInvariant(), r.ParentTag.ToLowerInvariant(), r.ChildTable.ToLowerInvariant(), r.ChildTag.ToLowerInvariant())));
+            _side.Children.Add(Heading(Strings.T("Referential integrity")));
             ComboBox Rule(string label, string value, string help, Func<string, RelationDef> with)
             {
-                var combo = new ComboBox { ItemsSource = new[] { "Ignore", "Cascade", "Restrict" }, SelectedIndex = Array.IndexOf(RelationDef.Rules, value), HorizontalAlignment = HorizontalAlignment.Stretch };
+                var combo = new ComboBox { ItemsSource = new[] { "Ignore", "Cascade", "Restrict" }.Select(Strings.T).ToArray(), SelectedIndex = Array.IndexOf(RelationDef.Rules, value), HorizontalAlignment = HorizontalAlignment.Stretch };
                 combo.SelectionChanged += (_, _) =>
                 {
                     if (combo.SelectedIndex < 0 || RelationDef.Rules[combo.SelectedIndex] == value) return;
                     Try(() => SetIntegrity(with(RelationDef.Rules[combo.SelectedIndex])));
                 };
-                _side.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 4, 0, 0) });
+                _side.Children.Add(new TextBlock { Text = Strings.T(label), Margin = new Thickness(0, 4, 0, 0) });
                 _side.Children.Add(combo);
-                _side.Children.Add(Note(help));
+                _side.Children.Add(Note(Strings.T(help)));
                 return combo;
             }
             Rule("Update", r.RiUpdate, "Cascade changes the child keys when a parent key changes; Restrict refuses the change while children exist.", v => r with { RiUpdate = v });
             Rule("Delete", r.RiDelete, "Cascade deletes the children with their parent; Restrict refuses to delete a parent that has children.", v => r with { RiDelete = v });
             Rule("Insert", r.RiInsert, "Restrict refuses a child whose key matches no parent.", v => r with { RiInsert = v });
-            var remove = new Button { Content = "Remove relation", Margin = new Thickness(0, 8, 0, 0) };
+            var remove = new Button { Content = Strings.T("Remove relation"), Margin = new Thickness(0, 8, 0, 0) };
             remove.Click += (_, _) => Try(() => RemoveRelation(r));
             _side.Children.Add(remove);
             return;
@@ -425,17 +425,17 @@ public sealed class DatabaseDesigner : UserControl
         {
             if (!Database.HasTable(name))
             {
-                _side.Children.Add(Heading(name.ToLowerInvariant() + " (view)"));
+                _side.Children.Add(Heading(Strings.F("{0} (view)", name.ToLowerInvariant())));
                 _side.Children.Add(new SelectableTextBlock { Text = Database.GetView(name)?.Sql ?? "", TextWrapping = TextWrapping.Wrap, FontFamily = Mono, FontSize = 11 });
                 return;
             }
             var s = Database.OpenTable(name, _ide.Runtime).Schema;
             _side.Children.Add(Heading(name.ToLowerInvariant()));
             if (s.Comment is { Length: > 0 } c) _side.Children.Add(Note(c));
-            _side.Children.Add(Note($"{s.Fields.Count} field(s), {s.Tags.Count} index(es), {Database.OpenTable(name, _ide.Runtime).RecordCount} record(s)."));
-            if (s.RuleExpr is { Length: > 0 } rule) _side.Children.Add(Note("Rule: " + rule));
-            foreach (var (kind, trig) in new[] { ("Insert", s.InsertTrigger), ("Update", s.UpdateTrigger), ("Delete", s.DeleteTrigger) })
-                if (trig is { Length: > 0 }) _side.Children.Add(Note($"{kind} trigger: {trig}"));
+            _side.Children.Add(Note(Strings.F("{0} field(s), {1} index(es), {2} record(s).", s.Fields.Count, s.Tags.Count, Database.OpenTable(name, _ide.Runtime).RecordCount)));
+            if (s.RuleExpr is { Length: > 0 } rule) _side.Children.Add(Note(Strings.F("Rule: {0}", rule)));
+            foreach (var (kind, trig) in new[] { (Strings.T("Insert trigger"), s.InsertTrigger), (Strings.T("Update trigger"), s.UpdateTrigger), (Strings.T("Delete trigger"), s.DeleteTrigger) })
+                if (trig is { Length: > 0 }) _side.Children.Add(Note(kind + ": " + trig));
             var parents = Relations.Where(x => x.ChildTable.Equals(name, StringComparison.OrdinalIgnoreCase)).Select(x => x.ParentTable.ToLowerInvariant()).ToList();
             var children = Relations.Where(x => x.ParentTable.Equals(name, StringComparison.OrdinalIgnoreCase)).Select(x => x.ChildTable.ToLowerInvariant()).ToList();
             if (parents.Count > 0) _side.Children.Add(Note("Parents: " + string.Join(", ", parents)));
@@ -444,8 +444,8 @@ public sealed class DatabaseDesigner : UserControl
         }
         _side.Children.Add(Heading(Database.Name.ToLowerInvariant()));
         var procLines = Database.StoredProcedures.Split('\n').Count(l => l.Trim().Length > 0);
-        _side.Children.Add(Note($"{Tables.Count} table(s), {Views.Count} view(s), {Relations.Count} relation(s), {procLines} line(s) of stored procedures."));
-        _side.Children.Add(Note("Double-click a table to change its structure. Drag from a parent's primary or candidate index (🔑 ◆) to a child's index to relate them, then click the line to set referential integrity."));
+        _side.Children.Add(Note(Strings.F("{0} table(s), {1} view(s), {2} relation(s), {3} line(s) of stored procedures.", Tables.Count, Views.Count, Relations.Count, procLines)));
+        _side.Children.Add(Note(Strings.T("Double-click a table to change its structure. Drag from a parent's primary or candidate index (🔑 ◆) to a child's index to relate them, then click the line to set referential integrity.")));
     }
 
     // ---- Changes -----------------------------------------------------------------------------------
@@ -470,7 +470,7 @@ public sealed class DatabaseDesigner : UserControl
         SelectedRelation = Relations.FirstOrDefault(r => r.SameLink(new RelationDef(parentTable, parentTag, childTable, childTag)));
         SelectedTable = null;
         Refresh();
-        Status?.Invoke($"Related {parentTable.ToLowerInvariant()} to {childTable.ToLowerInvariant()}.");
+        Status?.Invoke(Strings.F("Related {0} to {1}.", parentTable.ToLowerInvariant(), childTable.ToLowerInvariant()));
     }
 
     public void SetIntegrity(RelationDef r)
@@ -478,7 +478,7 @@ public sealed class DatabaseDesigner : UserControl
         Database.UpdateRelation(r);
         SelectedRelation = r.Normalize();
         Refresh();
-        Status?.Invoke($"Referential integrity of {r.ParentTable.ToLowerInvariant()} → {r.ChildTable.ToLowerInvariant()}: update {r.RiUpdate.ToLowerInvariant()}, delete {r.RiDelete.ToLowerInvariant()}, insert {r.RiInsert.ToLowerInvariant()}.");
+        Status?.Invoke(Strings.F("Referential integrity of {0} → {1}: update {2}, delete {3}, insert {4}.", r.ParentTable.ToLowerInvariant(), r.ChildTable.ToLowerInvariant(), r.RiUpdate.ToLowerInvariant(), r.RiDelete.ToLowerInvariant(), r.RiInsert.ToLowerInvariant()));
     }
 
     public void RemoveRelation(RelationDef r)
@@ -530,15 +530,15 @@ public sealed class DatabaseDesigner : UserControl
         child.SelectionChanged += (_, _) => Tags(child, childTag, keys: false);
         Tags(parent, parentTag, true);
         Tags(child, childTag, false);
-        var ok = new Button { Content = "Relate", IsDefault = true, Classes = { "accent" } };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var ok = new Button { Content = Strings.T("Relate"), IsDefault = true, Classes = { "accent" } };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto"), Margin = new Thickness(12) };
         void Cell(Control c, int row, int col) { Grid.SetRow(c, row); Grid.SetColumn(c, col); c.Margin = new Thickness(4); grid.Children.Add(c); }
-        Cell(new TextBlock { Text = "Parent", VerticalAlignment = VerticalAlignment.Center }, 0, 0); Cell(parent, 0, 1); Cell(parentTag, 0, 2);
-        Cell(new TextBlock { Text = "Child", VerticalAlignment = VerticalAlignment.Center }, 1, 0); Cell(child, 1, 1); Cell(childTag, 1, 2);
+        Cell(new TextBlock { Text = Strings.T("Parent"), VerticalAlignment = VerticalAlignment.Center }, 0, 0); Cell(parent, 0, 1); Cell(parentTag, 0, 2);
+        Cell(new TextBlock { Text = Strings.T("Child"), VerticalAlignment = VerticalAlignment.Center }, 1, 0); Cell(child, 1, 1); Cell(childTag, 1, 2);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Children = { cancel, ok } };
         Cell(buttons, 2, 2);
-        var window = new Window { Title = "New relation", Content = grid, SizeToContent = SizeToContent.WidthAndHeight, WindowStartupLocation = WindowStartupLocation.CenterOwner, CanResize = false };
+        var window = new Window { Title = Strings.T("New relation"), Content = grid, SizeToContent = SizeToContent.WidthAndHeight, WindowStartupLocation = WindowStartupLocation.CenterOwner, CanResize = false };
         ok.Click += (_, _) =>
         {
             if (parent.SelectedItem is string p && parentTag.SelectedItem is string pt && child.SelectedItem is string c && childTag.SelectedItem is string ct)
@@ -568,7 +568,7 @@ public sealed class StoredProceduresTab : DocumentTab
             Padding = new Thickness(4),
             Text = database.StoredProcedures,
         };
-        Avalonia.Automation.AutomationProperties.SetName(Editor, "Stored procedures");
+        Avalonia.Automation.AutomationProperties.SetName(Editor, Strings.T("Stored procedures"));
         Editor.Options.ConvertTabsToSpaces = true;
         Editor.Options.IndentationSize = 3;
         Editor.TextChanged += (_, _) => { _dirty = true; UpdateTitle(); };
@@ -580,7 +580,7 @@ public sealed class StoredProceduresTab : DocumentTab
     public TextEditor Editor { get; }
     public bool IsDirty => _dirty;
 
-    private void UpdateTitle() => Title = $"{Database.Name.ToLowerInvariant()} · stored procedures{(_dirty ? " •" : "")}";
+    private void UpdateTitle() => Title = Strings.F("{0} · stored procedures", Database.Name.ToLowerInvariant()) + (_dirty ? " •" : "");
 
     /// <summary>Checks that the code compiles, then saves it to the database.</summary>
     public void Save()

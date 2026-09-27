@@ -71,7 +71,7 @@ public sealed class ReportDesigner : UserControl
 
         ListBoxItem Item(string text, string tag) => new() { Content = text, Tag = tag, Padding = new Thickness(10, 3), MinHeight = 0, FontSize = 13 };
         _toolbox.Items.Add(Item("➤ Pointer", ""));
-        foreach (var t in Tools) _toolbox.Items.Add(Item(t, t));
+        foreach (var t in Tools) _toolbox.Items.Add(Item(Strings.T(t), t));
         _toolbox.SelectedIndex = 0;
         _toolbox.SelectionChanged += (_, _) => ArmedTool = _toolbox.SelectedItem is ListBoxItem { Tag: string t } && t.Length > 0 ? t : null;
         _fields.DoubleTapped += (_, _) => { if (_fields.SelectedItem is ListBoxItem { Tag: string f }) AddField(f); };
@@ -214,7 +214,7 @@ public sealed class ReportDesigner : UserControl
             {
                 Width = SurfaceWidth, Height = BarHeight, Background = new SolidColorBrush(Color.FromRgb(0xC9, 0xD6, 0xE8)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x8A, 0x9F, 0xBF)), BorderThickness = new Thickness(0, 1),
-                Child = new TextBlock { Text = "▲ " + BandLabel(band), FontSize = 11, Margin = new Thickness(6, 1), Foreground = Brushes.Black },
+                Child = new TextBlock { Text = "▲ " + BandLabel(band), FontSize = 11, Margin = new Thickness(6, 1), Foreground = Brushes.Black, Classes = { "data" } }, // band names are FoxPro's
                 Cursor = new Cursor(StandardCursorType.SizeNorthSouth),
             };
             AddAt(bar, 0, top + band.Height * Dpi);
@@ -227,7 +227,7 @@ public sealed class ReportDesigner : UserControl
     {
         BandKind.GroupHeader or BandKind.GroupFooter when b.Index <= Doc.Groups.Count => $"{b.DisplayName}: {Doc.Groups[b.Index - 1].Expression}",
         _ => b.DisplayName,
-    } + $"  ({b.Height:0.###} in)";
+    } + Strings.F("  ({0} in)", b.Height.ToString("0.###"));
 
     private void AddAt(Control c, double x, double y, ReportObject? tag = null)
     {
@@ -602,10 +602,10 @@ public sealed class ReportDesigner : UserControl
         };
         _propsTitle.Text = target switch
         {
-            ReportObject o when _selection.Count > 1 => $"{_selection.Count} objects (editing the first)",
+            ReportObject o when _selection.Count > 1 => Strings.F("{0} objects (editing the first)", _selection.Count),
             ReportObject o => ReportDesignSession.Describe(o),
-            ReportBand b => b.DisplayName + " band",
-            _ => Doc.Kind == ReportKind.Label ? "Label layout" : "Report",
+            ReportBand b => Strings.F("{0} band", b.DisplayName),
+            _ => Strings.T(Doc.Kind == ReportKind.Label ? "Label layout" : "Report"),
         };
         foreach (var p in props) _props.Children.Add(Row(target, p));
     }
@@ -652,7 +652,7 @@ public sealed class ReportDesigner : UserControl
         }
         _editors[p.Name] = editor;
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("120,*"), Margin = new Thickness(4, 1) };
-        grid.Children.Add(new TextBlock { Text = p.Name, VerticalAlignment = VerticalAlignment.Center });
+        grid.Children.Add(new TextBlock { Text = p.Name, VerticalAlignment = VerticalAlignment.Center, Classes = { "data" } });
         Grid.SetColumn(editor, 1);
         grid.Children.Add(editor);
         return grid;
@@ -682,7 +682,7 @@ public sealed class ReportDesigner : UserControl
         }
         catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException)
         {
-            Status?.Invoke($"'{text}' is not a valid value for {name}.");
+            Status?.Invoke(Strings.F("'{0}' is not a valid value for {1}.", text, name));
             ShowProperties();
             return;
         }
@@ -791,7 +791,7 @@ public sealed class ReportDesigner : UserControl
         catch (Exception ex) when (ex is VfpException or CompileException or FormatException or IOException)
         {
             PreviewError = ex.Message;
-            _previewMessage.Text = "Preview: " + ex.Message;
+            _previewMessage.Text = Strings.T("Preview: ") + ex.Message;
         }
     }
 
@@ -801,7 +801,7 @@ public sealed class ReportDesigner : UserControl
         Doc.Save(FilePath);
         Session.MarkSaved();
         Saved?.Invoke();
-        Status?.Invoke($"Saved {System.IO.Path.GetFileName(FilePath)}.");
+        Status?.Invoke(Strings.F("Saved {0}.", System.IO.Path.GetFileName(FilePath)));
     }
 
     public void Run()
@@ -815,8 +815,8 @@ public sealed class ReportDesigner : UserControl
     {
         Button B(string text, string tip, Action act)
         {
-            var b = new Button { Content = text, Padding = new Thickness(8, 2), FontSize = 12 };
-            ToolTip.SetTip(b, tip);
+            var b = new Button { Content = Strings.T(text), Padding = new Thickness(8, 2), FontSize = 12 };
+            ToolTip.SetTip(b, Strings.T(tip));
             b.Click += (_, _) =>
             {
                 try { act(); }
@@ -824,7 +824,7 @@ public sealed class ReportDesigner : UserControl
             };
             return b;
         }
-        var live = new CheckBox { Content = "Live preview", IsChecked = true, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0) };
+        var live = new CheckBox { Content = Strings.T("Live preview"), IsChecked = true, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0) };
         live.IsCheckedChanged += (_, _) => { LivePreview = live.IsChecked == true; _center.RowDefinitions[2].Height = LivePreview ? new GridLength(2, GridUnitType.Star) : new GridLength(0); if (LivePreview) RefreshPreview(); };
         return new WrapPanel
         {

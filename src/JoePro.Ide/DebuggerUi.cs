@@ -107,7 +107,7 @@ public sealed class IdeDebugger : IDebugHost
             StopReason.Goto => "Moved",
             _ => "Paused",
         };
-        _window.SetStatus($"{reason} in {top.Name}, line {top.Line}. F5 continue · F10 step over · F11 step into · Shift+F11 step out · Ctrl+Shift+F10 set next statement · Shift+F5 stop");
+        _window.SetStatus(Strings.F("{0} in {1}, line {2}. F5 continue · F10 step over · F11 step into · Shift+F11 step out · Ctrl+Shift+F10 set next statement · Shift+F5 stop", reason, top.Name, top.Line));
         Panel.ShowStack(stop.Frames);
         Panel.ShowVariables(Locals(), WatchNodes());
         StateChanged?.Invoke();
@@ -151,7 +151,7 @@ public sealed class DebugPanel : UserControl
         Stack.SelectionChanged += (_, _) => { if (Stack.SelectedIndex >= 0) _debugger.SelectFrame(Stack.SelectedIndex); };
         _output = new TextBox { IsReadOnly = true, AcceptsReturn = true, FontFamily = Mono, FontSize = 12, TextWrapping = TextWrapping.NoWrap, BorderThickness = new Thickness(0) };
 
-        WatchInput = new TextBox { Watermark = "Add watch expression and press Enter" };
+        WatchInput = new TextBox { Watermark = Strings.T("Add watch expression and press Enter") };
         WatchInput.KeyDown += (_, e) =>
         {
             if (e.Key != Key.Enter) return;
@@ -192,7 +192,7 @@ public sealed class DebugPanel : UserControl
     public string OutputText => _output.Text ?? "";
 
     private static TabItem Tab(string header, Control content) =>
-        new() { Header = header, Content = content, FontSize = 13, MinHeight = 30, Padding = new Thickness(10, 3) };
+        new() { Header = Strings.T(header), Content = content, FontSize = 13, MinHeight = 30, Padding = new Thickness(10, 3) };
 
     private static TreeView NewTree() => new()
     {

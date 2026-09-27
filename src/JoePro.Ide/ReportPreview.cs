@@ -10,7 +10,7 @@ public sealed class ReportPreviewTab : DocumentTab
     {
         Preview = new ReportPreview(report, engine);
         Content = Preview;
-        Title = "Preview: " + report.Title;
+        Title = Strings.T("Preview: ") + report.Title;
     }
 
     public ReportPreview Preview { get; }

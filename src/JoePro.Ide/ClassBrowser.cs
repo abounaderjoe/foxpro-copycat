@@ -16,8 +16,8 @@ public sealed class ClassBrowserTab : DocumentTab
     {
         Browser = browser;
         Content = browser;
-        Title = "Classes: " + Path.GetFileName(browser.LibraryPath);
-        browser.Reloaded += () => Title = "Classes: " + Path.GetFileName(browser.LibraryPath);
+        Title = Strings.T("Classes: ") + Path.GetFileName(browser.LibraryPath);
+        browser.Reloaded += () => Title = Strings.T("Classes: ") + Path.GetFileName(browser.LibraryPath);
     }
 
     public ClassBrowser Browser { get; }
@@ -32,8 +32,8 @@ public sealed class ClassBrowserTab : DocumentTab
 public sealed class ClassBrowser : UserControl
 {
     private readonly Interpreter _rt;
-    private readonly TreeView _tree = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Classes" };
-    private readonly TextBox _filter = new() { Watermark = "Filter classes", Margin = new Thickness(4) };
+    private readonly TreeView _tree = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = Strings.T("Classes") };
+    private readonly TextBox _filter = new() { Watermark = Strings.T("Filter classes"), Margin = new Thickness(4) };
     private readonly TextBlock _header = new() { FontWeight = FontWeight.SemiBold, FontSize = 15, Margin = new Thickness(8, 6, 8, 2), TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _details = new() { Margin = new Thickness(8, 0, 8, 6), TextWrapping = TextWrapping.Wrap, Opacity = 0.85 };
     private readonly ListBox _members = new();
@@ -55,7 +55,7 @@ public sealed class ClassBrowser : UserControl
             ShowLineNumbers = true,
             SyntaxHighlighting = FoxProHighlighting.Get(dark),
         };
-        Avalonia.Automation.AutomationProperties.SetName(_code, "Class code");
+        Avalonia.Automation.AutomationProperties.SetName(_code, Strings.T("Class code"));
         _filter.TextChanged += (_, _) => FillTree();
         _tree.SelectionChanged += (_, _) => ShowSelected();
         _tree.DoubleTapped += (_, _) => { if (SelectedClass != null && !IsLegacy) ModifyRequested?.Invoke(LibraryPath, SelectedClass); };
@@ -73,8 +73,8 @@ public sealed class ClassBrowser : UserControl
         left.Width = 270;
 
         var tabs = new TabControl { Padding = new Thickness(0) };
-        tabs.Items.Add(new TabItem { Header = "Members", Content = _members, FontSize = 13 });
-        tabs.Items.Add(new TabItem { Header = "Code", Content = _code, FontSize = 13 });
+        tabs.Items.Add(new TabItem { Header = Strings.T("Members"), Content = _members, FontSize = 13 });
+        tabs.Items.Add(new TabItem { Header = Strings.T("Code"), Content = _code, FontSize = 13 });
         var right = new DockPanel();
         var info = new StackPanel { Children = { _header, _details } };
         DockPanel.SetDock(info, Dock.Top);
@@ -131,7 +131,7 @@ public sealed class ClassBrowser : UserControl
         Library = ClassLibrary.Load(LibraryPath, out var conversion);
         Conversion = conversion;
         _legacyNote.IsVisible = IsLegacy;
-        _legacyNote.Text = IsLegacy ? $"{Path.GetFileName(LibraryPath)} is a legacy class library (converted in memory, read-only). Use \"Save as .jpclass\" to edit it." : "";
+        _legacyNote.Text = IsLegacy ? Strings.F("{0} is a legacy class library (converted in memory, read-only). Use \"Save as .jpclass\" to edit it.", Path.GetFileName(LibraryPath)) : "";
         foreach (var b in _writeButtons) b.IsEnabled = !IsLegacy;
         if (_saveAsButton != null) _saveAsButton.IsVisible = IsLegacy;
         var keep = SelectedClass;
@@ -208,14 +208,14 @@ public sealed class ClassBrowser : UserControl
         _members.Items.Clear();
         if (cls == null)
         {
-            _header.Text = Library.Classes.Count == 0 ? "This library has no classes yet." : "";
+            _header.Text = Library.Classes.Count == 0 ? Strings.T("This library has no classes yet.") : "";
             _details.Text = "";
             _code.Text = "";
             return;
         }
         var baseClass = Library_BaseClass(cls);
         _header.Text = cls.Name;
-        _details.Text = $"Parent class: {cls.ParentClass}{(cls.ParentLibrary != null ? " of " + cls.ParentLibrary : "")}   ·   Base class: {baseClass}"
+        _details.Text = Strings.F("Parent class: {0}   ·   Base class: {1}", cls.ParentClass + (cls.ParentLibrary != null ? Strings.F(" of {0}", cls.ParentLibrary) : ""), baseClass)
                         + (cls.OlePublic ? "   ·   OLE public" : "") + (cls.Description != null ? "\n" + cls.Description : "");
         foreach (var m in Members(cls.Name))
         {
@@ -321,7 +321,7 @@ public sealed class ClassBrowser : UserControl
         Write();
         Reload();
         SelectClass(newName);
-        Status?.Invoke($"Renamed {oldName} to {newName}{(updated > 0 ? $"; {updated} reference(s) in this library updated" : "")}. Code in other files that uses {oldName} is not changed.");
+        Status?.Invoke(Strings.F("Renamed {0} to {1}.", oldName, newName) + (updated > 0 ? " " + Strings.F("{0} reference(s) in this library updated.", updated) : "") + " " + Strings.F("Code in other files that uses {0} is not changed.", oldName));
     }
 
     public IReadOnlyList<string> RemoveClass(string name)
@@ -331,7 +331,7 @@ public sealed class ClassBrowser : UserControl
         Write();
         SelectedClass = null;
         Reload();
-        if (dependents.Count > 0) Status?.Invoke($"Removed {name}. {string.Join(", ", dependents)} still refer to it.");
+        if (dependents.Count > 0) Status?.Invoke(Strings.F("Removed {0}. {1} still refer to it.", name, string.Join(", ", dependents)));
         return dependents;
     }
 
@@ -344,7 +344,7 @@ public sealed class ClassBrowser : UserControl
         ClassLibrary.CopyClass(Library, name, target, reference, overwrite, newName);
         ClassFileWriter.Save(target, targetPath);
         LibraryChanged?.Invoke(targetPath);
-        Status?.Invoke($"Copied {name} to {Path.GetFileName(targetPath)}.");
+        Status?.Invoke(Strings.F("Copied {0} to {1}.", name, Path.GetFileName(targetPath)));
     }
 
     public void Redefine(string name, string parentClass, string? parentLibrary)
@@ -365,7 +365,7 @@ public sealed class ClassBrowser : UserControl
     {
         var cls = Library.Find(name) ?? throw new ArgumentException($"Class {name} is not in the library.");
         File.WriteAllText(path, $"* {cls.Name} from {Path.GetFileName(LibraryPath)}\n\n" + ClassLibrary.ClassCode(cls));
-        Status?.Invoke($"Exported {name} to {Path.GetFileName(path)}.");
+        Status?.Invoke(Strings.F("Exported {0} to {1}.", name, Path.GetFileName(path)));
     }
 
     /// <summary>Saves a legacy .vcx library as .jpclass next to it and continues with the new file.</summary>
@@ -391,8 +391,8 @@ public sealed class ClassBrowser : UserControl
     {
         Button B(string text, string tip, Action act, bool writes = false)
         {
-            var b = new Button { Content = text, Padding = new Thickness(8, 2), FontSize = 12 };
-            ToolTip.SetTip(b, tip);
+            var b = new Button { Content = Strings.T(text), Padding = new Thickness(8, 2), FontSize = 12 };
+            ToolTip.SetTip(b, Strings.T(tip));
             b.Click += (_, _) =>
             {
                 try { act(); }
@@ -440,16 +440,16 @@ public sealed class ClassBrowser : UserControl
     {
         var boxes = fields.Select(f => new TextBox { Text = f.Value }).ToArray();
         var message = new TextBlock { Foreground = Brushes.IndianRed, TextWrapping = TextWrapping.Wrap };
-        var okButton = new Button { Content = "OK", IsDefault = true };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var okButton = new Button { Content = Strings.T("OK"), IsDefault = true };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
         var panel = new StackPanel();
         for (int i = 0; i < fields.Length; i++)
-            panel.Children.Add(new DockPanel { Margin = new Thickness(0, 3), Children = { new TextBlock { Text = fields[i].Label, Width = 110, VerticalAlignment = VerticalAlignment.Center }, boxes[i] } });
+            panel.Children.Add(new DockPanel { Margin = new Thickness(0, 3), Children = { new TextBlock { Text = Strings.T(fields[i].Label), Width = 110, VerticalAlignment = VerticalAlignment.Center }, boxes[i] } });
         panel.Children.Add(message);
         panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Margin = new Thickness(0, 8, 0, 0), Children = { okButton, cancel } });
         var dialog = new Window
         {
-            Title = title, Width = 460, SizeToContent = SizeToContent.Height, CanResize = false,
+            Title = Strings.T(title), Width = 460, SizeToContent = SizeToContent.Height, CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = new Border { Padding = new Thickness(12), Child = panel },
         };
         okButton.Click += (_, _) =>

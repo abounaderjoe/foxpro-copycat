@@ -16,7 +16,7 @@ public sealed class MigrationWizardTab : DocumentTab
     {
         Wizard = wizard;
         Content = wizard;
-        Title = "Migrate FoxPro application";
+        Title = Strings.T("Migrate FoxPro application");
     }
 
     public MigrationWizard Wizard { get; }
@@ -31,12 +31,12 @@ public sealed class MigrationWizard : UserControl
 {
     public static readonly string[] PageNames = ["Source", "Options", "Import", "Done"];
 
-    private readonly TextBox _source = new() { Watermark = "Folder with the FoxPro application (.pjx, .scx, .prg, .dbf …)" };
-    private readonly TextBox _target = new() { Watermark = "Folder for the Joe Pro version" };
+    private readonly TextBox _source = new() { Watermark = Strings.T("Folder with the FoxPro application (.pjx, .scx, .prg, .dbf …)") };
+    private readonly TextBox _target = new() { Watermark = Strings.T("Folder for the Joe Pro version") };
     private readonly StackPanel _scanPanel = new() { Spacing = 2, Margin = new Thickness(0, 8, 0, 0) };
-    private readonly CheckBox _openProject = new() { Content = "Open the converted project", IsChecked = true };
-    private readonly CheckBox _showReport = new() { Content = "Show the migration report", IsChecked = true };
-    private readonly CheckBox _setDefault = new() { Content = "Make the new folder the current folder (SET DEFAULT)", IsChecked = true };
+    private readonly CheckBox _openProject = new() { Content = Strings.T("Open the converted project"), IsChecked = true };
+    private readonly CheckBox _showReport = new() { Content = Strings.T("Show the migration report"), IsChecked = true };
+    private readonly CheckBox _setDefault = new() { Content = Strings.T("Make the new folder the current folder (SET DEFAULT)"), IsChecked = true };
     private readonly TextBlock _targetNote = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.8 };
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 1, Height = 8, Margin = new Thickness(0, 8) };
     private readonly TextBlock _progressStep = new() { FontWeight = FontWeight.SemiBold };
@@ -46,9 +46,9 @@ public sealed class MigrationWizard : UserControl
     private readonly StackPanel _steps = new() { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 0, 0, 12) };
     private readonly ContentControl _page = new();
     private readonly Control[] _pages;
-    private readonly Button _back = new() { Content = "Back" };
-    private readonly Button _next = new() { Content = "Next", Classes = { "accent" } };
-    private readonly Button _cancel = new() { Content = "Cancel" };
+    private readonly Button _back = new() { Content = Strings.T("Back") };
+    private readonly Button _next = new() { Content = Strings.T("Next"), Classes = { "accent" } };
+    private readonly Button _cancel = new() { Content = Strings.T("Cancel") };
     private CancellationTokenSource? _cts;
     private bool _targetEdited, _settingTarget;
     private string? _scannedFolder;
@@ -117,16 +117,16 @@ public sealed class MigrationWizard : UserControl
 
     // ---- Pages ------------------------------------------------------------------------------------
 
-    private static TextBlock Heading(string text) => new() { Text = text, FontSize = 18, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 8) };
-    private static TextBlock Note(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Opacity = 0.8, Margin = new Thickness(0, 0, 0, 8) };
+    private static TextBlock Heading(string text) => new() { Text = Strings.T(text), FontSize = 18, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 8) };
+    private static TextBlock Note(string text, bool translate = true) => new() { Text = translate ? Strings.T(text) : text, TextWrapping = TextWrapping.Wrap, Opacity = 0.8, Margin = new Thickness(0, 0, 0, 8) };
 
     private Control PathRow(TextBox box, string title, Action<string> picked)
     {
-        var browse = new Button { Content = "Browse…", Margin = new Thickness(6, 0, 0, 0) };
+        var browse = new Button { Content = Strings.T("Browse…"), Margin = new Thickness(6, 0, 0, 0) };
         browse.Click += async (_, _) =>
         {
             if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
-            var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title });
+            var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = Strings.T(title) });
             if (folders.Count > 0 && folders[0].TryGetLocalPath() is { } path) picked(path);
         };
         var row = new DockPanel();
@@ -141,8 +141,7 @@ public sealed class MigrationWizard : UserControl
         Children =
         {
             Heading("Which FoxPro application do you want to migrate?"),
-            Note("Pick the folder with its project, forms, class libraries, reports, menus, programs and data. The folder is only read; " +
-                 "the Joe Pro version goes to a new folder."),
+            Note("Pick the folder with its project, forms, class libraries, reports, menus, programs and data. The folder is only read; the Joe Pro version goes to a new folder."),
             PathRow(_source, "FoxPro application folder", p => SourceFolder = p),
             _scanPanel,
         },
@@ -154,8 +153,7 @@ public sealed class MigrationWizard : UserControl
         Children =
         {
             Heading("Where should the Joe Pro version go?"),
-            Note("Tables and databases are imported, forms, class libraries, reports, labels, menus and projects are converted to Joe Pro " +
-                 "documents, and programs and other files are copied. The folder layout is kept, so relative paths keep working."),
+            Note("Tables and databases are imported, forms, class libraries, reports, labels, menus and projects are converted to Joe Pro documents, and programs and other files are copied. The folder layout is kept, so relative paths keep working."),
             PathRow(_target, "Folder for the Joe Pro version", p => TargetFolder = p),
             _targetNote,
             new Border { Height = 8 },
@@ -182,7 +180,7 @@ public sealed class MigrationWizard : UserControl
         }
         _back.IsVisible = page == 1;
         _next.IsVisible = page < 2;
-        _next.Content = page == 1 ? "Import" : "Next";
+        _next.Content = Strings.T(page == 1 ? "Import" : "Next");
         _cancel.IsVisible = page == 2;
         UpdateNext();
     }
@@ -208,7 +206,7 @@ public sealed class MigrationWizard : UserControl
         if (folder.Length == 0) { UpdateNext(); return; }
         if (!Directory.Exists(folder))
         {
-            _message.Text = $"The folder {folder} does not exist.";
+            _message.Text = Strings.F("The folder {0} does not exist.", folder);
             UpdateNext();
             return;
         }
@@ -220,14 +218,14 @@ public sealed class MigrationWizard : UserControl
             return;
         }
         var scan = ScanResult;
-        _scanPanel.Children.Add(new TextBlock { Text = $"{scan.Files} file(s), {Size(scan.Bytes)}", FontWeight = FontWeight.SemiBold });
+        _scanPanel.Children.Add(new TextBlock { Text = Strings.F("{0} file(s), {1}", scan.Files, Size(scan.Bytes)), FontWeight = FontWeight.SemiBold });
         foreach (var (kind, count) in scan.Kinds)
             _scanPanel.Children.Add(new TextBlock { Text = $"   {count,5}  {kind}" , FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace") });
         if (scan.Projects.Count > 0)
-            _scanPanel.Children.Add(new TextBlock { Text = "Projects: " + string.Join(", ", scan.Projects), Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
+            _scanPanel.Children.Add(new TextBlock { Text = Strings.T("Projects: ") + string.Join(", ", scan.Projects), Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
         else
             _scanPanel.Children.Add(Note("No project (.pjx) was found; every file in the folder is migrated."));
-        if (scan.Files == 0) _message.Text = "The folder is empty.";
+        if (scan.Files == 0) _message.Text = Strings.T("The folder is empty.");
         if (!_targetEdited)
         {
             _settingTarget = true;
@@ -251,10 +249,10 @@ public sealed class MigrationWizard : UserControl
         _targetNote.Text =
             t.Length == 0 ? "" :
             src.Length > 0 && string.Equals(Path.GetFullPath(t).TrimEnd('/', '\\'), src.TrimEnd('/', '\\'), StringComparison.OrdinalIgnoreCase)
-                ? "Choose a different folder from the FoxPro application."
+                ? Strings.T("Choose a different folder from the FoxPro application.")
             : Directory.Exists(t) && Directory.EnumerateFileSystemEntries(t).Any()
-                ? "The folder is not empty: converted files replace files of the same name, other files are kept."
-            : "The folder will be created.";
+                ? Strings.T("The folder is not empty: converted files replace files of the same name, other files are kept.")
+            : Strings.T("The folder will be created.");
         UpdateNext();
     }
 
@@ -285,7 +283,7 @@ public sealed class MigrationWizard : UserControl
         var target = Path.GetFullPath(TargetFolder);
         if (string.Equals(source.TrimEnd('/', '\\'), target.TrimEnd('/', '\\'), StringComparison.OrdinalIgnoreCase))
         {
-            _message.Text = "Choose a different folder from the FoxPro application.";
+            _message.Text = Strings.T("Choose a different folder from the FoxPro application.");
             return;
         }
         _cts = new CancellationTokenSource();
@@ -310,12 +308,12 @@ public sealed class MigrationWizard : UserControl
         catch (OperationCanceledException)
         {
             ShowPage(1);
-            _message.Text = "The import was cancelled. Files converted so far are in the target folder.";
+            _message.Text = Strings.T("The import was cancelled. Files converted so far are in the target folder.");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             ShowPage(1);
-            _message.Text = "The import stopped: " + ex.Message;
+            _message.Text = Strings.T("The import stopped: ") + ex.Message;
         }
         finally
         {
@@ -337,7 +335,7 @@ public sealed class MigrationWizard : UserControl
         var report = Report!;
         _donePanel.Children.Clear();
         _donePanel.Children.Add(Heading("The application was migrated"));
-        _donePanel.Children.Add(new TextBlock { Text = $"{report.ReadinessScore:P0} of the findings need no action.", FontSize = 15 });
+        _donePanel.Children.Add(new TextBlock { Text = Strings.F("{0:P0} of the findings need no action.", report.ReadinessScore), FontSize = 15 });
         var counts = new WrapPanel();
         foreach (var status in Enum.GetValues<FindingStatus>())
         {
@@ -346,17 +344,17 @@ public sealed class MigrationWizard : UserControl
             counts.Children.Add(MigrationReportView.Badge($"{MigrationReportView.StatusText(status)}  {n}", status, new Thickness(0, 0, 6, 6)));
         }
         _donePanel.Children.Add(counts);
-        _donePanel.Children.Add(Note($"The Joe Pro version is in {target}."));
+        _donePanel.Children.Add(Note(Strings.F("The Joe Pro version is in {0}.", target), translate: false));
         var actions = new WrapPanel();
         Button Action(string text, Action act)
         {
-            var b = new Button { Content = text, Margin = new Thickness(0, 0, 8, 8) };
+            var b = new Button { Content = Strings.T(text), Margin = new Thickness(0, 0, 8, 8) };
             b.Click += (_, _) => act();
             actions.Children.Add(b);
             return b;
         }
         foreach (var project in ConvertedProjects)
-            Action($"Open project {Path.GetFileName(project)}", () => OpenRequested?.Invoke(project));
+            Action(Strings.F("Open project {0}", Path.GetFileName(project)), () => OpenRequested?.Invoke(project));
         Action("View migration report", () => ReportRequested?.Invoke(report));
         var html = Path.Combine(target, "migration-report.html");
         Action("Open HTML report", () => _ = TopLevel.GetTopLevel(this)?.Launcher.LaunchFileInfoAsync(new FileInfo(html)));
@@ -380,7 +378,7 @@ public sealed class MigrationReportTab : DocumentTab
     {
         View = view;
         Content = view;
-        Title = "Migration report" + (view.Report.Target.Length > 0 ? " · " + Path.GetFileName(view.Report.Target.TrimEnd('/', '\\')) : "");
+        Title = Strings.T("Migration report") + (view.Report.Target.Length > 0 ? " · " + Path.GetFileName(view.Report.Target.TrimEnd('/', '\\')) : "");
     }
 
     public MigrationReportView View { get; }
@@ -392,17 +390,17 @@ public sealed class MigrationReportTab : DocumentTab
 /// </summary>
 public sealed class MigrationReportView : UserControl
 {
-    public const string NeedsAttention = "Needs attention";
-    public const string AllStatuses = "All statuses";
-    public const string AllCategories = "All categories";
+    public static string NeedsAttention => Strings.T("Needs attention");
+    public static string AllStatuses => Strings.T("All statuses");
+    public static string AllCategories => Strings.T("All categories");
 
     private readonly ComboBox _status = new() { MinWidth = 170, Margin = new Thickness(0, 0, 6, 0) };
     private readonly ComboBox _category = new() { MinWidth = 150, Margin = new Thickness(0, 0, 6, 0) };
-    private readonly TextBox _search = new() { Watermark = "Search findings", MinWidth = 220 };
+    private readonly TextBox _search = new() { Watermark = Strings.T("Search findings"), MinWidth = 220 };
     private readonly ListBox _list = new();
     private readonly SelectableTextBlock _details = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) };
-    private readonly Button _openConverted = new() { Content = "Open converted file", Margin = new Thickness(0, 0, 6, 0) };
-    private readonly Button _openOriginal = new() { Content = "Open original" };
+    private readonly Button _openConverted = new() { Content = Strings.T("Open converted file"), Margin = new Thickness(0, 0, 6, 0) };
+    private readonly Button _openOriginal = new() { Content = Strings.T("Open original") };
     private readonly TextBlock _count = new() { VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7, Margin = new Thickness(8, 0, 0, 0) };
     private List<Finding> _visible = new();
     private bool _filling;
@@ -424,16 +422,16 @@ public sealed class MigrationReportView : UserControl
         _openOriginal.Click += (_, _) => OpenSelected(converted: false);
 
         var header = new StackPanel { Margin = new Thickness(10, 8), Spacing = 4 };
-        header.Children.Add(new TextBlock { Text = "Migration of " + (report.Source.Length > 0 ? report.Source : "(unknown source)"), FontSize = 16, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
-        if (report.Target.Length > 0) header.Children.Add(new TextBlock { Text = "to " + report.Target, Opacity = 0.8, TextTrimming = TextTrimming.CharacterEllipsis });
+        header.Children.Add(new TextBlock { Text = Strings.T("Migration of ") + (report.Source.Length > 0 ? report.Source : "(unknown source)"), FontSize = 16, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+        if (report.Target.Length > 0) header.Children.Add(new TextBlock { Text = Strings.T("to ") + report.Target, Opacity = 0.8, TextTrimming = TextTrimming.CharacterEllipsis });
         var chips = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-        chips.Children.Add(new TextBlock { Text = $"Readiness {report.ReadinessScore:P0}", FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 6) });
+        chips.Children.Add(new TextBlock { Text = Strings.F("Readiness {0:P0}", report.ReadinessScore), FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 6) });
         foreach (var status in Enum.GetValues<FindingStatus>())
         {
             var n = report.Findings.Count(f => f.Status == status);
             if (n == 0) continue;
             var chip = new Button { Content = Badge($"{StatusText(status)}  {n}", status, default), Padding = new Thickness(0), Background = Brushes.Transparent, Margin = new Thickness(0, 0, 6, 6) };
-            ToolTip.SetTip(chip, "Show only these findings");
+            ToolTip.SetTip(chip, Strings.T("Show only these findings"));
             chip.Click += (_, _) => StatusFilter = StatusText(status);
             chips.Children.Add(chip);
         }
@@ -481,14 +479,14 @@ public sealed class MigrationReportView : UserControl
 
     public static bool IsAttention(Finding f) => f.Status is FindingStatus.NeedsReview or FindingStatus.Unsupported or FindingStatus.Failed;
 
-    public static string StatusText(FindingStatus s) => s switch
+    public static string StatusText(FindingStatus s) => Strings.T(s switch
     {
         FindingStatus.Converted => "Converted",
         FindingStatus.ConvertedWithChanges => "Converted with changes",
         FindingStatus.NeedsReview => "Needs review",
         FindingStatus.Unsupported => "Unsupported",
         _ => "Failed",
-    };
+    });
 
     public static IBrush StatusBrush(FindingStatus s) => new SolidColorBrush(s switch
     {
@@ -551,7 +549,7 @@ public sealed class MigrationReportView : UserControl
                 .ThenBy(f => f.Source.File, StringComparer.OrdinalIgnoreCase).ThenBy(f => f.Source.Line ?? 0)
                 .ToList();
             _list.ItemsSource = _visible;
-            _count.Text = $"{_visible.Count} of {Report.Findings.Count}";
+            _count.Text = Strings.F("{0} of {1}", _visible.Count, Report.Findings.Count);
         }
         finally { _filling = false; }
         ShowDetails();
@@ -564,13 +562,13 @@ public sealed class MigrationReportView : UserControl
         _openOriginal.IsEnabled = f != null && OriginalFile(f) != null;
         if (f == null)
         {
-            _details.Text = _visible.Count == 0 ? "No findings match the filters." : "Select a finding to see its details.";
+            _details.Text = _visible.Count == 0 ? Strings.T("No findings match the filters.") : Strings.T("Select a finding to see its details.");
             return;
         }
         var lines = new List<string> { $"{StatusText(f.Status)} · {f.Category} · {f.Rule}", Location(f), "", f.Message };
         if (f.Source.Snippet is { Length: > 0 } snippet) lines.AddRange(["", "    " + snippet]);
-        if (f.Action is { Length: > 0 } action) lines.AddRange(["", "What to do: " + action]);
-        if (f.Target?.File is { Length: > 0 } target) lines.AddRange(["", "Converted to " + target]);
+        if (f.Action is { Length: > 0 } action) lines.AddRange(["", Strings.F("What to do: {0}", action)]);
+        if (f.Target?.File is { Length: > 0 } target) lines.AddRange(["", Strings.F("Converted to {0}", target)]);
         _details.Text = string.Join("\n", lines);
     }
 

@@ -31,7 +31,7 @@ public sealed class MenuDesignerTab : DocumentTab
 public sealed class MenuDesigner : UserControl
 {
     private readonly IdeSession _ide;
-    private readonly TreeView _tree = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = "Menu items" };
+    private readonly TreeView _tree = new() { [Avalonia.Automation.AutomationProperties.NameProperty] = Strings.T("Menu items") };
     private readonly StackPanel _props = new() { Margin = new Thickness(8) };
     private int[] _selected = [];
     private bool _loading;
@@ -56,8 +56,8 @@ public sealed class MenuDesigner : UserControl
         };
         Button B(string text, string tip, Action act)
         {
-            var b = new Button { Content = text, Padding = new Thickness(8, 2), FontSize = 12 };
-            ToolTip.SetTip(b, tip);
+            var b = new Button { Content = Strings.T(text), Padding = new Thickness(8, 2), FontSize = 12 };
+            ToolTip.SetTip(b, Strings.T(tip));
             b.Click += (_, _) =>
             {
                 try { act(); }
@@ -232,13 +232,13 @@ public sealed class MenuDesigner : UserControl
         var n = Session.Get(_selected);
         if (n == null)
         {
-            _props.Children.Add(new TextBlock { Text = Session.Document.Items.Count == 0 ? "Add items with + Item, or start from Quick Menu." : "Select an item to edit it.", Opacity = 0.7 });
+            _props.Children.Add(new TextBlock { Text = Strings.T(Session.Document.Items.Count == 0 ? "Add items with + Item, or start from Quick Menu." : "Select an item to edit it."), Opacity = 0.7 });
             return;
         }
         Control Row(string label, Control editor)
         {
             var g = new Grid { ColumnDefinitions = new ColumnDefinitions("120,*"), Margin = new Thickness(0, 3) };
-            g.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+            g.Children.Add(new TextBlock { Text = Strings.T(label), VerticalAlignment = VerticalAlignment.Center });
             Grid.SetColumn(editor, 1);
             g.Children.Add(editor);
             return g;
@@ -269,7 +269,7 @@ public sealed class MenuDesigner : UserControl
                     FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"), FontSize = 13,
                 };
                 editor.LostFocus += (_, _) => { if (editor.Text != (Session.Get(_selected)?.Procedure ?? "")) UpdateItem(x => x.Procedure = editor.Text); };
-                _props.Children.Add(new TextBlock { Text = "Procedure", Margin = new Thickness(0, 6, 0, 2) });
+                _props.Children.Add(new TextBlock { Text = Strings.T("Procedure"), Margin = new Thickness(0, 6, 0, 2) });
                 _props.Children.Add(new Border { Child = editor, BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1) });
                 break;
             }
@@ -282,7 +282,7 @@ public sealed class MenuDesigner : UserControl
             }
             case "Submenu":
                 _props.Children.Add(Row("Submenu name", Text(n.Name, (x, v) => x.Name = v)));
-                var add = new Button { Content = "+ Item in this submenu" };
+                var add = new Button { Content = Strings.T("+ Item in this submenu") };
                 add.Click += (_, _) => AddSubItem("New item");
                 _props.Children.Add(add);
                 break;
@@ -292,7 +292,7 @@ public sealed class MenuDesigner : UserControl
         _props.Children.Add(Row("Key text", Text(n.KeyText, (x, v) => x.KeyText = v)));
         _props.Children.Add(Row("Skip for", Text(n.SkipFor, (x, v) => x.SkipFor = v)));
         _props.Children.Add(Row("Message", Text(n.Message, (x, v) => x.Message = v)));
-        var mark = new CheckBox { Content = "Mark (check mark)", IsChecked = n.Mark };
+        var mark = new CheckBox { Content = Strings.T("Mark (check mark)"), IsChecked = n.Mark };
         mark.IsCheckedChanged += (_, _) => UpdateItem(x => x.Mark = mark.IsChecked == true);
         _props.Children.Add(mark);
         _props.Children.Add(Row("Comment", Text(n.Comment, (x, v) => x.Comment = v)));
@@ -306,7 +306,7 @@ public sealed class MenuDesigner : UserControl
         Session.Document.Save(FilePath);
         Session.MarkSaved();
         Saved?.Invoke();
-        Status?.Invoke($"Saved {System.IO.Path.GetFileName(FilePath)}.");
+        Status?.Invoke(Strings.F("Saved {0}.", System.IO.Path.GetFileName(FilePath)));
     }
 
     /// <summary>Writes name.mpr next to the menu (the program VFP's GENMENU would write).</summary>
@@ -314,7 +314,7 @@ public sealed class MenuDesigner : UserControl
     {
         var mpr = System.IO.Path.ChangeExtension(FilePath!, ".mpr");
         File.WriteAllText(mpr, MenuGenerator.Generate(Session.Document, FilePath!));
-        Status?.Invoke($"Generated {System.IO.Path.GetFileName(mpr)}.");
+        Status?.Invoke(Strings.F("Generated {0}.", System.IO.Path.GetFileName(mpr)));
         return mpr;
     }
 
@@ -323,7 +323,7 @@ public sealed class MenuDesigner : UserControl
     {
         var code = MenuGenerator.Generate(Session.Document, FilePath ?? "preview.jpmenu");
         _ide.Execute(code);
-        Status?.Invoke(Session.Document.Kind == MenuKind.Shortcut ? "Shortcut menu shown." : "The menu is shown under the IDE menu; End preview restores it.");
+        Status?.Invoke(Session.Document.Kind == MenuKind.Shortcut ? Strings.T("Shortcut menu shown.") : Strings.T("The menu is shown under the IDE menu; End preview restores it."));
     }
 
     public void EndPreview() => _ide.Execute("SET SYSMENU TO DEFAULT");
@@ -344,23 +344,23 @@ public static class MenuOptionsDialog
         };
         var kind = new ComboBox { ItemsSource = Enum.GetNames<MenuKind>(), SelectedItem = doc.Kind.ToString(), HorizontalAlignment = HorizontalAlignment.Stretch };
         var location = new ComboBox { ItemsSource = Enum.GetNames<MenuLocation>(), SelectedItem = doc.Location.ToString(), HorizontalAlignment = HorizontalAlignment.Stretch };
-        var pad = new TextBox { Text = doc.LocationPad ?? "", Watermark = "_MEDIT (for Before/After)" };
+        var pad = new TextBox { Text = doc.LocationPad ?? "", Watermark = Strings.T("_MEDIT (for Before/After)") };
         var setup = Code(doc.Setup);
         var cleanup = Code(doc.Cleanup);
-        var ok = new Button { Content = "OK", IsDefault = true };
-        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var ok = new Button { Content = Strings.T("OK"), IsDefault = true };
+        var cancel = new Button { Content = Strings.T("Cancel"), IsCancel = true };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Margin = new Thickness(0, 8, 0, 0), Children = { ok, cancel } };
         var panel = new StackPanel
         {
             Children =
             {
-                new TextBlock { Text = "Kind" }, kind, new TextBlock { Text = "Location", Margin = new Thickness(0, 6, 0, 0) }, location, pad,
-                new TextBlock { Text = "Setup code", Margin = new Thickness(0, 6, 0, 0) }, new Border { Child = setup, BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1) },
-                new TextBlock { Text = "Cleanup code", Margin = new Thickness(0, 6, 0, 0) }, new Border { Child = cleanup, BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1) },
+                new TextBlock { Text = Strings.T("Kind") }, kind, new TextBlock { Text = Strings.T("Location"), Margin = new Thickness(0, 6, 0, 0) }, location, pad,
+                new TextBlock { Text = Strings.T("Setup code"), Margin = new Thickness(0, 6, 0, 0) }, new Border { Child = setup, BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1) },
+                new TextBlock { Text = Strings.T("Cleanup code"), Margin = new Thickness(0, 6, 0, 0) }, new Border { Child = cleanup, BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1) },
                 buttons,
             },
         };
-        var dialog = new Window { Title = "Menu Options", Width = 560, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = new Border { Padding = new Thickness(12), Child = panel } };
+        var dialog = new Window { Title = Strings.T("Menu Options"), Width = 560, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = new Border { Padding = new Thickness(12), Child = panel } };
         ok.Click += (_, _) =>
         {
             d.Session.Update(x =>

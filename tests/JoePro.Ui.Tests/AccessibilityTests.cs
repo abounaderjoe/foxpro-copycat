@@ -152,39 +152,4 @@ public class AccessibilityTests : IDisposable
         }
         finally { Strings.Use(saved); }
     }
-
-    [AvaloniaFact]
-    public void German_catalog_covers_the_menus_and_palette_and_keeps_access_keys_unique()
-    {
-        var saved = Strings.Culture;
-        try
-        {
-            Strings.Use("en");
-            var english = MenuHeaders(Open());
-            var catalog = Strings.Catalog("de");
-            var palette = _window!.Palette.Actions.Select(a => a.Title).ToList();
-            var known = english.Concat(palette).Concat(Strings.Requested).ToHashSet();
-            Assert.Empty(english.Concat(palette).Where(k => !catalog.ContainsKey(k)));
-            Assert.Empty(catalog.Keys.Where(k => !known.Contains(k)));   // no stale entries
-            Assert.All(catalog, kv => Assert.Equal(kv.Key.Count(ch => ch == '_'), kv.Value.Count(ch => ch == '_')));
-            _window.Close();
-            _session!.Dispose();
-            Strings.Use("de-DE");
-            var w = Open();
-            var menu = w.GetVisualDescendants().OfType<Menu>().First();
-            Assert.Equal("_Datei", (menu.Items[0] as MenuItem)!.Header);
-            void Walk(IEnumerable<object?> items)
-            {
-                var keys = new HashSet<char>();
-                foreach (var mi in items.OfType<MenuItem>())
-                {
-                    var h = (string)mi.Header!;
-                    Assert.True(keys.Add(char.ToLowerInvariant(h[h.IndexOf('_') + 1])), $"duplicate access key in German menu: {h}");
-                    Walk(mi.Items);
-                }
-            }
-            Walk(menu.Items);
-        }
-        finally { Strings.Use(saved); }
-    }
 }

@@ -75,12 +75,12 @@ public sealed class QueryDesigner : UserControl
         {
             FontFamily = Mono, FontSize = 13, ShowLineNumbers = true, SyntaxHighlighting = FoxProHighlighting.Get(dark), Padding = new Thickness(4),
         };
-        Avalonia.Automation.AutomationProperties.SetName(_sql, "SQL statement");
+        Avalonia.Automation.AutomationProperties.SetName(_sql, Strings.T("SQL statement"));
         _sql.TextChanged += (_, _) => { if (!_syncing) _dirty = true; };
         Button B(string text, string tip, Action act)
         {
-            var b = new Button { Content = text, Padding = new Thickness(8, 2), FontSize = 12 };
-            ToolTip.SetTip(b, tip);
+            var b = new Button { Content = Strings.T(text), Padding = new Thickness(8, 2), FontSize = 12 };
+            ToolTip.SetTip(b, Strings.T(tip));
             b.Click += (_, _) => Try(act);
             return b;
         }
@@ -88,9 +88,9 @@ public sealed class QueryDesigner : UserControl
         if (IsView)
         {
             _viewName.Text = viewName?.ToLowerInvariant() ?? "";
-            _viewName.Watermark = "view name";
+            _viewName.Watermark = Strings.T("view name");
             _viewName.TextChanged += (_, _) => { if (!_syncing) { ViewName = (_viewName.Text ?? "").Trim(); Touch(); } };
-            toolbar.Children.Add(new TextBlock { Text = "View", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0) });
+            toolbar.Children.Add(new TextBlock { Text = Strings.T("View"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0) });
             toolbar.Children.Add(_viewName);
         }
         foreach (var b in new[]
@@ -101,15 +101,15 @@ public sealed class QueryDesigner : UserControl
             B("▶ Run", "Run the query and show the results", () => RunPreview()),
             B("Save", "Save the query", () => Save()),
         }) toolbar.Children.Add(b);
-        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Fields", Content = new ScrollViewer { Content = _fieldsTab } });
-        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Join", Content = new ScrollViewer { Content = _joinTab } });
-        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Filter", Content = new ScrollViewer { Content = _filterTab } });
-        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Order By", Content = new ScrollViewer { Content = _orderTab } });
-        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Group By", Content = new ScrollViewer { Content = _groupTab } });
-        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Misc", Content = new ScrollViewer { Content = _miscTab } });
-        if (IsView) _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Update Criteria", Content = new ScrollViewer { Content = _updateTab } });
-        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "SQL", Content = _sql });
-        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Results", Content = _results });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = Strings.T("Fields"), Content = new ScrollViewer { Content = _fieldsTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = Strings.T("Join"), Content = new ScrollViewer { Content = _joinTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = Strings.T("Filter"), Content = new ScrollViewer { Content = _filterTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = Strings.T("Order By"), Content = new ScrollViewer { Content = _orderTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = Strings.T("Group By"), Content = new ScrollViewer { Content = _groupTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = Strings.T("Misc"), Content = new ScrollViewer { Content = _miscTab } });
+        if (IsView) _tabs.Items.Add(new TabItem { FontSize = 14, Header = Strings.T("Update Criteria"), Content = new ScrollViewer { Content = _updateTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = Strings.T("SQL"), Content = _sql });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = Strings.T("Results"), Content = _results });
         var diagram = IdeTheme.Card(Strings.T("Tables"),
             new ScrollViewer { Content = _canvas, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto });
         var body = new Grid { RowDefinitions = new RowDefinitions("230,Auto,*") };
@@ -281,7 +281,7 @@ public sealed class QueryDesigner : UserControl
         }
         if (IsView && !doc.IsSqlOnly && doc.Destination != QueryDestination.Browse)
         {
-            Status?.Invoke("A view has no INTO clause; it was dropped.");
+            Status?.Invoke(Strings.T("A view has no INTO clause; it was dropped."));
             doc.Destination = QueryDestination.Browse;
             doc.IntoName = null;
         }
@@ -306,7 +306,7 @@ public sealed class QueryDesigner : UserControl
         if (_sql.Text != sql) _sql.Text = sql;
         _syncing = false;
         _banner.Text = Document.IsSqlOnly
-            ? $"This query is kept as SQL ({Document.SqlOnlyReason}): edit it in the SQL pane. The other tabs show a query the designer can represent."
+            ? Strings.F("This query is kept as SQL ({0}): edit it in the SQL pane. The other tabs show a query the designer can represent.", Document.SqlOnlyReason)
             : "";
         _banner.IsVisible = Document.IsSqlOnly;
         DrawDiagram();
@@ -339,7 +339,7 @@ public sealed class QueryDesigner : UserControl
             {
                 var field = f;
                 var row = new TextBlock { Text = f, FontFamily = Mono, FontSize = 11, Height = RowHeight, Padding = new Thickness(6, 1), Cursor = new Cursor(StandardCursorType.Hand) };
-                ToolTip.SetTip(row, "Double-click to output the field; drag onto another table's field to join");
+                ToolTip.SetTip(row, Strings.T("Double-click to output the field; drag onto another table's field to join"));
                 row.DoubleTapped += (_, _) => AddField($"{reference}.{field}");
                 row.PointerPressed += (_, e) =>
                 {
@@ -416,12 +416,12 @@ public sealed class QueryDesigner : UserControl
 
     // ---- Tabs ---------------------------------------------------------------------------------------
 
-    private static TextBlock Note(string text) => new() { Text = text, Opacity = 0.75, TextWrapping = TextWrapping.Wrap };
+    private static TextBlock Note(string text) => new() { Text = Strings.T(text), Opacity = 0.75, TextWrapping = TextWrapping.Wrap };
 
     private static Button Small(string text, Action act)
     {
-        var b = new Button { Content = text, Padding = new Thickness(6, 0), FontSize = 11, Margin = new Thickness(2, 0) };
-        if (Accessibility.GlyphName(text) is { } tip) ToolTip.SetTip(b, tip);
+        var b = new Button { Content = Strings.T(text), Padding = new Thickness(6, 0), FontSize = 11, Margin = new Thickness(2, 0) };
+        if (Accessibility.GlyphName(text) is { } tip) ToolTip.SetTip(b, Strings.T(tip));
         b.Click += (_, _) => act();
         return b;
     }
@@ -451,14 +451,14 @@ public sealed class QueryDesigner : UserControl
             var f = Document.Fields[i];
             _fieldsTab.Children.Add(Row(
                 Edit(f.Expression, v => { Document.Fields[index] = f with { Expression = v.Trim() }; Touch(); }, 280),
-                new TextBlock { Text = "AS", VerticalAlignment = VerticalAlignment.Center },
-                Edit(f.Alias ?? "", v => { Document.Fields[index] = f with { Alias = string.IsNullOrWhiteSpace(v) ? null : v.Trim() }; Touch(); }, 120).Named("Field alias"),
+                new TextBlock { Text = Strings.T("AS"), VerticalAlignment = VerticalAlignment.Center },
+                Edit(f.Alias ?? "", v => { Document.Fields[index] = f with { Alias = string.IsNullOrWhiteSpace(v) ? null : v.Trim() }; Touch(); }, 120).Named(Strings.T("Field alias")),
                 Small("▲", () => Move(Document.Fields, index, -1)), Small("▼", () => Move(Document.Fields, index, 1)),
                 Small("✕", () => { Document.Fields.RemoveAt(index); Touch(); })));
         }
-        var expr = new TextBox { Width = 280, Watermark = "expression (customer.name, SUM(orders.total) …)", FontFamily = Mono, FontSize = 12 };
-        var alias = new TextBox { Width = 120, Watermark = "name", FontFamily = Mono, FontSize = 12 }.Named("New field alias");
-        _fieldsTab.Children.Add(Row(expr, new TextBlock { Text = "AS", VerticalAlignment = VerticalAlignment.Center }, alias,
+        var expr = new TextBox { Width = 280, Watermark = Strings.T("expression (customer.name, SUM(orders.total) …)"), FontFamily = Mono, FontSize = 12 };
+        var alias = new TextBox { Width = 120, Watermark = Strings.T("name"), FontFamily = Mono, FontSize = 12 }.Named(Strings.T("New field alias"));
+        _fieldsTab.Children.Add(Row(expr, new TextBlock { Text = Strings.T("AS"), VerticalAlignment = VerticalAlignment.Center }, alias,
             Small("Add", () => { if (!string.IsNullOrWhiteSpace(expr.Text)) AddField(expr.Text.Trim(), alias.Text); })));
     }
 
@@ -477,7 +477,7 @@ public sealed class QueryDesigner : UserControl
         foreach (var t in Document.Tables.Skip(1))
         {
             var table = t;
-            var kinds = new[] { "Inner", "Left outer", "Right outer", "Full outer", "None (cross)" };
+            var kinds = new[] { "Inner", "Left outer", "Right outer", "Full outer", "None (cross)" }.Select(Strings.T).ToArray();
             var combo = new ComboBox { ItemsSource = kinds, SelectedIndex = t.Join is { } k ? (int)k : 4, Width = 130 };
             combo.SelectionChanged += (_, _) =>
             {
@@ -486,7 +486,7 @@ public sealed class QueryDesigner : UserControl
                 Touch();
             };
             _joinTab.Children.Add(Row(new TextBlock { Text = table.Ref, Width = 110, VerticalAlignment = VerticalAlignment.Center }, combo,
-                new TextBlock { Text = "ON", VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = Strings.T("ON"), VerticalAlignment = VerticalAlignment.Center },
                 Edit(t.On ?? "", v => { table.On = string.IsNullOrWhiteSpace(v) ? null : v.Trim(); Touch(); }, 360)));
         }
     }
@@ -501,16 +501,16 @@ public sealed class QueryDesigner : UserControl
             var c = list[i];
             var op = new ComboBox { ItemsSource = new[] { "(expression)" }.Concat(QueryCondition.Operators).ToList(), SelectedIndex = c.Op.Length == 0 ? 0 : Array.IndexOf(QueryCondition.Operators, c.Op) + 1, Width = 110 };
             op.SelectionChanged += (_, _) => { list[index] = c with { Op = op.SelectedIndex <= 0 ? "" : QueryCondition.Operators[op.SelectedIndex - 1] }; Touch(); };
-            var not = new CheckBox { Content = "Not", IsChecked = c.Not };
+            var not = new CheckBox { Content = Strings.T("Not"), IsChecked = c.Not };
             not.IsCheckedChanged += (_, _) => { list[index] = c with { Not = not.IsChecked == true }; Touch(); };
             var or = new ComboBox { ItemsSource = new[] { "AND", "OR" }, SelectedIndex = c.Or ? 1 : 0, Width = 70, IsVisible = i < list.Count - 1 };
             or.SelectionChanged += (_, _) => { list[index] = c with { Or = or.SelectedIndex == 1 }; Touch(); };
             panel.Children.Add(Row(Edit(c.Left, v => { list[index] = c with { Left = v.Trim() }; Touch(); }, 200), not, op,
                 Edit(c.Right, v => { list[index] = c with { Right = v.Trim() }; Touch(); }, 200), or, Small("✕", () => { list.RemoveAt(index); Touch(); })));
         }
-        var left = new TextBox { Width = 200, Watermark = "field or expression", FontFamily = Mono, FontSize = 12 };
+        var left = new TextBox { Width = 200, Watermark = Strings.T("field or expression"), FontFamily = Mono, FontSize = 12 };
         var opNew = new ComboBox { ItemsSource = QueryCondition.Operators, SelectedIndex = 0, Width = 110 };
-        var right = new TextBox { Width = 200, Watermark = "value ('Boston', 100 …)", FontFamily = Mono, FontSize = 12 };
+        var right = new TextBox { Width = 200, Watermark = Strings.T("value ('Boston', 100 …)"), FontFamily = Mono, FontSize = 12 };
         panel.Children.Add(Row(left, opNew, right, Small("Add", () =>
         {
             if (string.IsNullOrWhiteSpace(left.Text)) return;
@@ -528,12 +528,12 @@ public sealed class QueryDesigner : UserControl
         {
             var index = i;
             var o = Document.OrderBy[i];
-            var desc = new CheckBox { Content = "Descending", IsChecked = o.Descending };
+            var desc = new CheckBox { Content = Strings.T("Descending"), IsChecked = o.Descending };
             desc.IsCheckedChanged += (_, _) => { Document.OrderBy[index] = o with { Descending = desc.IsChecked == true }; Touch(); };
             _orderTab.Children.Add(Row(Edit(o.Expression, v => { Document.OrderBy[index] = o with { Expression = v.Trim() }; Touch(); }, 280), desc,
                 Small("▲", () => Move(Document.OrderBy, index, -1)), Small("▼", () => Move(Document.OrderBy, index, 1)), Small("✕", () => { Document.OrderBy.RemoveAt(index); Touch(); })));
         }
-        var expr = new TextBox { Width = 280, Watermark = "expression", FontFamily = Mono, FontSize = 12 };
+        var expr = new TextBox { Width = 280, Watermark = Strings.T("expression"), FontFamily = Mono, FontSize = 12 };
         _orderTab.Children.Add(Row(expr, Small("Add", () => { if (!string.IsNullOrWhiteSpace(expr.Text)) AddOrder(expr.Text.Trim()); })));
     }
 
@@ -546,7 +546,7 @@ public sealed class QueryDesigner : UserControl
             var index = i;
             _groupTab.Children.Add(Row(Edit(Document.GroupBy[i], v => { Document.GroupBy[index] = v.Trim(); Touch(); }, 280), Small("✕", () => { Document.GroupBy.RemoveAt(index); Touch(); })));
         }
-        var expr = new TextBox { Width = 280, Watermark = "expression", FontFamily = Mono, FontSize = 12 };
+        var expr = new TextBox { Width = 280, Watermark = Strings.T("expression"), FontFamily = Mono, FontSize = 12 };
         _groupTab.Children.Add(Row(expr, Small("Add", () => { if (!string.IsNullOrWhiteSpace(expr.Text)) { Document.GroupBy.Add(expr.Text.Trim()); Touch(); } })));
         var having = new StackPanel { Spacing = 4, Margin = new Thickness(0, 10, 0, 0) };
         FillConditions(having, Document.Having, "Groups must meet these conditions (HAVING).");
@@ -556,19 +556,19 @@ public sealed class QueryDesigner : UserControl
     private void FillMiscTab()
     {
         _miscTab.Children.Clear();
-        var distinct = new CheckBox { Content = "No duplicates (DISTINCT)", IsChecked = Document.Distinct };
+        var distinct = new CheckBox { Content = Strings.T("No duplicates (DISTINCT)"), IsChecked = Document.Distinct };
         distinct.IsCheckedChanged += (_, _) => { Document.Distinct = distinct.IsChecked == true; Touch(); };
         _miscTab.Children.Add(distinct);
-        var percent = new CheckBox { Content = "Percent", IsChecked = Document.Percent };
+        var percent = new CheckBox { Content = Strings.T("Percent"), IsChecked = Document.Percent };
         percent.IsCheckedChanged += (_, _) => { Document.Percent = percent.IsChecked == true; Touch(); };
-        _miscTab.Children.Add(Row(new TextBlock { Text = "Top", Width = 90, VerticalAlignment = VerticalAlignment.Center },
+        _miscTab.Children.Add(Row(new TextBlock { Text = Strings.T("Top"), Width = 90, VerticalAlignment = VerticalAlignment.Center },
             Edit(Document.Top?.ToString() ?? "", v => { Document.Top = int.TryParse(v, out var n) && n > 0 ? n : null; Touch(); }, 80, "all"), percent));
         if (IsView) return;
         var dest = new ComboBox { ItemsSource = Enum.GetNames<QueryDestination>(), SelectedIndex = (int)Document.Destination, Width = 120 };
         dest.SelectionChanged += (_, _) => { Document.Destination = (QueryDestination)Math.Max(0, dest.SelectedIndex); Touch(); };
-        _miscTab.Children.Add(Row(new TextBlock { Text = "Destination", Width = 90, VerticalAlignment = VerticalAlignment.Center }, dest,
+        _miscTab.Children.Add(Row(new TextBlock { Text = Strings.T("Destination"), Width = 90, VerticalAlignment = VerticalAlignment.Center }, dest,
             Edit(Document.IntoName ?? "", v => { Document.IntoName = string.IsNullOrWhiteSpace(v) ? null : v.Trim(); Touch(); }, 160, "name")));
-        var rw = new CheckBox { Content = "Read-write cursor", IsChecked = Document.ReadWrite, IsEnabled = Document.Destination == QueryDestination.Cursor };
+        var rw = new CheckBox { Content = Strings.T("Read-write cursor"), IsChecked = Document.ReadWrite, IsEnabled = Document.Destination == QueryDestination.Cursor };
         rw.IsCheckedChanged += (_, _) => { Document.ReadWrite = rw.IsChecked == true; Touch(); };
         _miscTab.Children.Add(rw);
     }
@@ -606,25 +606,25 @@ public sealed class QueryDesigner : UserControl
     private void FillUpdateTab()
     {
         _updateTab.Children.Clear();
-        var send = new CheckBox { Content = "Send SQL updates (TABLEUPDATE writes changes to the base tables)", IsChecked = SendUpdates };
+        var send = new CheckBox { Content = Strings.T("Send SQL updates (TABLEUPDATE writes changes to the base tables)"), IsChecked = SendUpdates };
         send.IsCheckedChanged += (_, _) => { SendUpdates = send.IsChecked == true; _dirty = true; };
         _updateTab.Children.Add(send);
         _updateTab.Children.Add(Note("Key fields identify a record in its base table; updatable fields are written back."));
         foreach (var col in OutputColumns())
         {
             var name = col;
-            var key = new CheckBox { Content = "Key", IsChecked = KeyFields.Contains(name) };
+            var key = new CheckBox { Content = Strings.T("Key"), IsChecked = KeyFields.Contains(name) };
             key.IsCheckedChanged += (_, _) => { if (key.IsChecked == true) KeyFields.Add(name); else KeyFields.Remove(name); _dirty = true; };
-            var upd = new CheckBox { Content = "Updatable", IsChecked = UpdatableFields.Contains(name) };
+            var upd = new CheckBox { Content = Strings.T("Updatable"), IsChecked = UpdatableFields.Contains(name) };
             upd.IsCheckedChanged += (_, _) => { if (upd.IsChecked == true) UpdatableFields.Add(name); else UpdatableFields.Remove(name); _dirty = true; };
             _updateTab.Children.Add(Row(new TextBlock { Text = name, Width = 160, FontFamily = Mono, VerticalAlignment = VerticalAlignment.Center }, key, upd));
         }
-        var where = new ComboBox { ItemsSource = new[] { "Key fields only", "Key and updatable fields", "Key and modified fields", "Key and timestamp" }, SelectedIndex = Math.Clamp(WhereType - 1, 0, 3), Width = 220 };
+        var where = new ComboBox { ItemsSource = new[] { "Key fields only", "Key and updatable fields", "Key and modified fields", "Key and timestamp" }.Select(Strings.T).ToArray(), SelectedIndex = Math.Clamp(WhereType - 1, 0, 3), Width = 220 };
         where.SelectionChanged += (_, _) => { WhereType = where.SelectedIndex + 1; _dirty = true; };
         var how = new ComboBox { ItemsSource = new[] { "SQL UPDATE", "SQL DELETE then INSERT" }, SelectedIndex = UpdateType == 2 ? 1 : 0, Width = 220 };
         how.SelectionChanged += (_, _) => { UpdateType = how.SelectedIndex + 1; _dirty = true; };
-        _updateTab.Children.Add(Row(new TextBlock { Text = "SQL WHERE clause", Width = 160, VerticalAlignment = VerticalAlignment.Center }, where));
-        _updateTab.Children.Add(Row(new TextBlock { Text = "Update using", Width = 160, VerticalAlignment = VerticalAlignment.Center }, how));
+        _updateTab.Children.Add(Row(new TextBlock { Text = Strings.T("SQL WHERE clause"), Width = 160, VerticalAlignment = VerticalAlignment.Center }, where));
+        _updateTab.Children.Add(Row(new TextBlock { Text = Strings.T("Update using"), Width = 160, VerticalAlignment = VerticalAlignment.Center }, how));
     }
 
     // ---- Run and save -------------------------------------------------------------------------------
@@ -660,7 +660,7 @@ public sealed class QueryDesigner : UserControl
             if (count > maxRows) lines.Add($"… {count - maxRows} more record(s)");
             _results.ItemsSource = lines;
             _tabs.SelectedIndex = _tabs.Items.Count - 1;
-            Status?.Invoke($"{count} record(s).");
+            Status?.Invoke(Strings.F("{0} record(s).", count));
             return count;
         }
         finally
@@ -677,7 +677,7 @@ public sealed class QueryDesigner : UserControl
             ApplySql(_sql.Text);   // unapplied edits in the SQL pane win
         if (IsView)
         {
-            if (string.IsNullOrWhiteSpace(ViewName) || !TableDesign.IsName(ViewName)) { Status?.Invoke("Give the view a valid name."); return false; }
+            if (string.IsNullOrWhiteSpace(ViewName) || !TableDesign.IsName(ViewName)) { Status?.Invoke(Strings.T("Give the view a valid name.")); return false; }
             var sql = Document.IsSqlOnly ? Document.Sql! : Document.ToSql(withDestination: false);
             try
             {
@@ -696,7 +696,7 @@ public sealed class QueryDesigner : UserControl
             catch (Exception ex) when (ex is VfpException or InvalidOperationException) { Status?.Invoke(ex.Message); return false; }
             _dirty = false;
             Saved?.Invoke();
-            Status?.Invoke($"Saved view {ViewName.ToLowerInvariant()} in {_viewDb!.Name.ToLowerInvariant()}.");
+            Status?.Invoke(Strings.F("Saved view {0} in {1}.", ViewName.ToLowerInvariant(), _viewDb!.Name.ToLowerInvariant()));
             return true;
         }
         path ??= FilePath;
@@ -706,7 +706,7 @@ public sealed class QueryDesigner : UserControl
         FilePath = path;
         _dirty = false;
         Saved?.Invoke();
-        Status?.Invoke($"Saved {System.IO.Path.GetFileName(path)}.");
+        Status?.Invoke(Strings.F("Saved {0}.", System.IO.Path.GetFileName(path)));
         return true;
     }
 
@@ -722,11 +722,11 @@ public sealed class QueryDesigner : UserControl
         }
         names.AddRange(Directory.EnumerateFiles(_ide.Runtime.Options.Default_, "*" + Store.FreeTableExtension).Select(f => System.IO.Path.GetFileNameWithoutExtension(f).ToLowerInvariant()));
         var list = new ListBox { ItemsSource = names.Distinct().ToList(), Height = 260, Width = 260 };
-        var other = new TextBox { Watermark = "or a table name / path", Width = 260 };
-        var ok = new Button { Content = "Add", IsDefault = true, Classes = { "accent" } };
+        var other = new TextBox { Watermark = Strings.T("or a table name / path"), Width = 260 };
+        var ok = new Button { Content = Strings.T("Add"), IsDefault = true, Classes = { "accent" } };
         var window = new Window
         {
-            Title = "Add table or view", SizeToContent = SizeToContent.WidthAndHeight, WindowStartupLocation = WindowStartupLocation.CenterOwner, CanResize = false,
+            Title = Strings.T("Add table or view"), SizeToContent = SizeToContent.WidthAndHeight, WindowStartupLocation = WindowStartupLocation.CenterOwner, CanResize = false,
             Content = new StackPanel { Margin = new Thickness(12), Spacing = 6, Children = { list, other, ok } },
         };
         void Add()
