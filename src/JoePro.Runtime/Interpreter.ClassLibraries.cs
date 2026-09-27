@@ -162,6 +162,44 @@ public sealed partial class Interpreter
         if (Prop(de, "InitialSelectedAlias") is { Length: > 0 } initial && Session.FindAlias(initial) != null) Session.Select(initial);
     }
 
+    /// <summary>
+    /// A report's data environment (DEFINE CLASS … AS DataEnvironment code): creates it, raises BeforeOpenTables and
+    /// opens its tables unless AutoOpenTables is .F. Relative table names are found next to the report file.
+    /// </summary>
+    public VfpObject OpenReportDataEnvironment(string classCode, string reportFile)
+    {
+        var unit = Parser.ParseProgram(classCode, "DATAENVIRONMENT", reportFile, inc => ResolveInclude(inc, reportFile));
+        var def = unit.Classes.Values.FirstOrDefault() ?? throw new VfpException(1733, "The report's data environment has no class definition.");
+        var de = CreateObject(ResolveClass(def.Name, unit), []) ?? throw new VfpException(1733, "The report's data environment could not be created.");
+        RaiseEvent(de, "BeforeOpenTables", []);
+        if (de.FindProperty("AutoOpenTables")?.Value is not { Kind: ValueKind.Logical } auto || auto.AsBool)
+            InvokeMethod(de, "OpenTables", []);
+        return de;
+    }
+
+    /// <summary>After a report: closes the data environment's tables (unless AutoCloseTables is .F.) and releases it.</summary>
+    public void CloseReportDataEnvironment(VfpObject de)
+    {
+        if (de.FindProperty("AutoCloseTables")?.Value is not { Kind: ValueKind.Logical } auto || auto.AsBool)
+            InvokeMethod(de, "CloseTables", []);
+        RaiseEvent(de, "AfterCloseTables", []);
+        ReleaseObject(de);
+    }
+
+    /// <summary>A new private data session (reports with PrivateDataSession); dispose it with <see cref="EndPrivateSession"/>.</summary>
+    public DataSession BeginPrivateSession()
+    {
+        var session = new DataSession(Options.Clone(), this);
+        Sessions.Add(session);
+        return session;
+    }
+
+    public void EndPrivateSession(DataSession session)
+    {
+        Sessions.Remove(session);
+        session.Dispose();
+    }
+
     /// <summary>DataEnvironment.CloseTables(): closes the tables its cursors opened.</summary>
     internal void CloseDataEnvironmentTables(VfpObject de)
     {

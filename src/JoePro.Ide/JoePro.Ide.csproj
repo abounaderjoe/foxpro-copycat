@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\JoePro.Ui.Runtime\JoePro.Ui.Runtime.csproj" />
     <ProjectReference Include="..\JoePro.Migration\JoePro.Migration.csproj" />
+    <ProjectReference Include="..\JoePro.Reports\JoePro.Reports.csproj" />
     <ProjectReference Include="..\JoePro.Tooling\JoePro.Tooling.csproj" />
   </ItemGroup>
 

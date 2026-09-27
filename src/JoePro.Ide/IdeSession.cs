@@ -50,6 +50,7 @@ public sealed class IdeSession : IDisposable
         MigrationCommands.Register();
         Screen = new ScreenOutput();
         Runtime = new Interpreter(Screen, startDirectory);
+        Reports = JoePro.Reports.ReportEngine.Attach(Runtime);
         Host = new AvaloniaUiHost(Runtime);
         Runtime.Status += m => StatusMessage?.Invoke(m);
         Host.Error += ex => ReportError(ex);
@@ -62,6 +63,7 @@ public sealed class IdeSession : IDisposable
 
     public Interpreter Runtime { get; }
     public AvaloniaUiHost Host { get; }
+    public JoePro.Reports.ReportEngine Reports { get; }
     public ScreenOutput Screen { get; }
     public List<string> History { get; } = new();
 

@@ -208,6 +208,7 @@ public sealed partial class Parser
             ExpectKw("TO");
             return new RenameDbObjectStmt(kind, from, NameArg());
         }
+        if ((V("REPORT") || V("LABEL")) && AcceptKw("FORM")) return ReportForm(V("LABEL"));
         if (V("MODIFY") || V("MODI") || V("BUILD") || V("REPORT") || V("LABEL") || V("KEYBOARD") || V("ACTIVATE") || V("DEACTIVATE")
             || V("HIDE") || V("SHOW") || V("MOVE") || V("PUSH") || V("POP") || V("RESTORE") || V("SAVE") || V("RUN") || V("FLUSH")
             || V("UNLOCK") || V("DOEVENTS") || V("RETRY") || V("EXTERNAL") || V("SLEEP") || V("LOCK") || V("VALIDATE") || V("ASSERT")
@@ -1027,5 +1028,77 @@ public sealed partial class Parser
             return new SqlDeleteStmt(target, where) { From = from, Joins = joins };
         }
         finally { _sql = saved; }
+    }
+
+    private static readonly string[] ReportClauses =
+    [
+        "ENVIRONMENT", "ALL", "REST", "NEXT", "RECORD", "FOR", "WHILE", "HEADING", "NOCONSOLE", "NOOPTIMIZE", "PLAIN", "RANGE", "PREVIEW",
+        "TO", "NAME", "SUMMARY", "NODIALOG", "OBJECT", "SAMPLE", "NOEJECT", "IN", "WINDOW", "SCREEN", "NOWAIT",
+    ];
+
+    /// <summary>REPORT FORM | LABEL FORM file | ? [clauses], in any order.</summary>
+    private Stmt ReportForm(bool label)
+    {
+        Expr? name = null;
+        if (IsOp("?")) _p++;
+        else name = NameArg(ReportClauses);
+        var stmt = new ReportFormStmt(label, name, new Scope());
+        Expr? @for = null, @while = null, count = null;
+        var kind = "DEFAULT";
+        while (!AtEnd)
+        {
+            if (AcceptKw("ENVIRONMENT")) stmt = stmt with { Environment = true };
+            else if (AcceptKw("ALL")) kind = "ALL";
+            else if (AcceptKw("REST")) kind = "REST";
+            else if (AcceptKw("NEXT")) { kind = "NEXT"; count = Expression(); }
+            else if (AcceptKw("RECORD")) { kind = "RECORD"; count = Expression(); }
+            else if (AcceptKw("FOR")) @for = Expression();
+            else if (AcceptKw("WHILE")) @while = Expression();
+            else if (AcceptKw("HEADING")) stmt = stmt with { Heading = Expression() };
+            else if (AcceptKw("NOCONSOLE")) stmt = stmt with { NoConsole = true };
+            else if (AcceptKw("PLAIN")) stmt = stmt with { Plain = true };
+            else if (AcceptKw("RANGE"))
+            {
+                var from = Expression();
+                Expr? to = null;
+                if (IsOp(",")) { _p++; to = Expression(); }
+                stmt = stmt with { RangeFrom = from, RangeTo = to };
+            }
+            else if (AcceptKw("PREVIEW"))
+            {
+                stmt = stmt with { Preview = true };
+                // [[IN] WINDOW name | IN SCREEN]: the preview is always a document window here.
+                if (AcceptKw("IN")) { if (AcceptKw("WINDOW")) _p++; else AcceptKw("SCREEN"); }
+                else if (AcceptKw("WINDOW")) _p++;
+            }
+            else if (AcceptKw("NOWAIT")) stmt = stmt with { NoWait = true };
+            else if (AcceptKw("TO"))
+            {
+                if (AcceptKw("PRINTER")) stmt = stmt with { ToPrinter = true, Prompt = AcceptKw("PROMPT") };
+                else
+                {
+                    AcceptKw("FILE");
+                    stmt = stmt with { ToFile = NameArg(ReportClauses.Append("ASCII").Append("ADDITIVE").ToArray()) };
+                    while (true)
+                    {
+                        if (AcceptKw("ASCII")) stmt = stmt with { Ascii = true };
+                        else if (AcceptKw("ADDITIVE")) { }
+                        else break;
+                    }
+                }
+            }
+            else if (AcceptKw("NAME")) stmt = stmt with { NameVar = VarName() };
+            else if (AcceptKw("SUMMARY")) stmt = stmt with { Summary = true };
+            else if (AcceptKw("SAMPLE")) stmt = stmt with { Sample = true };
+            else if (AcceptKw("NODIALOG") || AcceptKw("NOOPTIMIZE") || AcceptKw("NOEJECT")) { }
+            else if (AcceptKw("OBJECT"))
+            {
+                stmt = stmt with { Object = true };
+                if (!AtEnd && !Kw("TYPE") && !ReportClauses.Any(Kw)) stmt = stmt with { Listener = Expression() };
+                if (AcceptKw("TYPE")) stmt = stmt with { ObjectType = Expression() };
+            }
+            else throw Error($"Unrecognized phrase/keyword in {(label ? "LABEL" : "REPORT")} FORM: {Peek()?.Text}");
+        }
+        return stmt with { Scope = new Scope(kind, count, @for, @while) };
     }
 }

@@ -12,6 +12,7 @@ public abstract class RuntimeHarness : IDisposable
     protected RuntimeHarness()
     {
         Rt = new Interpreter(new TextWriterOutput(Out), Dir);
+        JoePro.Reports.ReportEngine.Attach(Rt);
         Rt.Status += StatusMessages.Add;
         Rt.ExecuteCommand("SET TALK OFF");
     }

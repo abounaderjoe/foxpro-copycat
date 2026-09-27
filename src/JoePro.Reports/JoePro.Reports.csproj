@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JoePro.Core\JoePro.Core.csproj" />
+    <ProjectReference Include="..\JoePro.Data\JoePro.Data.csproj" />
+    <ProjectReference Include="..\JoePro.Language\JoePro.Language.csproj" />
+    <ProjectReference Include="..\JoePro.Runtime\JoePro.Runtime.csproj" />
+    <ProjectReference Include="..\JoePro.Documents\JoePro.Documents.csproj" />
+  </ItemGroup>
+
+</Project>

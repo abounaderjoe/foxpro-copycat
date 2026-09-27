@@ -152,6 +152,7 @@ public sealed partial class Interpreter
             case CreateViewStmt cv: Views.Create(this, cv); return true;
             case CopyFileStmt cf: ExecCopyFile(cf); return true;
             case AddTableStmt adt: ExecAddTable(adt); return true;
+            case ReportFormStmt rf: ExecReportForm(rf); return true;
             case RemoveTableStmt rmt: ExecRemoveTable(rmt); return true;
             case BlockStmt bs:
                 foreach (var inner in bs.Stmts) ExecStmt(inner);
@@ -386,6 +387,52 @@ public sealed partial class Interpreter
         wa.ReadOnly = true;
         Notify($"Opened {Path.GetFileName(path)} as a read-only snapshot. Use IMPORT to convert it into a Joe Pro table.");
         return wa;
+    }
+
+    // ---- REPORT FORM / LABEL FORM ---------------------------------------------------------
+
+    /// <summary>The report engine, attached by the host (CLI, IDE). Without it REPORT FORM reports an error.</summary>
+    public IReportRunner? Reports { get; set; }
+
+    private void ExecReportForm(ReportFormStmt rf)
+    {
+        var (modern, legacy) = rf.Label ? (".jplabel", ".lbx") : (".jpreport", ".frx");
+        if (rf.Name == null) throw new VfpException(1, $"{(rf.Label ? "LABEL" : "REPORT")} FORM ? needs a file name here; give the file name.");
+        var name = EvalName(rf.Name);
+        var path = ResolveClassFile(name, modern, legacy, _frame.Unit?.File) ?? throw VfpException.FileNotFound(Path.HasExtension(name) ? name : name + modern);
+        if (Reports == null) throw new VfpException(1, "Reports are not available in this host (the report engine is not attached).");
+        int? Int(Expr? e) => e == null ? null : (int)Eval(e).AsNumber;
+        VfpObject? listener = null;
+        if (rf.Listener != null)
+            listener = Eval(rf.Listener) is { Kind: ValueKind.Object } lo ? (VfpObject)lo.AsObject : throw new VfpException(1924, "The OBJECT clause needs a ReportListener object.");
+        Reports.Run(new ReportRequest
+        {
+            Path = path, Label = rf.Label, Scope = rf.Scope, Environment = rf.Environment,
+            Heading = rf.Heading == null ? null : Formatter.ToDisplay(Eval(rf.Heading), Options).Trim(),
+            NoConsole = rf.NoConsole, Plain = rf.Plain, RangeFrom = Int(rf.RangeFrom), RangeTo = Int(rf.RangeTo),
+            Preview = rf.Preview, NoWait = rf.NoWait, ToPrinter = rf.ToPrinter, Prompt = rf.Prompt,
+            ToFile = rf.ToFile == null ? null : Session.ResolvePath(EvalName(rf.ToFile), ""),
+            Ascii = rf.Ascii, Summary = rf.Summary, Sample = rf.Sample, Listener = listener, ObjectType = Int(rf.ObjectType), NameVar = rf.NameVar,
+        });
+    }
+
+    private string EvalName(Expr e) => e switch
+    {
+        LiteralExpr { Value.Kind: ValueKind.Character } l => l.Value.AsString.Trim().Trim('"', '\''),
+        MacroExpr m => GetVariable(m.VarName).AsString.Trim(),
+        _ => Eval(e).AsString.Trim(),
+    };
+
+    /// <summary>The record numbers a command scope (ALL/NEXT/REST/RECORD, FOR, WHILE) visits, in order (REPORT FORM).</summary>
+    public List<int> RecordsInScope(WorkArea wa, Scope scope, string defaultKind = "ALL")
+    {
+        var list = new List<int>();
+        if (!wa.InUse) return list;
+        var saved = Session.CurrentAreaNumber;
+        Session.Select(wa.Number);
+        try { ForEachInScope(wa, scope, defaultKind, () => list.Add(wa.RecNo)); }
+        finally { Session.Select(saved); }
+        return list;
     }
 
     // ---- Scope iteration -----------------------------------------------------------------
@@ -629,7 +676,7 @@ public sealed partial class Interpreter
             throw new VfpException(ErrorCodes.TriggerFailed, $"Trigger failed in {wa.Alias}.", kind);
     }
 
-    internal Value EvalInArea(WorkArea wa, string expr)
+    public Value EvalInArea(WorkArea wa, string expr)
     {
         var saved = Session.CurrentAreaNumber;
         Session.Select(wa.Number);

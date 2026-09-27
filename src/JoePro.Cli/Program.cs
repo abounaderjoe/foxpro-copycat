@@ -51,6 +51,7 @@ public static class Program
     private static Interpreter NewRuntime()
     {
         var rt = new Interpreter(new TextWriterOutput(Console.Out), Directory.GetCurrentDirectory());
+        JoePro.Reports.ReportEngine.Attach(rt);
         Runtimes.Add(rt);
         rt.Status += msg =>
         {

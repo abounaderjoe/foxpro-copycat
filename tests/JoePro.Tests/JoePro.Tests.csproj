@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\JoePro.Language\JoePro.Language.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Data\JoePro.Data.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Runtime\JoePro.Runtime.csproj" />
+    <ProjectReference Include="..\..\src\JoePro.Reports\JoePro.Reports.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Migration\JoePro.Migration.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Tooling\JoePro.Tooling.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Cli\JoePro.Cli.csproj" />

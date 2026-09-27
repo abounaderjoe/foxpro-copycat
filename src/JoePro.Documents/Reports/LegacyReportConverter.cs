@@ -300,7 +300,7 @@ public static class LegacyReportConverter
     private static string ConvertDataEnvironment(Rec de, List<Rec> members, ReportConversion result, string file)
     {
         var scratch = new ConversionResult { File = new ClassFile(), SourcePath = result.SourcePath };
-        var cls = new ClassDocument { Name = "Dataenvironment", ParentClass = "DataEnvironment" };
+        var cls = new ClassDocument { Name = "ReportDataEnvironment", ParentClass = "DataEnvironment" };
         foreach (var (n, v) in LegacyFormConverter.ParseProperties(de.S("EXPR"), "Dataenvironment", scratch))
             if (!n.Equals("Name", StringComparison.OrdinalIgnoreCase)) cls.Properties[n] = LegacyFormConverter.ConvertValue(n, v, "Dataenvironment", scratch);
         foreach (var m in LegacyFormConverter.ParseMethods(de.S("TAG"))) cls.Methods.Add(m);

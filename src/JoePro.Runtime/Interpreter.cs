@@ -164,6 +164,9 @@ public sealed partial class Interpreter : IExpressionHost
     /// <summary>Evaluates an expression in the current context.</summary>
     public Value Evaluate(string expression) => Eval(Parser.ParseExpression(expression));
 
+    /// <summary>Evaluates an already parsed expression (hosts that evaluate the same expression many times parse it once).</summary>
+    public Value Evaluate(Expr expression) => Eval(expression);
+
     /// <summary>Evaluates an expression as if it ran inside <paramref name="frame"/> (debugger watches and hovers).</summary>
     public Value EvaluateInFrame(Frame frame, string expression)
     {

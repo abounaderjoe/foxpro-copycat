@@ -154,6 +154,28 @@ public sealed record AlterTableStmt(Expr Name, string Action, FieldSpec? Field, 
 }
 /// <summary>ADD TABLE name [NAME longname]: moves a free table (or imports a .dbf) into the current database.</summary>
 public sealed record AddTableStmt(Expr Name, Expr? LongName) : Stmt;
+/// <summary>REPORT FORM / LABEL FORM file [clauses]. Name is null for "?" (choose a file).</summary>
+public sealed record ReportFormStmt(bool Label, Expr? Name, Scope Scope) : Stmt
+{
+    public bool Environment { get; init; }
+    public Expr? Heading { get; init; }
+    public bool NoConsole { get; init; }
+    public bool Plain { get; init; }
+    public Expr? RangeFrom { get; init; }
+    public Expr? RangeTo { get; init; }
+    public bool Preview { get; init; }
+    public bool NoWait { get; init; }
+    public bool ToPrinter { get; init; }
+    public bool Prompt { get; init; }
+    public Expr? ToFile { get; init; }
+    public bool Ascii { get; init; }
+    public bool Summary { get; init; }
+    public bool Sample { get; init; }
+    public bool Object { get; init; }
+    public Expr? Listener { get; init; }
+    public Expr? ObjectType { get; init; }
+    public string? NameVar { get; init; }
+}
 /// <summary>REMOVE TABLE name [DELETE]: takes a table out of the current database (as a free table unless DELETE).</summary>
 public sealed record RemoveTableStmt(Expr Name, bool Delete) : Stmt;
 public sealed record CreateDatabaseStmt(Expr Name) : Stmt;
