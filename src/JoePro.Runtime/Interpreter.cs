@@ -363,6 +363,24 @@ public sealed partial class Interpreter : IExpressionHost
         return ResolveProgramFile(name, ".h") is { } p ? File.ReadAllText(p) : null;
     }
 
+    /// <summary>
+    /// DO app.jpapp: extracts the application (once) and runs its main program. Its folder joins SET PATH so the
+    /// forms, classes and reports inside it are found; data files are looked up from SET DEFAULT as usual.
+    /// </summary>
+    public void RunApp(string appPath) => RunApp(appPath, null);
+
+    private void RunApp(string appPath, List<Arg>? args)
+    {
+        var (folder, manifest) = ProjectBuilder.Extract(appPath);
+        if (!Options.Path.Contains(folder, StringComparer.OrdinalIgnoreCase)) Options.Path.Add(folder);
+        foreach (var sub in manifest.Files.Select(f => Path.GetDirectoryName(f.Replace('/', Path.DirectorySeparatorChar))).Where(d => !string.IsNullOrEmpty(d)).Distinct())
+        {
+            var dir = Path.Combine(folder, sub!);
+            if (!Options.Path.Contains(dir, StringComparer.OrdinalIgnoreCase)) Options.Path.Add(dir);
+        }
+        CallUnitMain(LoadProgram(Path.Combine(folder, manifest.Main.Replace('/', Path.DirectorySeparatorChar))), args ?? []);
+    }
+
     /// <summary>DO main.mpr when only the menu definition exists: runs main.jpmenu, or a legacy main.mnx.</summary>
     private string? MenuFallback(string name)
     {
@@ -420,6 +438,12 @@ public sealed partial class Interpreter : IExpressionHost
 
     private Value CallUnitMain(ProgramUnit unit, List<Arg> args)
     {
+        // A program that starts with PROCEDURE/FUNCTION runs that first procedure (Helper() calls helper.prg's FUNCTION Helper).
+        if (unit.Main.Count == 0 && unit.MainParameters.Count == 0 && unit.Procedures.Count > 0)
+        {
+            var first = unit.Procedures.Values.MinBy(p => p.Line)!;
+            return Invoke(first, unit, args);
+        }
         var proc = new ProcedureDef(unit.Name, unit.MainParameters, unit.MainLocalParameters, unit.Main, 1);
         return Invoke(proc, unit, args, bindDeclared: false);
     }
@@ -1062,7 +1086,8 @@ public sealed partial class Interpreter : IExpressionHost
             Invoke(found.Proc, found.Unit, args);
             return;
         }
-        var file = ResolveProgramFile(name) ?? MenuFallback(name) ?? throw VfpException.FileNotFound(Path.HasExtension(name) ? name : name + ".prg");
+        var file = ResolveProgramFile(name) ?? MenuFallback(name) ?? ResolveProgramFile(name, ".jpapp") ?? throw VfpException.FileNotFound(Path.HasExtension(name) ? name : name + ".prg");
+        if (Path.GetExtension(file).Equals(".jpapp", StringComparison.OrdinalIgnoreCase)) { RunApp(file, args); return; }
         CallUnitMain(LoadProgram(file), args);
     }
 

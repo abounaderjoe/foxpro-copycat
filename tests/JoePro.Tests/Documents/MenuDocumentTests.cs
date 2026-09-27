@@ -1,5 +1,6 @@
 using JoePro.Core;
 using JoePro.Documents.Menus;
+using JoePro.Documents.Projects;
 using JoePro.Legacy.Formats;
 
 namespace JoePro.Tests.Documents;
@@ -135,5 +136,58 @@ public class MenuDesignSessionTests
         Assert.Equal(["File", "Edit", "Window", "Help"], quick.Items.Select(i => i.Caption));
         Assert.Contains(quick.Items[1].Items, i => i.SystemBar == "_MED_PASTE");
         JoePro.Language.Parser.ParseProgram(MenuGenerator.Generate(quick, "quick.jpmenu"), "Q");
+    }
+}
+
+public class ProjectDocumentTests
+{
+    [Fact]
+    public void Round_trips_and_types_files_by_extension()
+    {
+        var p = new ProjectDocument { Name = "Sales", Company = "Acme", Version = "2.1.0" };
+        p.Add("main.prg");
+        p.Add("forms\\customer.jpform");
+        p.Add("reports/sales.jpreport");
+        p.Add("data/sales.jpdb");
+        p.Files.Add(new ProjectFile { Path = "readme.txt", Type = ProjectFileType.Other });
+        var text = ProjectSerializer.Write(p);
+        Assert.Contains("  - path: forms/customer.jpform\n", text);
+        Assert.Contains("    type: other\n", text);   // only written when it differs from the extension
+        Assert.Contains("  number: \"2.1.0\"\n", text);
+        var back = ProjectSerializer.Parse(text);
+        Assert.Equal(text, ProjectSerializer.Write(back));
+        Assert.Equal("main.prg", back.Main);
+        Assert.True(back.Find("data/sales.jpdb")!.Exclude);
+        Assert.Equal(ProjectFileType.Report, back.Find("reports/sales.jpreport")!.Type);
+    }
+
+    [Fact]
+    public void Converts_pjx_records()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "joepro-pjx-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        JoePro.Core.FieldDef[] fields = [new("NAME", 'M'), new("TYPE", 'C', 1), new("EXCLUDE", 'L'), new("MAINPROG", 'L'), new("OUTFILE", 'M'), new("COMMENTS", 'M')];
+        (bool, JoePro.Core.Value[]) Row(string name, string type, bool exclude = false, bool main = false, string outfile = "") =>
+            (false, [JoePro.Core.Value.String(name + "\0"), JoePro.Core.Value.String(type), JoePro.Core.Value.Logical(exclude), JoePro.Core.Value.Logical(main), JoePro.Core.Value.String(outfile), JoePro.Core.Value.String("")]);
+        var path = Path.Combine(dir, "sales.pjx");
+        JoePro.Legacy.Formats.DbfWriter.Write(path, fields,
+        [
+            Row("c:\\apps\\sales\\sales.pjx", "H", outfile: "c:\\apps\\sales\\salesapp.exe"),
+            Row("main.prg", "P", main: true),
+            Row("forms\\cust.scx", "K"),
+            Row("libs\\base.vcx", "V"),
+            Row("reports\\inv.frx", "R"),
+            Row("menus\\main.mnx", "M"),
+            Row("data\\sales.dbc", "d", exclude: true),
+            Row("tools\\foxtools.fll", "L"),
+        ]);
+        var c = LegacyProjectConverter.Convert(path);
+        var doc = c.Document;
+        Assert.Equal(("sales", "main.prg", "salesapp"), (doc.Name, doc.Main, doc.Output));
+        Assert.Equal(["main.prg", "forms/cust.jpform", "libs/base.jpclass", "reports/inv.jpreport", "menus/main.jpmenu", "data/sales.jpdb", "tools/foxtools.fll"], doc.Files.Select(f => f.Path));
+        Assert.True(doc.Find("data/sales.jpdb")!.Exclude);
+        Assert.Contains(c.Findings, f => f.Message.Contains("FLL"));
+        Assert.Equal("forms/cust.scx", LegacyProjectConverter.Convert(path, mapConverted: false).Document.Files[1].Path);
+        Directory.Delete(dir, true);
     }
 }

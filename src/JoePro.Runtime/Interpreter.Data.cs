@@ -1046,6 +1046,9 @@ public sealed partial class Interpreter
             case "FLUSH" or "UNLOCK" or "DOEVENTS" or "EXTERNAL" or "SLEEP" or "LOCK" or "VALIDATE" or "ASSERT":
                 if (verb == "UNLOCK") foreach (var w in Session.OpenWorkAreas()) w.Unlock();
                 break;
+            case "BUILD":
+                BuildCommand(rest);
+                break;
             case "CREATE" or "CREA" when TryOpenDesigner(true, rest):
                 break;
             case "MODIFY" or "MODI" when TryOpenDesigner(false, rest):
@@ -1104,6 +1107,14 @@ public sealed partial class Interpreter
         if (create && kindWord.StartsWith("REPO") && System.Text.RegularExpressions.Regex.IsMatch(m.Groups["rest"].Value, @"\bFROM\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
             QuickReportCommand(m.Groups["rest"].Value);
+            return true;
+        }
+        if (create && kindWord.StartsWith("PROJ") && Ui == null)
+        {
+            // Without a Project Manager: an empty project file.
+            var projName = TokenizeDesignerArgs(m.Groups["rest"].Value).FirstOrDefault() ?? throw VfpException.Syntax("CREATE PROJECT needs a name.");
+            var projPath = Path.Combine(Options.Default_, Path.HasExtension(projName) ? projName : projName + ".jpproj");
+            new JoePro.Documents.Projects.ProjectDocument { Name = Path.GetFileNameWithoutExtension(projPath) }.Save(projPath);
             return true;
         }
         if (create && kindWord == "CLASS")
@@ -1273,6 +1284,49 @@ public sealed partial class Interpreter
         JoePro.Documents.ClassFileWriter.Save(file, lib);
         InvalidateClassLibrary(lib);
         if (dependents.Count > 0) Notify($"REMOVE CLASS {words[0]}: {string.Join(", ", dependents)} still refer to it.");
+    }
+
+    /// <summary>Loads a project (.jpproj, or a legacy .pjx converted in memory).</summary>
+    public JoePro.Documents.Projects.ProjectDocument LoadProject(string path) =>
+        Path.GetExtension(path).Equals(".pjx", StringComparison.OrdinalIgnoreCase)
+            ? JoePro.Documents.Projects.LegacyProjectConverter.Convert(path, mapConverted: false).Document
+            : JoePro.Documents.Projects.ProjectDocument.Load(path);
+
+    /// <summary>The last BUILD's result (errors, output).</summary>
+    public BuildResult? LastBuild { get; private set; }
+
+    /// <summary>BUILD PROJECT name | BUILD APP name FROM project | BUILD EXE name FROM project [RECOMPILE].</summary>
+    private void BuildCommand(string rest)
+    {
+        var words = TokenizeDesignerArgs(rest);
+        if (words.Count < 2) throw VfpException.Syntax("BUILD PROJECT | APP | EXE name [FROM project]");
+        var kind = words[0].ToUpperInvariant();
+        string ProjectPath(string name)
+        {
+            var full = Path.IsPathRooted(name) ? name : Path.Combine(Options.Default_, name);
+            if (Path.HasExtension(full)) return DataSession.FindIgnoringCase(full) ?? throw VfpException.FileNotFound(name);
+            return DataSession.FindIgnoringCase(full + ".jpproj") ?? DataSession.FindIgnoringCase(full + ".pjx") ?? throw VfpException.FileNotFound(name + ".jpproj");
+        }
+        var fromAt = words.FindIndex(w => w.Equals("FROM", StringComparison.OrdinalIgnoreCase));
+        var projectPath = ProjectPath(kind == "PROJECT" ? words[1] : fromAt > 0 && fromAt + 1 < words.Count ? words[fromAt + 1] : throw VfpException.Syntax($"BUILD {kind} name FROM project"));
+        var project = LoadProject(projectPath);
+        var dir = Path.GetDirectoryName(projectPath)!;
+        var target = Path.IsPathRooted(words[1]) ? words[1] : Path.Combine(Options.Default_, words[1]);
+        BuildResult result = kind switch
+        {
+            "PROJECT" => ProjectBuilder.Check(project, dir),
+            "APP" or "DLL" or "MTDLL" => ProjectBuilder.BuildApp(project, dir, Path.HasExtension(target) && !target.EndsWith(".app", StringComparison.OrdinalIgnoreCase) ? target : Path.ChangeExtension(target, ".jpapp")),
+            "EXE" => ProjectBuilder.BuildExe(project, dir, Path.HasExtension(target) ? Path.ChangeExtension(target, null) : target),
+            _ => throw VfpException.Syntax($"BUILD {kind} is not supported."),
+        };
+        LastBuild = result;
+        if (result.Succeeded)
+            Notify(kind == "PROJECT" ? $"Project {project.Name} built: {result.Files.Count} file(s), no errors." : $"Built {result.Output} ({result.Files.Count} file(s)).");
+        else
+        {
+            Notify($"Build of {project.Name} failed with {result.Errors.Count} error(s): " + string.Join("; ", result.Errors.Take(3).Select(e => $"{e.File}{(e.Line > 0 ? $"({e.Line})" : "")}: {e.Message}")));
+            if (kind != "PROJECT") throw new VfpException(1, $"Build failed with {result.Errors.Count} error(s); see {Path.ChangeExtension(target, ".err")}.");
+        }
     }
 
     /// <summary>CREATE REPORT file FROM table [FORM | COLUMN] [FIELDS list] [NOOVERWRITE]: writes a quick report without a designer.</summary>

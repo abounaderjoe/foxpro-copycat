@@ -75,6 +75,14 @@ public static class Program
     private static int RunProgram(string file, string[] args)
     {
         var rt = NewRuntime();
+        if (Path.GetExtension(file).Equals(".jpapp", StringComparison.OrdinalIgnoreCase))
+        {
+            // A built application: data files are found next to it.
+            rt.ExecuteCommand($"SET DEFAULT TO \"{Path.GetDirectoryName(Path.GetFullPath(file))}\"");
+            rt.RunApp(Path.GetFullPath(file));
+            Console.WriteLine();
+            return 0;
+        }
         var result = rt.RunProgram(Path.GetFullPath(file), args.Select(Value.String).ToArray());
         Console.WriteLine();
         return result.Kind == ValueKind.Number ? (int)result.AsNumber : 0;
