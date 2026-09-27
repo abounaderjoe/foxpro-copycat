@@ -26,7 +26,7 @@ public static class Program
                 "add" or "remove" or "restore" or "publish" or "pack" => Packages(cmd, args.Skip(1).ToArray()),
                 "sync" => Sync(args.Skip(1).ToArray()),
                 "version" or "--version" => Version(),
-                "functions" => Functions(),
+                "functions" => Functions(args.Contains("--coverage")),
                 "lsp" => new JoePro.Tooling.LspServer(Console.OpenStandardInput(), Console.OpenStandardOutput()).Run(),
                 "dap" => new JoePro.Tooling.DapServer(Console.OpenStandardInput(), Console.OpenStandardOutput()).Run(),
                 "help" or "--help" or "-h" => Help(),
@@ -254,8 +254,13 @@ public static class Program
         }
     }
 
-    private static int Functions()
+    private static int Functions(bool coverage = false)
     {
+        if (coverage)
+        {
+            Console.Write(JoePro.Runtime.Builtins.VfpCatalog.CoverageMarkdown());
+            return 0;
+        }
         foreach (var n in JoePro.Runtime.Builtins.Library.Names.Where(n => !n.StartsWith("__")).OrderBy(n => n)) Console.WriteLine(n);
         return 0;
     }
@@ -288,6 +293,7 @@ public static class Program
               joepro sync config|init|run|status|conflicts|resolve|cutover
                                           Two-way sync with a legacy VFP application during a transition
               joepro functions            List the built-in functions implemented so far
+              joepro functions --coverage The VFP 9 function coverage matrix (Markdown)
               joepro lsp                  Run the Language Server Protocol server on stdio (editor integration)
               joepro dap                  Run the Debug Adapter Protocol server on stdio (debugging in VS Code)
               joepro version              Show the version

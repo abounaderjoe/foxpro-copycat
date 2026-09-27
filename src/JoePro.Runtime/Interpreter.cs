@@ -86,6 +86,17 @@ public sealed partial class Interpreter : IExpressionHost
     public event Action<string>? Status;
     /// <summary>Host hook for MESSAGEBOX(): (text, title, flags) → button result.</summary>
     public Func<string, string, int, int>? MessageBox { get; set; }
+    /// <summary>
+    /// Host hook for GETFILE, PUTFILE, GETPICT, GETDIR and LOCFILE: (kind "open"|"save"|"picture"|"folder", extensions, caption,
+    /// initial path) → the chosen path, or null when cancelled. Without a host the dialogs return an empty string.
+    /// </summary>
+    public Func<string, string, string, string, string?>? FileDialog { get; set; }
+    /// <summary>Host hook for GETCOLOR(): initial RGB → chosen RGB, or null when cancelled.</summary>
+    public Func<int, int?>? ColorDialog { get; set; }
+    /// <summary>Host hook for GETFONT(): (font, size, style) → "name,size,style", or null when cancelled.</summary>
+    public Func<string, int, string, string?>? FontDialog { get; set; }
+    /// <summary>Host hook for SYSMETRIC(1/2) and friends: the primary screen's size in pixels.</summary>
+    public (int Width, int Height) ScreenSize { get; set; } = (1920, 1080);
     public string? OnErrorCommand { get; private set; }
     /// <summary>The attached user-interface host, if any.</summary>
     public IUiHost? Ui { get; set; }

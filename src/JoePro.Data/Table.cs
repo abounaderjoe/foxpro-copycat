@@ -253,6 +253,7 @@ public sealed partial class Table
                 {
                     var current = Store.ScalarLong("SELECT autoinc_next FROM _jp_fields WHERE tbl=$t AND name=$n", ("$t", Name), ("$n", Fields[i].Name));
                     vals[i] = Value.Number(current, 0);
+                    LastAutoIncValue = current;
                     Store.Exec("UPDATE _jp_fields SET autoinc_next=autoinc_next+autoinc_step WHERE tbl=$t AND name=$n", ("$t", Name), ("$n", Fields[i].Name));
                     Schema.Fields[i] = Fields[i] with { AutoIncNext = current + Fields[i].AutoIncStep };
                 }
@@ -410,6 +411,9 @@ public sealed partial class Table
     }
 
     /// <summary>Makes a field autoincrementing from <paramref name="next"/> (a rebuilt table gets its rows first, then its counters).</summary>
+    /// <summary>The last autoincrement value generated on this thread (GETAUTOINCVALUE()).</summary>
+    [ThreadStatic] public static long? LastAutoIncValue;
+
     public void EnableAutoIncrement(string field, long next, int step)
     {
         var i = Schema.FieldIndex(field);

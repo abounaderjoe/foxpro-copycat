@@ -106,8 +106,8 @@ public static partial class Library
             }
             return S(new string(s));
         }));
-        Add("LEFT", c => NullOr(c, () => { var s = c.Str(0); var n = c.Int(1); return S(n <= 0 ? "" : s[..Math.Min(n, s.Length)]); }));
-        Add("RIGHT", c => NullOr(c, () => { var s = c.Str(0); var n = c.Int(1); return S(n <= 0 ? "" : s[Math.Max(0, s.Length - n)..]); }));
+        Add(["LEFT", "LEFTC"], c => NullOr(c, () => { var s = c.Str(0); var n = c.Int(1); return S(n <= 0 ? "" : s[..Math.Min(n, s.Length)]); }));
+        Add(["RIGHT", "RIGHTC"], c => NullOr(c, () => { var s = c.Str(0); var n = c.Int(1); return S(n <= 0 ? "" : s[Math.Max(0, s.Length - n)..]); }));
         Add(["SUBSTR", "SUBSTRC"], c => NullOr(c, () =>
         {
             var s = c.Str(0);
@@ -163,7 +163,7 @@ public static partial class Library
             sb.Append(s, pos, s.Length - pos);
             return S(sb.ToString());
         }));
-        Add("STUFF", c => NullOr(c, () =>
+        Add(["STUFF", "STUFFC"], c => NullOr(c, () =>
         {
             var s = c.Str(0);
             var start = Math.Clamp(c.Int(1), 1, s.Length + 1);
@@ -177,7 +177,7 @@ public static partial class Library
         Add("PADC", c => NullOr(c, () => S(Pad(c, 2))));
         Add("CHR", c => { var n = c.Int(0); if (n < 0 || n > 0xFFFF) throw VfpException.InvalidArgument(); return S(((char)n).ToString()); });
         Add("ASC", c => NullOr(c, () => { var s = c.Str(0); return N(s.Length == 0 ? 0 : s[0]); }));
-        Add("CHRTRAN", c => NullOr(c, () =>
+        Add(["CHRTRAN", "CHRTRANC"], c => NullOr(c, () =>
         {
             var s = c.Str(0);
             var from = c.Str(1);

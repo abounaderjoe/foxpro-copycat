@@ -11,6 +11,8 @@ public sealed class WorkArea : IRecord
     private RowData? _current;
     // Buffered rows keyed by record number (appended rows use negative numbers, as in VFP).
     private readonly SortedDictionary<int, (RowData Original, RowData Current)> _buffer = new();
+    /// <summary>Buffered fields SETFLDSTATE() marked as changed although their value is the original one (−1 = deletion status).</summary>
+    private readonly HashSet<(int RecNo, int Field)> _forcedChanged = new();
     private int _nextNewRecNo = -1;
     private int _lastLocatePos;
 
@@ -73,6 +75,7 @@ public sealed class WorkArea : IRecord
     {
         if (TableOrNull == null) return;
         _buffer.Clear();
+        _forcedChanged.Clear();
         Session.Locks.ReleaseAll(this);
         foreach (var other in Session.OpenWorkAreas()) other.Relations.RemoveAll(r => r.Child == this);
         TableOrNull = null;
@@ -250,6 +253,7 @@ public sealed class WorkArea : IRecord
         foreach (var (recNo, _) in entries)
         {
             _buffer.Remove(recNo);
+            _forcedChanged.RemoveWhere(f => f.RecNo == recNo);
             if (recNo > 0) Session.Locks.Release(this, recNo);
         }
         if (_current != null)
@@ -264,6 +268,7 @@ public sealed class WorkArea : IRecord
     public void ReplaceRows(IEnumerable<Value[]> rows)
     {
         _buffer.Clear();
+        _forcedChanged.Clear();
         Session.Locks.ReleaseAll(this);
         var t = Table;
         t.Zap();
@@ -278,6 +283,7 @@ public sealed class WorkArea : IRecord
         foreach (var k in entries)
         {
             _buffer.Remove(k);
+            _forcedChanged.RemoveWhere(f => f.RecNo == k);
             if (k > 0) Session.Locks.Release(this, k);
         }
         if (_current != null)
@@ -306,8 +312,30 @@ public sealed class WorkArea : IRecord
         if (!_buffer.TryGetValue(_current.RecNo, out var e)) return 1;
         bool changed = field < 0
             ? e.Original.Deleted != e.Current.Deleted
-            : !e.Original.Values[field].Equals(e.Current.Values[field]);
+            : !e.Original.Values[field].Equals(e.Current.Values[field])
+            || _forcedChanged.Contains((_current.RecNo, field < 0 ? -1 : field));
         return _current.RecNo < 0 ? (changed ? 4 : 3) : (changed ? 2 : 1);
+    }
+
+    /// <summary>SETFLDSTATE(): marks a buffered field (−1 = the deletion status) unchanged (1, 3) or changed (2, 4).</summary>
+    public void SetFieldState(int field, int state)
+    {
+        if (_current == null) return;
+        if (BufferMode == 1) throw new VfpException(1571, "SETFLDSTATE() requires row or table buffering.");
+        var key = (_current.RecNo, field < 0 ? -1 : field);
+        if (state is 1 or 3)
+        {
+            _forcedChanged.Remove(key);
+            if (!_buffer.TryGetValue(_current.RecNo, out var e)) return;
+            if (field < 0) e.Original.Deleted = e.Current.Deleted;
+            else e.Original.Values[field] = e.Current.Values[field];
+        }
+        else if (state is 2 or 4)
+        {
+            BeginEdit();
+            _forcedChanged.Add(key);
+        }
+        else throw new VfpException(ErrorCodes.InvalidArgument, "Function argument value, type, or count is invalid (SETFLDSTATE).");
     }
 
     public int GetNextModified(int afterRecNo)

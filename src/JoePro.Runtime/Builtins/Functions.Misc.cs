@@ -8,6 +8,8 @@ public static partial class Library
 {
     private static readonly Dictionary<int, FileStream> Handles = new();
     private static int _nextHandle = 10;
+    /// <summary>The operating system error of the last low-level file function (FERROR()).</summary>
+    private static int _ferror;
 
     /// <summary>The native base class a library class derives from (following parents in this and other libraries).</summary>
     public static string BaseClassOf(Interpreter rt, JoePro.Documents.ClassFile lib, JoePro.Documents.ClassDocument cls, string libPath, int depth = 0)
@@ -326,7 +328,7 @@ public static partial class Library
         Add("FOPEN", c =>
         {
             var p = c.Rt.Session.ResolvePath(c.Str(0), "");
-            if (!File.Exists(p)) return N(-1);
+            if (!File.Exists(p)) { _ferror = 2; return N(-1); }
             var mode = c.Int(1, 0) % 10;
             return N(OpenHandle(p, FileMode.Open, mode switch { 1 => FileAccess.Write, 2 => FileAccess.ReadWrite, _ => FileAccess.Read }));
         });
@@ -681,6 +683,7 @@ public static partial class Library
         try
         {
             var fs = new FileStream(path, mode, access, FileShare.ReadWrite);
+            _ferror = 0;
             lock (Handles)
             {
                 var h = _nextHandle++;
@@ -688,8 +691,10 @@ public static partial class Library
                 return h;
             }
         }
-        catch (IOException) { return -1; }
-        catch (UnauthorizedAccessException) { return -1; }
+        catch (FileNotFoundException) { _ferror = 2; return -1; }
+        catch (DirectoryNotFoundException) { _ferror = 2; return -1; }
+        catch (IOException) { _ferror = 29; return -1; }
+        catch (UnauthorizedAccessException) { _ferror = 5; return -1; }
     }
 
     private static FileStream Handle(int h)
