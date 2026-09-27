@@ -46,6 +46,7 @@ public sealed class MainWindow : Window
         session.Host.BrowseHandler = model => { OpenDocument(new BrowseTab(model, session.Host, AfterCommand)); return true; };
         session.Host.ModifyHandler = path => { OpenAny(path); return true; };
         session.Host.DesignerHandler = OpenDesigner;
+        session.Reports.PreviewHandler = (report, _) => { OpenPreview(report); return true; };
         session.CommandCompleted += AfterCommand;
         session.StatusMessage += m => _status.Text = m;
         session.ErrorRaised += ex => _status.Text = $"Error {ex.Number}: {ex.Message}";
@@ -111,6 +112,7 @@ public sealed class MainWindow : Window
             var dirty = Documents.Items.OfType<CodeEditorTab>().Where(t => t.IsDirty).ToList();
             foreach (var t in dirty.Where(t => t.FilePath != null)) t.Save();
             foreach (var d in Documents.Items.OfType<FormDesignerTab>().Where(d => d.Designer.Session.IsDirty && d.Designer.FilePath != null).ToList()) d.Designer.Save();
+            foreach (var r in Documents.Items.OfType<ReportDesignerTab>().Where(r => r.Designer.Session.IsDirty && r.Designer.FilePath != null).ToList()) r.Designer.Save();
         };
         session.Screen.Write($"{Interpreter.VersionString}. Type commands in the Command window below; Ctrl+Shift+P opens the command palette.");
         session.Screen.NewLine();
@@ -235,6 +237,9 @@ public sealed class MainWindow : Window
             case "CLASSLIB" when request.Path.Length > 0:
                 OpenClassBrowser(request.Path);
                 return true;
+            case "REPORT" or "LABEL":
+                OpenReport(request.Path.Length == 0 ? null : request.Path, request.Kind == "LABEL");
+                return true;
             default:
                 return false;
         }
@@ -297,6 +302,73 @@ public sealed class MainWindow : Window
         };
     }
 
+    public ReportPreviewTab OpenPreview(JoePro.Reports.RenderedReport report)
+    {
+        var tab = new ReportPreviewTab(report, _session.Reports);
+        tab.Preview.Status += SetStatus;
+        OpenDocument(tab);
+        return tab;
+    }
+
+    private ReportDesigner? ActiveReportDesigner => (Documents.SelectedItem as ReportDesignerTab)?.Designer;
+
+    /// <summary>CREATE/MODIFY REPORT or LABEL: a .jpreport/.jplabel as is, a legacy .frx/.lbx converted, or a new layout.</summary>
+    public ReportDesignerTab? OpenReport(string? path, bool label = false)
+    {
+        var legacy = path != null && System.IO.Path.GetExtension(path).ToLowerInvariant() is ".frx" or ".lbx";
+        if (path != null) label = System.IO.Path.GetExtension(path).ToLowerInvariant() is ".jplabel" or ".lbx";
+        var target = legacy ? System.IO.Path.ChangeExtension(path!, label ? ".jplabel" : ".jpreport") : path;
+        var existing = Documents.Items.OfType<ReportDesignerTab>().FirstOrDefault(t => t.Designer.FilePath != null && target != null && SamePath(t.Designer.FilePath, target));
+        if (existing != null) { Documents.SelectedItem = existing; return existing; }
+        JoePro.Documents.Reports.ReportDocument doc;
+        string? note = null;
+        if (path != null && File.Exists(path))
+        {
+            doc = JoePro.Reports.ReportEngine.LoadDocument(path, out var conversion);
+            if (conversion != null)
+            {
+                var review = conversion.Findings.Count(f => f.Status is JoePro.Documents.FindingStatus.NeedsReview or JoePro.Documents.FindingStatus.Unsupported);
+                note = $"{System.IO.Path.GetFileName(path)} was converted; saving writes {System.IO.Path.GetFileName(target)}" + (review > 0 ? $" ({review} item(s) need review)." : ".");
+            }
+        }
+        else if (label)
+        {
+            // A new label: choose the sheet layout first.
+            ReportDialogs.LabelLayout(this, preset => Show(JoePro.Documents.Reports.LabelPresets.Create(preset)));
+            return null;
+        }
+        else doc = JoePro.Documents.Reports.ReportDocument.NewReport();
+        var tab = Show(doc);
+        if (note != null) SetStatus(note);
+        return tab;
+
+        ReportDesignerTab Show(JoePro.Documents.Reports.ReportDocument d)
+        {
+            var t = new ReportDesignerTab(target, d, _session, IsDark);
+            t.Designer.Status += SetStatus;
+            t.Designer.RunRequested += Run;
+            t.Designer.SaveAsRequested += () => _ = SaveReportAs(t.Designer);
+            OpenDocument(t);
+            return t;
+        }
+    }
+
+    private async Task SaveReportAs(ReportDesigner designer, bool run = false)
+    {
+        var label = designer.Session.Document.Kind == JoePro.Documents.Reports.ReportKind.Label;
+        var ext = label ? "jplabel" : "jpreport";
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = label ? "Save label" : "Save report",
+            SuggestedFileName = (label ? "label1." : "report1.") + ext,
+            DefaultExtension = ext,
+            FileTypeChoices = [new FilePickerFileType(label ? "Joe Pro label" : "Joe Pro report") { Patterns = ["*." + ext] }],
+        });
+        if (file?.TryGetLocalPath() is not { } path) return;
+        designer.Save(path);
+        if (run) designer.Run();
+    }
+
     private static bool SamePath(string a, string b) => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>MODIFY CLASS name OF lib: the Class Designer on one class of a .jpclass library.</summary>
@@ -353,6 +425,12 @@ public sealed class MainWindow : Window
     /// <summary>Saves the active program and runs it (DO for .prg, DO FORM for .jpform).</summary>
     public void RunActive()
     {
+        if (ActiveReportDesigner is { } report)
+        {
+            if (report.FilePath == null) _ = SaveReportAs(report, run: true);
+            else report.Run();
+            return;
+        }
         if (ActiveDesigner is { } designer)
         {
             if (designer.FilePath == null) _ = SaveDesignerAs(designer, run: true);
@@ -394,6 +472,12 @@ public sealed class MainWindow : Window
 
     private void SaveActive()
     {
+        if (ActiveReportDesigner is { } report)
+        {
+            if (report.FilePath == null) _ = SaveReportAs(report);
+            else report.Save();
+            return;
+        }
         if (ActiveDesigner is { } designer)
         {
             if (designer.FilePath == null) _ = SaveDesignerAs(designer);
@@ -414,7 +498,7 @@ public sealed class MainWindow : Window
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.scx", "*.jpclass", "*.vcx", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
+                new FilePickerFileType("FoxPro and Joe Pro files") { Patterns = ["*.prg", "*.jpform", "*.scx", "*.jpclass", "*.vcx", "*.jpreport", "*.frx", "*.jplabel", "*.lbx", "*.h", "*.jpt", "*.jpdb", "*.dbf", "*.txt"] },
                 new FilePickerFileType("All files") { Patterns = ["*"] },
             ],
         });
@@ -437,6 +521,9 @@ public sealed class MainWindow : Window
                 break;
             case ".jpclass" or ".vcx":
                 OpenClassBrowser(path);
+                break;
+            case ".jpreport" or ".frx" or ".jplabel" or ".lbx":
+                OpenReport(path);
                 break;
             default:
                 OpenFile(path);
@@ -482,6 +569,8 @@ public sealed class MainWindow : Window
         void A(string title, string shortcut, Action run) => _actions.Add(new PaletteAction(title, shortcut, run));
         A("New program", "Ctrl+N", () => OpenDocument(new CodeEditorTab(null, IsDark, Debugger.Engine, Language)));
         A("New form", "", () => OpenForm(null, create: true));
+        A("New report", "", () => OpenReport(null));
+        A("New label", "", () => OpenReport(null, label: true));
         A("Class browser…", "", () => _ = OpenClassLibraryWithPicker());
         A("Class: new property…", "", () => { if (ActiveDesigner is { } d) MemberDialogs.NewMember(d, isMethod: false); });
         A("Class: new method…", "", () => { if (ActiveDesigner is { } d) MemberDialogs.NewMember(d, isMethod: true); });
@@ -554,6 +643,8 @@ public sealed class MainWindow : Window
                 {
                     Item("_New Program", "New program", "Ctrl+N"),
                     Item("New _Form", "New form"),
+                    Item("New _Report", "New report"),
+                    Item("New _Label", "New label"),
                     Item("_Open…", "Open…", "Ctrl+O"),
                     Item("_Save", "Save", "Ctrl+S"),
                     new Separator(),

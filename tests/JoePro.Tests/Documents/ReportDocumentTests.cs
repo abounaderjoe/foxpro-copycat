@@ -217,3 +217,75 @@ public class LegacyReportTests : IDisposable
         Assert.StartsWith("# Joe Pro label v1", ReportSerializer.Write(r));
     }
 }
+
+public class ReportDesignSessionTests
+{
+    [Fact]
+    public void Add_move_between_bands_resize_delete_with_undo()
+    {
+        var s = new ReportDesignSession(ReportDocument.NewReport()); // page header 0.5, detail 0.25, page footer 0.5
+        var detail = s.Document.Bands.FindIndex(b => b.Kind == BandKind.Detail);
+        var r = s.AddObject(detail, new ReportField { Expression = "x", Width = 1, Height = 0.2 });
+        Assert.Equal(new ObjectRef(detail, 0), r);
+        // Move up by 0.4 in: from the detail band into the page header.
+        var moved = s.MoveObjects([r], 0.5, -0.4);
+        var header = s.Document.Bands.FindIndex(b => b.Kind == BandKind.PageHeader);
+        Assert.Equal(header, moved[0].Band);
+        var o = s.Get(moved[0])!;
+        Assert.Equal((0.5, 0.1), (o.Left, o.Top));
+        s.SetBounds(moved[0], 0.5, 0.1, 2, 0.3);
+        Assert.Equal(2, s.Get(moved[0])!.Width);
+        s.RemoveObjects(moved);
+        Assert.Empty(s.Document.Bands.SelectMany(b => b.Objects));
+        s.Undo(); s.Undo();
+        Assert.Equal(1, s.Get(moved[0])!.Width);
+        s.Undo();
+        Assert.Single(s.Document.Band(BandKind.Detail)!.Objects);
+        s.Redo();
+        Assert.Single(s.Document.Band(BandKind.PageHeader)!.Objects);
+    }
+
+    [Fact]
+    public void Groups_title_summary_and_renumbering()
+    {
+        var s = new ReportDesignSession(ReportDocument.NewReport());
+        s.AddGroup("cust");
+        s.AddGroup("region");
+        var footer2 = s.Document.Bands.FindIndex(b => b.Kind == BandKind.GroupFooter && b.Index == 2);
+        s.AddObject(footer2, new ReportField { Expression = "amount", Calculate = CalcType.Sum, Reset = ResetScope.Group, ResetGroup = 2 });
+        s.SetTitleSummary(true, true);
+        Assert.Equal(["Title", "PageHeader", "GroupHeader1", "GroupHeader2", "Detail1", "GroupFooter2", "GroupFooter1", "PageFooter", "Summary"],
+            s.Document.Bands.Select(b => b.Kind + (b.Index > 0 ? b.Index.ToString() : "")));
+        s.RemoveGroup(1);
+        Assert.Equal("region", s.Document.Groups.Single().Expression);
+        var total = s.Document.Bands.SelectMany(b => b.Objects).OfType<ReportField>().Single();
+        Assert.Equal(1, total.ResetGroup); // group 2 became group 1
+        s.AddGroup("x");
+        s.MoveGroupInward(1);
+        Assert.Equal(["x", "region"], s.Document.Groups.Select(g => g.Expression));
+        var moved = (ReportField)Assert.Single(s.Document.Band(BandKind.GroupFooter, 2)!.Objects); // the region footer moved inward
+        Assert.Equal(2, moved.ResetGroup);
+    }
+
+    [Fact]
+    public void Copy_paste_z_order_and_quick_report()
+    {
+        var s = new ReportDesignSession(ReportDocument.NewReport());
+        var detail = s.Document.Bands.FindIndex(b => b.Kind == BandKind.Detail);
+        var a = s.AddObject(detail, new ReportLabel { Text = "A", Width = 1, Height = 0.2 });
+        s.AddObject(detail, new ReportLabel { Text = "B", Width = 1, Height = 0.2 });
+        var pasted = s.Paste(s.Copy([a]), detail);
+        Assert.Equal("A", ((ReportLabel)s.Get(pasted[0])!).Text);
+        s.ZOrder([a], toFront: true);
+        Assert.Equal("A", ((ReportLabel)s.Document.Bands[detail].Objects[^1]).Text);
+
+        var quick = ReportDesignSession.QuickReport("customer", [("NAME", 'C', 20), ("BALANCE", 'N', 10), ("NOTES", 'M', 10)], title: "Customers");
+        var fields = quick.Band(BandKind.Detail)!.Objects.OfType<ReportField>().ToList();
+        Assert.Equal(["customer.name", "customer.balance", "customer.notes"], fields.Select(f => f.Expression));
+        Assert.Equal(TextAlign.Right, fields[1].Align);
+        Assert.True(fields[2].Stretch);
+        Assert.Contains(quick.Band(BandKind.PageHeader)!.Objects.OfType<ReportLabel>(), l => l.Text == "Balance");
+        var form = ReportDesignSession.QuickReport("customer", [("NAME", 'C', 20)], columnar: false);
+        Assert.Contains(form.Band(BandKind.Detail)!.Objects.OfType<ReportLabel>(), l => l.Text == "Name:");
+    }
+}

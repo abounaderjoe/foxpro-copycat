@@ -230,6 +230,17 @@ public class ReportTests : RuntimeHarness
     }
 
     [Fact]
+    public void Create_report_from_a_table_writes_a_quick_report()
+    {
+        Run(Orders + "\nUSE\nCREATE REPORT quick FROM orders FIELDS id, amount");
+        var doc = ReportDocument.Load(Path.Combine(Dir, "quick.jpreport"));
+        Assert.Equal(["orders.id", "orders.amount"], doc.Band(BandKind.Detail)!.Objects.OfType<ReportField>().Select(f => f.Expression));
+        Assert.False(Rt.Evaluate("USED('orders')").AsBool);
+        Run("USE orders\nREPORT FORM quick NOCONSOLE");
+        Assert.Contains("250.50", Texts(Last.Pages[0]));
+    }
+
+    [Fact]
     public void Missing_report_and_bad_expressions_raise_errors()
     {
         var o = Run("""

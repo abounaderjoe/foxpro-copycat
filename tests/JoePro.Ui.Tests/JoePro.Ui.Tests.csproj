@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\JoePro.Ui.Runtime\JoePro.Ui.Runtime.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Ide\JoePro.Ide.csproj" />
+    <Compile Include="..\JoePro.Tests\Documents\Frx.cs" Link="Shared\Frx.cs" />
   </ItemGroup>
 
   <ItemGroup>

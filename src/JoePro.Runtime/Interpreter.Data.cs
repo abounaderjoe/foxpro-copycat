@@ -1090,6 +1090,11 @@ public sealed partial class Interpreter
         var kindWord = m.Groups["kind"].Value.ToUpperInvariant();
         // Class libraries are files the runtime can create without a user interface.
         if (create && kindWord == "CLASSLIB") { CreateClassLibrary(m.Groups["rest"].Value); return true; }
+        if (create && kindWord.StartsWith("REPO") && System.Text.RegularExpressions.Regex.IsMatch(m.Groups["rest"].Value, @"\bFROM\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            QuickReportCommand(m.Groups["rest"].Value);
+            return true;
+        }
         if (create && kindWord == "CLASS")
         {
             var created = CreateClassCommand(m.Groups["rest"].Value);
@@ -1258,6 +1263,41 @@ public sealed partial class Interpreter
         InvalidateClassLibrary(lib);
         if (dependents.Count > 0) Notify($"REMOVE CLASS {words[0]}: {string.Join(", ", dependents)} still refer to it.");
     }
+
+    /// <summary>CREATE REPORT file FROM table [FORM | COLUMN] [FIELDS list] [NOOVERWRITE]: writes a quick report without a designer.</summary>
+    private void QuickReportCommand(string rest)
+    {
+        var words = TokenizeDesignerArgs(rest);
+        var fromAt = words.FindIndex(w => w.Equals("FROM", StringComparison.OrdinalIgnoreCase));
+        if (words.Count == 0 || fromAt <= 0 || fromAt + 1 >= words.Count) throw VfpException.Syntax("CREATE REPORT file FROM table");
+        var file = words[0];
+        var full = Path.IsPathRooted(file) ? file : Path.Combine(Options.Default_, file);
+        if (!Path.HasExtension(full)) full += ".jpreport";
+        if (File.Exists(full) && words.Any(w => w.Equals("NOOVERWRITE", StringComparison.OrdinalIgnoreCase))) return;
+        var table = words[fromAt + 1];
+        var wa = Session.FindAlias(Path.GetFileNameWithoutExtension(table));
+        var opened = false;
+        if (wa == null)
+        {
+            ExecuteCommand($"USE \"{table}\" IN 0 AGAIN NOUPDATE");
+            wa = Session.FindAlias(Path.GetFileNameWithoutExtension(table)) ?? throw VfpException.FileNotFound(table);
+            opened = true;
+        }
+        try
+        {
+            var fieldsAt = words.FindIndex(w => w.Equals("FIELDS", StringComparison.OrdinalIgnoreCase));
+            var wanted = fieldsAt >= 0 ? string.Join(" ", words.Skip(fieldsAt + 1).TakeWhile(w => !IsQuickReportClause(w))).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) : null;
+            var fields = wa.Table.Fields
+                .Where(f => wanted == null || wanted.Any(w => w.Equals(f.Name, StringComparison.OrdinalIgnoreCase)))
+                .Select(f => (f.Name, f.Type, f.Width)).ToList();
+            var columnar = !words.Any(w => w.Equals("FORM", StringComparison.OrdinalIgnoreCase));
+            var doc = JoePro.Documents.Reports.ReportDesignSession.QuickReport(wa.Alias.ToLowerInvariant(), fields, columnar);
+            doc.Save(full);
+        }
+        finally { if (opened) wa.Close(); }
+    }
+
+    private static bool IsQuickReportClause(string w) => w.ToUpperInvariant() is "FORM" or "COLUMN" or "ALIAS" or "NOOVERWRITE" or "WIDTH";
 
     private static bool IsDesignerClause(string word) =>
         word.ToUpperInvariant() is "OF" or "AS" or "FROM" or "NOWAIT" or "SAVE" or "WINDOW" or "IN" or "METHOD" or "NOENVIRONMENT";
