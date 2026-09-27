@@ -249,7 +249,8 @@ sealed class ShotApp : Application
 {
     public override void Initialize()
     {
-        Styles.Add(new FluentTheme());
+        Styles.Add(JoePro.Ide.IdeTheme.CreateFluent());
+        JoePro.Ide.IdeTheme.AddResources(this);
         var b = new Uri("avares://JoePro.Screenshots/");
         Styles.Add(new StyleInclude(b) { Source = new Uri("avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml") });
         Styles.Add(new StyleInclude(b) { Source = new Uri("avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml") });

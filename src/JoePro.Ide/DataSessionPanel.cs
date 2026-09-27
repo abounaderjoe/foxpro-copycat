@@ -21,13 +21,10 @@ public sealed class DataSessionPanel : UserControl
         select.Click += (_, _) => { if (Selected is { } w) run($"SELECT {w.Number}"); };
         var close = new Button { Content = "Close" };
         close.Click += (_, _) => { if (Selected is { } w) run($"USE IN {w.Number}"); };
-        var header = new TextBlock { Text = "Data Session", FontWeight = FontWeight.SemiBold, Margin = new Thickness(6, 6, 6, 2) };
         var buttons = new WrapPanel { Margin = new Thickness(4), Children = { browse, select, close } };
         foreach (var b in buttons.Children.OfType<Button>()) b.Margin = new Thickness(2);
         var dock = new DockPanel();
-        DockPanel.SetDock(header, Dock.Top);
         DockPanel.SetDock(buttons, Dock.Bottom);
-        dock.Children.Add(header);
         dock.Children.Add(buttons);
         dock.Children.Add(List);
         Content = dock;

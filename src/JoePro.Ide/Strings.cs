@@ -22,8 +22,13 @@ public static class Strings
     static Strings() => Use(Environment.GetEnvironmentVariable("JOEPRO_UI_CULTURE") is { Length: > 0 } c ? c : CultureInfo.CurrentUICulture.Name);
 
     /// <summary>The translation of <paramref name="english"/> in the current culture (the English text when there is none).</summary>
+    /// <summary>Every text the IDE has asked to translate (for catalog checks).</summary>
+    public static IReadOnlyCollection<string> Requested => _requested;
+    private static readonly HashSet<string> _requested = new();
+
     public static string T(string english)
     {
+        lock (_requested) _requested.Add(english);
         if (Culture == PseudoLocale) return Pseudo(english);
         return _catalog.TryGetValue(english, out var t) && t.Length > 0 ? t : english;
     }

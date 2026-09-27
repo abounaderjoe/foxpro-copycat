@@ -13,8 +13,9 @@ public sealed class App : Application
 
     public override void Initialize()
     {
-        RequestedThemeVariant = ThemeVariant.Default; // follow the OS light/dark setting
-        Styles.Add(new FluentTheme());
+        RequestedThemeVariant = IdeTheme.LoadVariant(); // the theme chosen last time (View › Light/Dark/System), else the OS setting
+        Styles.Add(IdeTheme.CreateFluent());
+        IdeTheme.AddResources(this);
         var baseUri = new Uri("avares://JoePro.Ide/");
         Styles.Add(new StyleInclude(baseUri) { Source = new Uri("avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml") });
         Styles.Add(new StyleInclude(baseUri) { Source = new Uri("avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml") });

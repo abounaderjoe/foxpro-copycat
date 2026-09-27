@@ -101,18 +101,11 @@ public sealed class FormDesigner : UserControl
         _toolbox.SelectedIndex = 0;
         _toolbox.SelectionChanged += (_, _) => ArmedTool = _toolbox.SelectedItem is ListBoxItem { Tag: string t } && t != PointerTool ? t : null;
         _dataEnvironment.DoubleTapped += (_, _) => AddFromDataEnvironment();
-        var left = new DockPanel { Width = 170 };
-        var toolboxHeader = Header("Toolbox");
-        DockPanel.SetDock(toolboxHeader, Dock.Top);
-        left.Children.Add(toolboxHeader);
-        var deHeader = Header("Data environment");
-        var dePanel = new DockPanel { Height = 160 };
-        DockPanel.SetDock(deHeader, Dock.Top);
-        dePanel.Children.Add(deHeader);
-        dePanel.Children.Add(_dataEnvironment);
-        DockPanel.SetDock(dePanel, Dock.Bottom);
-        left.Children.Add(dePanel);
-        left.Children.Add(_toolbox);
+        var left = new Grid { Width = 180, RowDefinitions = new RowDefinitions("*,180") };
+        left.Children.Add(IdeTheme.Card(Strings.T("Toolbox"), _toolbox));
+        var deCard = IdeTheme.Card(Strings.T("Data environment"), _dataEnvironment);
+        Grid.SetRow(deCard, 1);
+        left.Children.Add(deCard);
 
         // Design surface (center): the rendered form, adorners and an input overlay on top.
         var surface = new Panel { Children = { _renderHost } };
@@ -135,14 +128,10 @@ public sealed class FormDesigner : UserControl
         _overlay.PointerReleased += OnPointerReleased;
         _overlay.KeyDown += (_, e) => OnKey(e);
 
-        var codeHeader = new DockPanel { Children = { _codeTitle } };
-        var codePane = new DockPanel();
-        DockPanel.SetDock(codeHeader, Dock.Top);
-        codePane.Children.Add(codeHeader);
-        codePane.Children.Add(_code);
+        var codePane = IdeTheme.Card(_codeTitle, _code);
         _centerGrid = new Grid { RowDefinitions = new RowDefinitions("3*,Auto,0") };
-        _centerGrid.Children.Add(scroller);
-        var split = new GridSplitter { Height = 5, ResizeDirection = GridResizeDirection.Rows };
+        _centerGrid.Children.Add(IdeTheme.Card(Strings.T(className != null ? "Class" : "Form"), scroller));
+        var split = new GridSplitter { Height = 4, ResizeDirection = GridResizeDirection.Rows, Background = Brushes.Transparent };
         Grid.SetRow(split, 1);
         _centerGrid.Children.Add(split);
         Grid.SetRow(codePane, 2);
@@ -153,10 +142,11 @@ public sealed class FormDesigner : UserControl
         body.Children.Add(left);
         Grid.SetColumn(_centerGrid, 1);
         body.Children.Add(_centerGrid);
-        var right = new Border { Child = Properties, BorderThickness = new Thickness(1, 0, 0, 0), BorderBrush = Brushes.Gray };
+        var right = IdeTheme.Card(Strings.T("Properties"), Properties);
         Grid.SetColumn(right, 2);
         body.Children.Add(right);
-        var root = new DockPanel();
+        var root = new DockPanel { Margin = new Thickness(2) };
+        toolbar.Margin = new Thickness(4, 4, 4, 0);
         DockPanel.SetDock(toolbar, Dock.Top);
         root.Children.Add(toolbar);
         root.Children.Add(body);
@@ -167,7 +157,6 @@ public sealed class FormDesigner : UserControl
         Select([""]);
     }
 
-    private static TextBlock Header(string text) => new() { Text = text, FontWeight = FontWeight.SemiBold, Margin = new Thickness(6, 4) };
 
     public DesignSession Session { get; }
     /// <summary>True in the Class Designer (a class of a .jpclass library), false in the Form Designer.</summary>

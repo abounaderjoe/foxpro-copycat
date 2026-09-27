@@ -116,5 +116,8 @@
   "Debug: break on errors": "Debuggen: bei Fehlern anhalten",
   "Debug: step into program": "Debuggen: in Programm springen",
   "_Language Reference": "_Sprachreferenz",
-  "Language reference": "Sprachreferenz"
+  "Language reference": "Sprachreferenz",
+  "Command Window": "Befehlsfenster",
+  "Debugger": "Debugger",
+  "Data Session": "Datensitzung"
 }

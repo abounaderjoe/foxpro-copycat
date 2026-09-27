@@ -58,33 +58,31 @@ public sealed class MainWindow : Window
         BuildActions();
         Palette = new CommandPalette(_actions, Run);
 
-        var commandDock = new DockPanel();
-        var commandHeader = new TextBlock { Text = "Command", FontWeight = FontWeight.SemiBold, Margin = new Thickness(6, 4) };
-        DockPanel.SetDock(commandHeader, Dock.Top);
-        commandDock.Children.Add(commandHeader);
-        commandDock.Children.Add(CommandWindow);
+        // Each area is an outlined, titled panel so the window reads as distinct parts.
+        var commandCard = Strings.T("Command Window") is var cw ? IdeTheme.Card(cw, CommandWindow) : null!;
+        var debuggerCard = IdeTheme.Card(Strings.T("Debugger"), Debugger.Panel);
         // Bottom: Command Window beside the debugger panes.
         var commandPane = new Grid { ColumnDefinitions = new ColumnDefinitions("3*,Auto,2*") };
-        commandPane.Children.Add(commandDock);
-        var bottomSplit = new GridSplitter { Width = 5, ResizeDirection = GridResizeDirection.Columns, VerticalAlignment = VerticalAlignment.Stretch };
+        commandPane.Children.Add(commandCard);
+        var bottomSplit = new GridSplitter { Width = 4, ResizeDirection = GridResizeDirection.Columns, VerticalAlignment = VerticalAlignment.Stretch, Background = Brushes.Transparent };
         Grid.SetColumn(bottomSplit, 1);
         commandPane.Children.Add(bottomSplit);
-        Grid.SetColumn(Debugger.Panel, 2);
-        commandPane.Children.Add(Debugger.Panel);
+        Grid.SetColumn(debuggerCard, 2);
+        commandPane.Children.Add(debuggerCard);
 
         // Center: documents over the Command Window, separated by a splitter.
         var center = new Grid { RowDefinitions = new RowDefinitions("3*,Auto,2*") };
-        center.Children.Add(Documents);
-        var hSplit = new GridSplitter { Height = 5, ResizeDirection = GridResizeDirection.Rows, HorizontalAlignment = HorizontalAlignment.Stretch };
+        center.Children.Add(IdeTheme.Card((string?)null, Documents));
+        var hSplit = new GridSplitter { Height = 4, ResizeDirection = GridResizeDirection.Rows, HorizontalAlignment = HorizontalAlignment.Stretch, Background = Brushes.Transparent };
         Grid.SetRow(hSplit, 1);
         center.Children.Add(hSplit);
         Grid.SetRow(commandPane, 2);
         center.Children.Add(commandPane);
 
         // Left: Data Session panel.
-        var body = new Grid { ColumnDefinitions = new ColumnDefinitions("260,Auto,*") };
-        body.Children.Add(DataSession);
-        var vSplit = new GridSplitter { Width = 5, ResizeDirection = GridResizeDirection.Columns, VerticalAlignment = VerticalAlignment.Stretch };
+        var body = new Grid { ColumnDefinitions = new ColumnDefinitions("260,Auto,*"), Margin = new Thickness(4, 2, 4, 0) };
+        body.Children.Add(IdeTheme.Card(Strings.T("Data Session"), DataSession));
+        var vSplit = new GridSplitter { Width = 4, ResizeDirection = GridResizeDirection.Columns, VerticalAlignment = VerticalAlignment.Stretch, Background = Brushes.Transparent };
         Grid.SetColumn(vSplit, 1);
         body.Children.Add(vSplit);
         Grid.SetColumn(center, 2);
@@ -92,7 +90,10 @@ public sealed class MainWindow : Window
 
         var statusBar = new DockPanel { Children = { _position, _status } };
         DockPanel.SetDock(_position, Dock.Right);
-        var statusBorder = new Border { Child = statusBar, BorderThickness = new Thickness(0, 1, 0, 0), BorderBrush = Brushes.Gray, Padding = new Thickness(0, 2) };
+        var statusBorder = new Border { Child = statusBar, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(10, 4) };
+        statusBorder.Bind(Border.BorderBrushProperty, statusBorder.GetResourceObservable(IdeTheme.PanelBorder));
+        statusBorder.Bind(Border.BackgroundProperty, statusBorder.GetResourceObservable(IdeTheme.PanelHeader));
+        this.Bind(BackgroundProperty, this.GetResourceObservable(IdeTheme.WindowBackground));
 
         var root = new DockPanel();
         var menu = BuildMenu();
@@ -1076,6 +1077,7 @@ public sealed class MainWindow : Window
     private static void SetTheme(ThemeVariant v)
     {
         if (Application.Current != null) Application.Current.RequestedThemeVariant = v;
+        IdeTheme.SaveVariant(v);
     }
 
     private PaletteAction Action(string title) => _actions.First(a => a.Title == title);

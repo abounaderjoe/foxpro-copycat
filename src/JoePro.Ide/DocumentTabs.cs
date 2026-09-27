@@ -162,7 +162,13 @@ public sealed class ScreenTab : TabItem
             FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace"),
             FontSize = 13,
             BorderThickness = new Thickness(0),
+            Padding = new Thickness(10, 8),
         };
+        // The output sits on its panel's background in every state (Fluent otherwise paints a darker box when focused).
+        foreach (var key in new[] { "TextControlBackground", "TextControlBackgroundPointerOver", "TextControlBackgroundFocused", "TextControlBackgroundDisabled" })
+            Box.Resources[key] = Brushes.Transparent;
+        Box.Resources["TextControlBorderBrushFocused"] = Brushes.Transparent;
+        Box.Resources["TextControlBorderBrushPointerOver"] = Brushes.Transparent;
         Content = Box;
         var pending = false;
         screen.Changed += () =>

@@ -163,7 +163,7 @@ public class AccessibilityTests : IDisposable
             var english = MenuHeaders(Open());
             var catalog = Strings.Catalog("de");
             var palette = _window!.Palette.Actions.Select(a => a.Title).ToList();
-            var known = english.Concat(palette).ToHashSet();
+            var known = english.Concat(palette).Concat(Strings.Requested).ToHashSet();
             Assert.Empty(english.Concat(palette).Where(k => !catalog.ContainsKey(k)));
             Assert.Empty(catalog.Keys.Where(k => !known.Contains(k)));   // no stale entries
             Assert.All(catalog, kv => Assert.Equal(kv.Key.Count(ch => ch == '_'), kv.Value.Count(ch => ch == '_')));
