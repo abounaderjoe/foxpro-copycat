@@ -11,6 +11,7 @@
     <Project Path="src/JoePro.Migration/JoePro.Migration.csproj" />
     <Project Path="src/JoePro.Reports/JoePro.Reports.csproj" />
     <Project Path="src/JoePro.Runtime/JoePro.Runtime.csproj" />
+    <Project Path="src/JoePro.Server/JoePro.Server.csproj" />
     <Project Path="src/JoePro.Tooling/JoePro.Tooling.csproj" />
     <Project Path="src/JoePro.Ui.Runtime/JoePro.Ui.Runtime.csproj" />
   </Folder>

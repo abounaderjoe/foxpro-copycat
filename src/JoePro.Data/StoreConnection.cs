@@ -45,19 +45,19 @@ public sealed class SqliteStoreConnection : IStoreConnection
     public SqliteConnection Connection { get; }
     public bool IsRemote => false;
 
-    public static SqliteStoreConnection Open(string path, bool create)
+    public static SqliteStoreConnection Open(string path, bool create, bool readOnly = false)
     {
         var cs = new SqliteConnectionStringBuilder
         {
             DataSource = path,
-            Mode = path == ":memory:" ? SqliteOpenMode.Memory : create ? SqliteOpenMode.ReadWriteCreate : SqliteOpenMode.ReadWrite,
+            Mode = path == ":memory:" ? SqliteOpenMode.Memory : readOnly ? SqliteOpenMode.ReadOnly : create ? SqliteOpenMode.ReadWriteCreate : SqliteOpenMode.ReadWrite,
             Pooling = false,
         }.ToString();
         var conn = new SqliteConnection(cs);
         try { conn.Open(); }
         catch (SqliteException ex) { conn.Dispose(); throw new StoreException(ex.Message, ex); }
         var link = new SqliteStoreConnection(conn);
-        if (path != ":memory:") link.Execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;", []);
+        if (path != ":memory:" && !readOnly) link.Execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;", []);
         link.Execute("PRAGMA busy_timeout=5000;", []);
         return link;
     }

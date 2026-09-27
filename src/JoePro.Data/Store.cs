@@ -113,7 +113,10 @@ public sealed partial class Store : IDisposable
     private StrongBox? _version;
     private StrongBox Version => _version ??= Kind == StoreKind.Cursors || Path == ":memory:"
         ? new StrongBox()
-        : FileVersions.GetOrAdd(System.IO.Path.GetFullPath(Path), _ => new StrongBox());
+        : FileVersions.GetOrAdd(FileKey, _ => new StrongBox());
+
+    // Remote databases are keyed by their address; files by their full path.
+    private string FileKey => Link.IsRemote ? Path : System.IO.Path.GetFullPath(Path);
 
     private sealed class StrongBox { public long Value; }
 
@@ -395,7 +398,7 @@ public sealed partial class Store : IDisposable
     // Relations change rarely but are read on every write that referential integrity checks; they are cached per
     // file and invalidated by relation and table changes from any session in this process.
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> SchemaVersions = new(StringComparer.Ordinal);
-    private string SchemaKey => Kind == StoreKind.Cursors || Path == ":memory:" ? "mem:" + GetHashCode() : System.IO.Path.GetFullPath(Path);
+    private string SchemaKey => Kind == StoreKind.Cursors || Path == ":memory:" ? "mem:" + GetHashCode() : FileKey;
     private long SchemaVersion => SchemaVersions.GetValueOrDefault(SchemaKey);
     private void SchemaChanged()
     {

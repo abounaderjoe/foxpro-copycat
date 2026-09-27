@@ -65,7 +65,7 @@ public sealed partial class Store
             {
                 JsonValueKind.Null => null,
                 JsonValueKind.String => e.GetString() is { } s && s.StartsWith("b64:") ? Convert.FromBase64String(s[4..]) : e.GetString(),
-                JsonValueKind.Number => e.TryGetInt64(out var l) ? l : e.GetDouble(),
+                JsonValueKind.Number => e.TryGetInt64(out var l) ? (object)l : e.GetDouble(),
                 _ => e.ToString(),
             };
             var field = t?.Fields.FirstOrDefault(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase));

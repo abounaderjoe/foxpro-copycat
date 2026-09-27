@@ -142,8 +142,42 @@ public sealed class DataSession : IDisposable
         return s;
     }
 
+    /// <summary>
+    /// Databases that live on a Data Server: joepro-data.json in the default folder maps names to addresses
+    /// ({"databases": {"sales": "joepro://server/sales"}}), so OPEN DATABASE sales works unchanged in server mode.
+    /// </summary>
+    public string? ServerAddressOf(string name)
+    {
+        if (Remote.DataServerAddress.IsServerPath(name)) return name;
+        var file = Path.Combine(Options.Default_, "joepro-data.json");
+        if (!File.Exists(file)) return null;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(file));
+            if (!doc.RootElement.TryGetProperty("databases", out var dbs)) return null;
+            var bare = Path.GetFileNameWithoutExtension(name.Trim('"', '\''));
+            foreach (var p in dbs.EnumerateObject())
+                if (p.Name.Equals(bare, StringComparison.OrdinalIgnoreCase) && p.Value.GetString() is { } url && Remote.DataServerAddress.IsServerPath(url)) return url;
+        }
+        catch (System.Text.Json.JsonException) { }
+        return null;
+    }
+
     public Store OpenDatabase(string name)
     {
+        if (ServerAddressOf(name) is { } url)
+        {
+            var address = Remote.DataServerAddress.Parse(url);
+            if (!_stores.TryGetValue(address.Display, out var remote))
+            {
+                remote = Store.Attach(address.Display, Remote.RemoteStoreConnection.Open(address), address.Database);
+                for (int i = 0; i < TransactionLevel; i++) remote.BeginTransaction();
+                _stores[address.Display] = remote;
+            }
+            if (remote.Kind != StoreKind.Database) throw new VfpException(ErrorCodes.FileAccessDenied, $"'{name}' is not a database.");
+            CurrentDatabase = remote;
+            return remote;
+        }
         var path = ResolvePath(name, Store.DatabaseExtension);
         if (!File.Exists(path)) throw VfpException.FileNotFound(Path.GetFileName(path));
         var s = GetStore(path);

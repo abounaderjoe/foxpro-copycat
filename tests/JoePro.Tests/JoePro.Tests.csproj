@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\JoePro.Server\JoePro.Server.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Core\JoePro.Core.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Legacy.Formats\JoePro.Legacy.Formats.csproj" />
     <ProjectReference Include="..\..\src\JoePro.Language\JoePro.Language.csproj" />

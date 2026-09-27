@@ -1,8 +1,9 @@
+using JoePro.Core;
 namespace JoePro.Data;
 
 /// <summary>
-/// Record and table locks (RLOCK/FLOCK) shared by all data sessions in this process.
-/// Cross-process locking is provided by the Joe Pro Data Server (Phase 6).
+/// Record and table locks (RLOCK/FLOCK) shared by all data sessions in this process. Tables of a Data Server
+/// database are locked on the server (leases that a crashed client cannot leave behind).
 /// </summary>
 public sealed class LockManager
 {
@@ -16,9 +17,15 @@ public sealed class LockManager
 
     private static bool SameOwner(WorkArea a, WorkArea b) => a.Session == b.Session && a.Table == b.Table;
 
+    private static Remote.RemoteStoreConnection? RemoteOf(WorkArea wa) => wa.TableOrNull?.Store.Link as Remote.RemoteStoreConnection;
+
+    // A lock's owner on the server: the data session and work area, as in VFP.
+    private static string Owner(WorkArea wa) => $"{wa.Session.Id}:{wa.Number}";
+
     public bool TryLock(WorkArea wa, int recNo)
     {
         if (recNo <= 0) return true;
+        if (RemoteOf(wa) is { } remote) return remote.TryLock(wa.Table.Name, recNo, Owner(wa));
         var k = Key(wa);
         lock (_gate)
         {
@@ -31,6 +38,7 @@ public sealed class LockManager
 
     public bool TryLockTable(WorkArea wa)
     {
+        if (RemoteOf(wa) is { } remote) return remote.TryLock(wa.Table.Name, 0, Owner(wa));
         var k = Key(wa);
         lock (_gate)
         {
@@ -43,6 +51,7 @@ public sealed class LockManager
 
     public bool IsLocked(WorkArea wa, int recNo)
     {
+        if (RemoteOf(wa) is { } remote) return remote.IsLocked(wa.Table.Name, recNo);
         var k = Key(wa);
         lock (_gate) return _tables.ContainsKey(k) || _records.ContainsKey((k, recNo));
     }
@@ -50,12 +59,19 @@ public sealed class LockManager
     public void Release(WorkArea wa, int recNo)
     {
         if (wa.TableOrNull == null) return;
+        if (RemoteOf(wa) is { } remote) { remote.Unlock(wa.Table.Name, recNo, Owner(wa)); return; }
         lock (_gate) _records.Remove((Key(wa), recNo));
     }
 
     public void ReleaseAll(WorkArea wa)
     {
         if (wa.TableOrNull == null) return;
+        if (RemoteOf(wa) is { } remote)
+        {
+            try { remote.Unlock(wa.Table.Name, null, Owner(wa)); }
+            catch (VfpException) { }   // the server releases the session's leases anyway
+            return;
+        }
         var k = Key(wa);
         lock (_gate)
         {
