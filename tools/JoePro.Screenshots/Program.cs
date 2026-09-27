@@ -141,6 +141,87 @@ foreach (var (variant, file) in new[] { (ThemeVariant.Light, "ide-light.png"), (
         window.Run("REPORT FORM orders PREVIEW");
         Pump();
         Save(window, Path.Combine(output, "report-preview.png"));
+
+        // Phase 5: database, table, query and menu designers, the Project Manager and the migration report.
+        window.Width = 1440;
+        window.Height = 900;
+        window.Run("""
+            CLOSE TABLES ALL
+            CREATE DATABASE sales
+            CREATE TABLE client (id I AUTOINC, name C(30) NOT NULL, city C(20), since D)
+            ALTER TABLE client ADD PRIMARY KEY id TAG id
+            INDEX ON UPPER(name) TAG name
+            CREATE TABLE invoice (id I AUTOINC, clientid I, issued D, total Y)
+            ALTER TABLE invoice ADD PRIMARY KEY id TAG id
+            ALTER TABLE invoice ADD FOREIGN KEY clientid TAG clientid REFERENCES client ON DELETE CASCADE ON INSERT RESTRICT
+            CREATE TABLE line (id I AUTOINC, invoiceid I, item C(20), qty N(6), price Y)
+            ALTER TABLE line ADD FOREIGN KEY invoiceid TAG invoiceid REFERENCES invoice ON DELETE CASCADE
+            INSERT INTO client (name, city, since) VALUES ('Acme Corp', 'Boston', DATE())
+            INSERT INTO client (name, city, since) VALUES ('Globex', 'Chicago', DATE())
+            INSERT INTO invoice (clientid, issued, total) VALUES (1, DATE(), 1250)
+            INSERT INTO invoice (clientid, issued, total) VALUES (1, DATE(), 310.25)
+            INSERT INTO invoice (clientid, issued, total) VALUES (2, DATE(), 980.5)
+            CREATE SQL VIEW bigclients AS SELECT client.name, SUM(invoice.total) AS total FROM client INNER JOIN invoice ON invoice.clientid = client.id GROUP BY client.name
+            CLOSE TABLES ALL
+            """);
+        var dbDesigner = window.OpenDatabaseDesigner(Path.Combine(dir, "sales.jpdb"));
+        dbDesigner.Select(null, dbDesigner.Relations.First(r => r.ChildTable == "INVOICE"));
+        Pump();
+        Save(window, Path.Combine(output, "database-designer.png"));
+        var tableDesigner = window.OpenTableDesigner(Path.Combine(dir, "sales.jpdb"), "client");
+        tableDesigner.SelectField("name");
+        tableDesigner.UpdateField(f => f with { Caption = "Client name", RuleExpr = "!EMPTY(name)", RuleText = "A client needs a name" });
+        Pump();
+        Save(window, Path.Combine(output, "table-designer.png"));
+        var query = window.OpenQuery(null);
+        query.AddTable("client");
+        query.AddTable("invoice");
+        query.Join("client", "id", "invoice", "clientid");
+        query.AddField("client.name");
+        query.AddField("COUNT(*)", "invoices");
+        query.AddField("SUM(invoice.total)", "total");
+        query.Document.GroupBy.Add("client.name");
+        query.AddOrder("3", descending: true);
+        query.RunPreview();
+        Pump();
+        Save(window, Path.Combine(output, "query-designer.png"));
+
+        var menu = new JoePro.Documents.Menus.MenuDocument();
+        var fileMenu = new JoePro.Documents.Menus.MenuNode { Prompt = "\\<File" };
+        fileMenu.Items.Add(new JoePro.Documents.Menus.MenuNode { Prompt = "\\<New invoice", KeyName = "CTRL+N", KeyText = "Ctrl+N", Command = "DO FORM invoice" });
+        fileMenu.Items.Add(new JoePro.Documents.Menus.MenuNode { Prompt = "\\-" });
+        fileMenu.Items.Add(new JoePro.Documents.Menus.MenuNode { Prompt = "E\\<xit", Command = "CLEAR EVENTS" });
+        var reportsMenu = new JoePro.Documents.Menus.MenuNode { Prompt = "\\<Reports" };
+        reportsMenu.Items.Add(new JoePro.Documents.Menus.MenuNode { Prompt = "\\<Orders", Command = "REPORT FORM orders PREVIEW", SkipFor = "!USED('rpt')" });
+        menu.Items.Add(fileMenu);
+        menu.Items.Add(reportsMenu);
+        menu.Save(Path.Combine(dir, "main.jpmenu"));
+        window.OpenMenu(Path.Combine(dir, "main.jpmenu"));
+        Pump();
+        Save(window, Path.Combine(output, "menu-designer.png"));
+
+        var project = new JoePro.Documents.Projects.ProjectDocument { Name = "billing" };
+        foreach (var f in new[] { "report.prg", "customer.jpform", "orders.jpreport", "controls.jpclass", "main.jpmenu", "sales.jpdb" }) project.Add(f);
+        project.Main = "report.prg";
+        project.Save(Path.Combine(dir, "billing.jpproj"));
+        window.Run("MODIFY PROJECT billing");
+        Pump();
+        Save(window, Path.Combine(output, "project-manager.png"));
+
+        var legacy = Path.Combine(work, "legacy-app");
+        Directory.CreateDirectory(legacy);
+        File.WriteAllText(Path.Combine(legacy, "main.prg"), "* Order entry\nDECLARE INTEGER GetTickCount IN kernel32\nSET LIBRARY TO foxtools.fll\nDO FORM orders\nREAD EVENTS\n");
+        File.WriteAllText(Path.Combine(legacy, "util.prg"), "FUNCTION Tax(n)\nRETURN n * 0.08\n");
+        var wizard = window.OpenMigrationWizard(legacy);
+        wizard.TargetFolder = Path.Combine(work, "legacy-app-joepro");
+        wizard.ShowReportWhenDone = true;
+        wizard.OpenProjectWhenDone = false;
+        wizard.SetDefaultWhenDone = false;
+        wizard.Next();
+        var import = wizard.ImportAsync();
+        while (!import.IsCompleted) Dispatcher.UIThread.RunJobs();
+        Pump();
+        Save(window, Path.Combine(output, "migration-report.png"));
     }
     window.Close();
 }

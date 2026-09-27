@@ -100,15 +100,15 @@ public sealed class QueryDesigner : UserControl
             B("▶ Run", "Run the query and show the results", () => RunPreview()),
             B("Save", "Save the query", () => Save()),
         }) toolbar.Children.Add(b);
-        _tabs.Items.Add(new TabItem { Header = "Fields", Content = new ScrollViewer { Content = _fieldsTab } });
-        _tabs.Items.Add(new TabItem { Header = "Join", Content = new ScrollViewer { Content = _joinTab } });
-        _tabs.Items.Add(new TabItem { Header = "Filter", Content = new ScrollViewer { Content = _filterTab } });
-        _tabs.Items.Add(new TabItem { Header = "Order By", Content = new ScrollViewer { Content = _orderTab } });
-        _tabs.Items.Add(new TabItem { Header = "Group By", Content = new ScrollViewer { Content = _groupTab } });
-        _tabs.Items.Add(new TabItem { Header = "Misc", Content = new ScrollViewer { Content = _miscTab } });
-        if (IsView) _tabs.Items.Add(new TabItem { Header = "Update Criteria", Content = new ScrollViewer { Content = _updateTab } });
-        _tabs.Items.Add(new TabItem { Header = "SQL", Content = _sql });
-        _tabs.Items.Add(new TabItem { Header = "Results", Content = _results });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Fields", Content = new ScrollViewer { Content = _fieldsTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Join", Content = new ScrollViewer { Content = _joinTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Filter", Content = new ScrollViewer { Content = _filterTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Order By", Content = new ScrollViewer { Content = _orderTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Group By", Content = new ScrollViewer { Content = _groupTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Misc", Content = new ScrollViewer { Content = _miscTab } });
+        if (IsView) _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Update Criteria", Content = new ScrollViewer { Content = _updateTab } });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "SQL", Content = _sql });
+        _tabs.Items.Add(new TabItem { FontSize = 14, Header = "Results", Content = _results });
         var diagram = new Border
         {
             Height = 230, BorderThickness = new Thickness(0, 0, 0, 1), BorderBrush = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128)),

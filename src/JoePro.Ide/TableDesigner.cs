@@ -114,9 +114,9 @@ public sealed class TableDesigner : UserControl
         {
             Items =
             {
-                new TabItem { Header = "Fields", Content = fieldsTab },
-                new TabItem { Header = "Indexes", Content = tagsTab },
-                new TabItem { Header = "Table", Content = new ScrollViewer { Content = TablePage() } },
+                new TabItem { FontSize = 14, Header = "Fields", Content = fieldsTab },
+                new TabItem { FontSize = 14, Header = "Indexes", Content = tagsTab },
+                new TabItem { FontSize = 14, Header = "Table", Content = new ScrollViewer { Content = TablePage() } },
             },
         };
         var header = new StackPanel
@@ -267,8 +267,16 @@ public sealed class TableDesigner : UserControl
 
     private TextBox Text(string? value, Action<string> changed, string? watermark = null)
     {
-        var box = new TextBox { Text = value ?? "", Watermark = watermark };
-        box.TextChanged += (_, _) => { if (!_loading) changed(box.Text ?? ""); };
+        // TextChanged can arrive after the editor was rebuilt for another field: only real edits count.
+        var last = value ?? "";
+        var box = new TextBox { Text = last, Watermark = watermark };
+        box.TextChanged += (_, _) =>
+        {
+            var text = box.Text ?? "";
+            if (_loading || text == last || box.Parent == null) return;
+            last = text;
+            changed(text);
+        };
         return box;
     }
 

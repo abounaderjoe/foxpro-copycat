@@ -146,4 +146,18 @@ public class DatabaseDesignerTests : IDisposable
         designer.RemoveTable("regions", delete: true);
         Assert.DoesNotContain("REGIONS", designer.Tables);
     }
+
+    [AvaloniaFact]
+    public void Switching_fields_does_not_carry_editor_values_over()
+    {
+        var designer = _window.OpenTableDesigner(Path.Combine(_dir, "shop.jpdb"), "customer");
+        designer.SelectField("id");            // shows Next value / Step editors
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        designer.SelectField("name");
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        designer.UpdateField(f => f with { Caption = "Name" });
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Assert.Null(designer.Design.FindField("name")!.Field.AutoIncNext);
+        Assert.DoesNotContain(designer.Changes, c => c.NeedsRebuild);
+    }
 }

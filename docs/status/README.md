@@ -92,6 +92,24 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Printing | Uses the operating system's print command on a PDF (`lp` on Linux/macOS, the print verb on Windows); no printer selection dialog yet |
 | Visual comparison against VFP-rendered pages | ⛔ Needs VFP to render the corpus reports (oracle rig) |
 
+## Phase 5 — Menu, Query/View and Database Designers, Project Manager, build, packages
+
+| Item | Status |
+|---|---|
+| Menus: `.jpmenu` documents, DEFINE MENU/PAD/POPUP/BAR and the other menu commands at run time, MPR-compatible code generation, MNX conversion; Menu Designer (tree, prompts, keys, SKIP FOR, messages, marks, commands/procedures/submenus/system bars, Quick Menu, general options) | ✅ Done |
+| Projects: `.jpproj`, PJX conversion (paths take the migrated folder's spelling), Project Manager (categories, search, main program, include/exclude, project-wide search), `BUILD PROJECT/APP/EXE` (`.jpapp` and launcher folders), `joepro-app` windowed runtime | ✅ Done. The GoFish project (110 files) migrates and builds to an EXE folder |
+| Built-in `foxpro.h` and `foxpro_reporting.h` when a program includes them and has none of its own | ✅ Done (a subset of the constants) |
+| Migration wizard: scan a folder, choose the target, import with progress and cancel, open the converted project and the migration report; the report view filters findings by status, category and text and opens the converted file at the line | ✅ Done |
+| Database Designer: tables and views as boxes, relations drawn between index tags, drag to relate, referential integrity per relation (the RI Builder), new/add/remove/browse tables, stored procedures, schema script, upgrade script against another version | ✅ Done |
+| Table Designer (`MODIFY STRUCTURE`): fields (type, width, null, autoincrement, caption, format, input mask, display class, default, rule), indexes (regular, unique, candidate, primary), record rule, triggers, comment; lists changes and shows the script; rebuilds only when the structure changes | ✅ Done |
+| Schema commands: `CREATE/DELETE TRIGGER`; `ALTER TABLE … SET/DROP CHECK`, `ADD/DROP PRIMARY KEY`, `ADD/DROP UNIQUE`, `ADD/DROP FOREIGN KEY` (with `ON UPDATE/DELETE/INSERT CASCADE/RESTRICT/IGNORE`, a Joe Pro extension), `ALTER COLUMN … SET/DROP DEFAULT/CHECK`; `RENAME TABLE`; `APPEND/COPY PROCEDURES`; `DBSETPROP` for table comments and field display properties | ✅ Done |
+| Referential integrity enforced by the engine (cascade and restrict on delete and key change, restrict on insert), undone as a whole on failure | ✅ Done. Buffered work areas are not checked until TABLEUPDATE is extended |
+| Schema-diff scripts: the FoxPro script that upgrades one version of a database to another (tables, fields, indexes, rules, triggers, relations, views, connections, procedures), verified by running it | ✅ Done. Renamed tables are seen as drop and create (the script says so) |
+| Query/View Designer: diagram with joins, fields/join/filter/order/group/misc tabs, editable SQL pane with two-way sync (SQL-only mode for UNION, derived tables, …), results preview; views with update criteria; `.jpquery` documents, QPR conversion, `DO query.jpquery` (and `DO query.qpr` after migration) | ✅ Done. A query built visually reads back from its SQL identically |
+| DBC migration: views are recreated from their SQL | ⚠️ Partial. Relations, update criteria, captions, rules and triggers stored in the DBC's binary property format are not decoded (judgment call J2); the report lists them for the designers |
+| Packages: library projects packed and published to a static registry (folder or http(s)), dependencies with version ranges from the registry, a folder or git, `packages.lock.json` pinning versions and hashes, `joepro add/remove/restore/publish/pack`, Project Manager Packages dialog; packages join SET PATH and ship with builds (see [packages](../reference/packages.md)) | ✅ Done |
+| Single-file Windows EXE, code signing, MSIX installer, toolbar designer | ⛔ Not yet: builds are a `.jpapp` plus launchers that start the Joe Pro runtime |
+
 ## Screenshots
 
 Rendered headlessly by `tools/JoePro.Screenshots` (`dotnet run --project tools/JoePro.Screenshots -- docs/images`).
@@ -111,6 +129,18 @@ Rendered headlessly by `tools/JoePro.Screenshots` (`dotnet run --project tools/J
 | Report Designer with live preview | Report preview |
 |---|---|
 | ![Report Designer](../images/report-designer.png) | ![Report preview](../images/report-preview.png) |
+
+| Database Designer (relation selected, RI rules) | Table Designer |
+|---|---|
+| ![Database Designer](../images/database-designer.png) | ![Table Designer](../images/table-designer.png) |
+
+| Query Designer with results | Menu Designer |
+|---|---|
+| ![Query Designer](../images/query-designer.png) | ![Menu Designer](../images/menu-designer.png) |
+
+| Project Manager | Migration report after the wizard |
+|---|---|
+| ![Project Manager](../images/project-manager.png) | ![Migration report](../images/migration-report.png) |
 
 ## Known gaps in the UI (Phase 1)
 
