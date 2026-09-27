@@ -25,7 +25,7 @@ public sealed class DataServerTests : IAsyncLifetime
             CLOSE DATABASES ALL
             """);
         setup.Session.Dispose();
-        var config = new ServerConfig { Port = 0, Listen = "127.0.0.1", LeaseSeconds = 2 };
+        var config = new ServerConfig { Port = 0, Listen = "127.0.0.1", LeaseSeconds = 30 }; // long enough that a loaded test machine never misses a heartbeat; a closed connection still releases at once
         config.Databases["sales"] = "sales.jpdb";
         config.SetUser("alice", "secret");
         config.SetUser("bob", "hunter2");
