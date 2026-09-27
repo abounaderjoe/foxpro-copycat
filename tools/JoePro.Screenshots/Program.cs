@@ -127,6 +127,20 @@ foreach (var (variant, file) in new[] { (ThemeVariant.Light, "ide-light.png"), (
         browser.SelectClass("txtDate");
         Pump();
         Save(window, Path.Combine(output, "class-browser.png"));
+
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "orders.jpreport"), Path.Combine(dir, "orders.jpreport"), overwrite: true);
+        window.Run("SELECT c.name, c.city, o.id, o.amount FROM customer c JOIN orders o ON o.custid = c.id ORDER BY c.name, o.id INTO CURSOR rpt");
+        window.Width = 1600;
+        window.Height = 1150;
+        window.Run("MODIFY REPORT orders");
+        var reportDesigner = ((ReportDesignerTab)window.Documents.SelectedItem!).Designer;
+        reportDesigner.RefreshPreview();
+        reportDesigner.Select([new JoePro.Documents.Reports.ObjectRef(reportDesigner.Session.Document.Bands.FindIndex(b => b.Kind == JoePro.Documents.Reports.BandKind.Detail), 2)]);
+        Pump();
+        Save(window, Path.Combine(output, "report-designer.png"));
+        window.Run("REPORT FORM orders PREVIEW");
+        Pump();
+        Save(window, Path.Combine(output, "report-preview.png"));
     }
     window.Close();
 }

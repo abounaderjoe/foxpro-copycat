@@ -76,6 +76,22 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Controls: InputMask and Format (masks applied while typing, R/!/K/Z/$ codes, display format when not focused), `When` returning .F. refuses the focus, grid DynamicBackColor/ForeColor/FontBold/FontItalic, Toolbar (with Separator, Dock), FormSet, Hyperlink | ✅ Done |
 | OLE/ActiveX hosting | ⛔ Not planned for the cross-platform runtime; forms keep the object and report it in the migration report |
 
+## Phase 4 — Report & Label Designer
+
+| Item | Status |
+|---|---|
+| `.jpreport`/`.jplabel` documents in a strict YAML subset (see [report format](../reference/report-format.md)): page setup, data environment (as DEFINE CLASS code), variables, groups, bands, labels, fields, lines, shapes, pictures; canonical, errors with line numbers | ✅ Done |
+| FRX/LBX conversion: bands (VFP 9 detail header/footer included), objects with fonts, colors, alignment, float/stretch, Print When, repeated values, calculations and resets, groups, variables, paper/orientation/columns, data environment; `IMPORT FOXPRO` converts reports and labels; legacy files also run directly | ✅ Done. Checked on real FRX files from a public VFP project |
+| Report engine (`JoePro.Reports`): title, page/column headers and footers, nested groups (new page/column, reprint header, reset page number, minimum space), detail header/footer and target-alias detail bands, summary; calculated fields and variables reset by report/page/column/group; Print When; suppress repeated values; stretching fields with floating objects; remove line if blank; multiple columns down or across; `_PAGENO`/`_PAGETOTAL` | ✅ Done |
+| `REPORT FORM`/`LABEL FORM` with scope/FOR/WHILE, HEADING, PLAIN, SUMMARY, RANGE, NOCONSOLE, PREVIEW, TO PRINTER [PROMPT], TO FILE (PDF, HTML, XML, PNG, text/ASCII), OBJECT listener/TYPE, NAME; private data sessions; screen text output without a destination | ✅ Done |
+| ReportListener: BeforeReport, AfterReport, BeforeBand, AfterBand, EvaluateContents (change text), Render (NODEFAULT skips an item), PageNo/PageTotal/OutputType | ✅ Done (subset of the VFP 9 listener API) |
+| PDF output with embedded fonts; common Windows fonts fall back to metric-compatible fonts where they are not installed (reported) | ✅ Done. PDF/A validation not yet checked |
+| Report Designer: bands stacked as on paper with draggable band bars, toolbox, fields of the data environment, property grid (objects, bands, page), align/z-order/cut/copy/paste, undo/redo, data grouping, variables, title/summary, page setup, data environment code, Quick Report, **live preview** after each change | ✅ Done |
+| Preview tab: page navigation, zoom (fit width to 200%), find, export (PDF/HTML/text/PNG/XML), print | ✅ Done |
+| Label Designer with sheet presets (Avery US and A4 layouts); `CREATE/MODIFY REPORT`, `CREATE/MODIFY LABEL`, `CREATE REPORT … FROM table` (quick report) | ✅ Done |
+| Printing | Uses the operating system's print command on a PDF (`lp` on Linux/macOS, the print verb on Windows); no printer selection dialog yet |
+| Visual comparison against VFP-rendered pages | ⛔ Needs VFP to render the corpus reports (oracle rig) |
+
 ## Screenshots
 
 Rendered headlessly by `tools/JoePro.Screenshots` (`dotnet run --project tools/JoePro.Screenshots -- docs/images`).
@@ -91,6 +107,10 @@ Rendered headlessly by `tools/JoePro.Screenshots` (`dotnet run --project tools/J
 | Form Designer | Class Browser |
 |---|---|
 | ![Form Designer](../images/form-designer.png) | ![Class Browser](../images/class-browser.png) |
+
+| Report Designer with live preview | Report preview |
+|---|---|
+| ![Report Designer](../images/report-designer.png) | ![Report preview](../images/report-preview.png) |
 
 ## Known gaps in the UI (Phase 1)
 

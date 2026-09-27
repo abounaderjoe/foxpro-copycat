@@ -155,4 +155,31 @@ public class MigrationTests
         }
         finally { rt.Session.Dispose(); }
     }
+
+    [Fact]
+    public void Reports_and_labels_convert_and_run_after_import()
+    {
+        var legacy = Path.Combine(_dir, "legacy3");
+        Directory.CreateDirectory(legacy);
+        new JoePro.Tests.Documents.Frx().Band(1, 0.3).Band(4, 0.2).Label(1, "Items", 0, 0, 1).Field(4, "ALLTRIM(items.name)", 0, 0, 2).Save(Path.Combine(legacy, "items.frx"));
+        new JoePro.Tests.Documents.Frx(columns: 2, columnWidth: 30000).Band(4, 1).Field(4, "items.name", 0.1, 0.1, 2).Save(Path.Combine(legacy, "tags.lbx"));
+        var report = new MigrationReport();
+        var output = Path.Combine(_dir, "out3");
+        new LegacyImporter(report).ImportFolder(legacy, output);
+        Assert.True(File.Exists(Path.Combine(output, "items.jpreport")));
+        Assert.True(File.Exists(Path.Combine(output, "tags.jplabel")));
+        Assert.Contains(report.Findings, f => f.Rule == "REPORT.CONVERTED");
+        Assert.Contains(report.Findings, f => f.Rule == "LABEL.CONVERTED");
+        Assert.DoesNotContain(report.Findings, f => f.Rule == "ARTIFACT.NOT_YET_CONVERTED" && f.Category is "frx" or "lbx");
+
+        var text = new StringWriter();
+        var rt = new JoePro.Runtime.Interpreter(new JoePro.Runtime.TextWriterOutput(text), output);
+        JoePro.Reports.ReportEngine.Attach(rt);
+        try
+        {
+            rt.ExecuteCommand("CREATE CURSOR items (name C(10))\nINSERT INTO items VALUES ('Bolt')\nREPORT FORM items");
+            Assert.Contains("Bolt", text.ToString());
+        }
+        finally { rt.Session.Dispose(); }
+    }
 }

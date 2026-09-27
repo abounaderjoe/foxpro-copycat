@@ -79,14 +79,12 @@ public sealed class ReportDesigner : UserControl
         var tbHeader = Header("Toolbox");
         DockPanel.SetDock(tbHeader, Dock.Top);
         left.Children.Add(tbHeader);
-        var fieldsPanel = new DockPanel { Height = 240 };
-        var fHeader = Header("Fields (double-click to add)");
-        DockPanel.SetDock(fHeader, Dock.Top);
-        fieldsPanel.Children.Add(fHeader);
-        fieldsPanel.Children.Add(_fields);
-        DockPanel.SetDock(fieldsPanel, Dock.Bottom);
-        left.Children.Add(fieldsPanel);
+        DockPanel.SetDock(_toolbox, Dock.Top);
         left.Children.Add(_toolbox);
+        var fHeader = Header("Fields (double-click)");
+        DockPanel.SetDock(fHeader, Dock.Top);
+        left.Children.Add(fHeader);
+        left.Children.Add(_fields);
 
         var surfaceHost = new Panel { Children = { _surface, _adorners }, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(16) };
         var scroller = new ScrollViewer
@@ -797,7 +795,7 @@ public sealed class ReportDesigner : UserControl
             var saved = area.InUse && !area.Eof ? area.RecNo : 0;
             PreviewReport = _ide.Reports.Layout(doc, FilePath, new ReportRequest { Path = FilePath ?? "", Scope = new JoePro.Language.Scope("ALL") });
             if (area.InUse && saved > 0) area.Go(saved);
-            var preview = new ReportPreview(PreviewReport, _ide.Reports) { Zoom = 0 };
+            var preview = new ReportPreview(PreviewReport, _ide.Reports, compact: true);
             preview.Status += m => Status?.Invoke(m);
             _previewHost.Content = preview;
         }

@@ -33,12 +33,13 @@ public sealed class ReportPreview : UserControl
     private readonly ScrollViewer _scroller;
     private static readonly (string Label, double Zoom)[] Zooms = [("Fit width", 0), ("50%", 0.5), ("75%", 0.75), ("100%", 1), ("150%", 1.5), ("200%", 2)];
 
-    public ReportPreview(RenderedReport report, ReportEngine engine)
+    public ReportPreview(RenderedReport report, ReportEngine engine, bool compact = false)
     {
         Report = report;
         _engine = engine;
+        if (compact) Zoom = 0;
         foreach (var z in Zooms) _zoom.Items.Add(z.Label);
-        _zoom.SelectedIndex = 3;
+        _zoom.SelectedIndex = compact ? 0 : 3;
         _zoom.SelectionChanged += (_, _) => { Zoom = Zooms[Math.Max(0, _zoom.SelectedIndex)].Zoom; Show(); };
         _find.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) FindNext(_find.Text ?? ""); };
         Button B(string text, string tip, Action act)
@@ -56,11 +57,16 @@ public sealed class ReportPreview : UserControl
                 B("⏮", "First page", () => GoTo(0)), B("◀", "Previous page", () => GoTo(PageIndex - 1)),
                 _pageLabel,
                 B("▶", "Next page", () => GoTo(PageIndex + 1)), B("⏭", "Last page", () => GoTo(Report.Pages.Count - 1)),
-                _zoom, _find, B("Find", "Find text", () => FindNext(_find.Text ?? "")),
-                B("Export…", "Save as PDF, HTML, text or images", () => _ = Export()),
-                B("Print", "Print the report", Print),
             },
         };
+        if (!compact)
+        {
+            toolbar.Children.Add(_zoom);
+            toolbar.Children.Add(_find);
+            toolbar.Children.Add(B("Find", "Find text", () => FindNext(_find.Text ?? "")));
+            toolbar.Children.Add(B("Export…", "Save as PDF, HTML, text or images", () => _ = Export()));
+            toolbar.Children.Add(B("Print", "Print the report", Print));
+        }
         var pagePanel = new Panel { Children = { _image, _highlights }, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(16) };
         _scroller = new ScrollViewer
         {

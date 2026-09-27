@@ -76,12 +76,15 @@ public sealed class LegacyImporter
             try { ConvertClassFile(form, targetDir); }
             catch (Exception ex) { Fail(Ext(form) == ".scx" ? "FORM.READ" : "CLASSLIB.READ", Ext(form) == ".scx" ? "form" : "classlib", form, ex); CopyOriginal(form, targetDir); }
         }
-        foreach (var other in files.Where(f => Ext(f) is ".frx" or ".lbx" or ".mnx" or ".pjx"))
+        foreach (var rpt in files.Where(f => Ext(f) is ".frx" or ".lbx"))
+        {
+            try { ConvertReportFile(rpt, targetDir); }
+            catch (Exception ex) { Fail(Ext(rpt) == ".frx" ? "REPORT.READ" : "LABEL.READ", Ext(rpt) == ".frx" ? "report" : "label", rpt, ex); CopyOriginal(rpt, targetDir); }
+        }
+        foreach (var other in files.Where(f => Ext(f) is ".mnx" or ".pjx"))
         {
             var (kind, phase) = Ext(other) switch
             {
-                ".frx" => ("Report", "Phase 4 (Report Designer)"),
-                ".lbx" => ("Label", "Phase 4 (Label Designer)"),
                 ".mnx" => ("Menu", "Phase 5 (Menu Designer)"),
                 _ => ("Project", "Phase 5 (Project Manager)"),
             };
@@ -138,6 +141,45 @@ public sealed class LegacyImporter
         foreach (var cls in result.File.Classes)
             foreach (var m in cls.Methods.Where(m => m.Body.Count > 0))
                 analyzer.AnalyzeSource(m.Code, Rel(path), cls.Name + "." + m.Name);
+        return dest;
+    }
+
+    /// <summary>Converts a report (.FRX) to .jpreport or a label (.LBX) to .jplabel and reports what changed.</summary>
+    public string ConvertReportFile(string path, string targetDir)
+    {
+        if (string.IsNullOrEmpty(_report.Source)) _report.Source = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        if (string.IsNullOrEmpty(_report.Target)) _report.Target = Path.GetFullPath(targetDir);
+        var isLabel = Ext(path) == ".lbx";
+        var category = isLabel ? "label" : "report";
+        var prefix = isLabel ? "LABEL" : "REPORT";
+        var result = JoePro.Documents.Reports.LegacyReportConverter.Convert(path);
+        var dest = Path.Combine(MirrorDir(path, targetDir), Path.GetFileNameWithoutExtension(path).ToLowerInvariant() + (isLabel ? ".jplabel" : ".jpreport"));
+        result.Document.Save(dest);
+        var src = new SourceLocation(Rel(path));
+        var target = new TargetLocation(dest);
+        foreach (var f in result.Findings)
+        {
+            var (status, rule) = f.Status switch
+            {
+                JoePro.Documents.FindingStatus.Changed => (FindingStatus.ConvertedWithChanges, prefix + ".VALUE.CHANGED"),
+                JoePro.Documents.FindingStatus.NeedsReview => (FindingStatus.NeedsReview, prefix + ".REVIEW"),
+                JoePro.Documents.FindingStatus.Unsupported => (FindingStatus.Unsupported, prefix + ".UNSUPPORTED"),
+                _ => (FindingStatus.Converted, prefix + ".INFO"),
+            };
+            _report.Add(status, rule, category, src with { Object = f.Object }, f.Message, target: target);
+        }
+        var doc = result.Document;
+        var objects = doc.Bands.Sum(b => b.Objects.Count);
+        _report.Add(result.Findings.Any(f => f.Status == JoePro.Documents.FindingStatus.Changed) ? FindingStatus.ConvertedWithChanges : FindingStatus.Converted,
+            prefix + ".CONVERTED", category, src,
+            $"{(isLabel ? "Label" : "Report")} converted: {doc.Bands.Count} band(s), {objects} object(s), {doc.Groups.Count} group(s), {doc.Variables.Count} variable(s); {doc.Paper}{(doc.Landscape ? " landscape" : "")}.",
+            target: target);
+        if (doc.DataEnvironment != null)
+        {
+            var analyzer = new ProgramAnalyzer(_report);
+            if (Directory.Exists(_report.Source)) analyzer.IncludeRoots.Add(_report.Source);
+            analyzer.AnalyzeSource(doc.DataEnvironment, Rel(path), "DataEnvironment");
+        }
         return dest;
     }
 

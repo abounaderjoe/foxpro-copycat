@@ -1,0 +1,143 @@
+# Joe Pro report v1
+groups:
+  - expression: rpt.name
+bands:
+  - band: pageHeader
+    height: 0.7
+    objects:
+      - label: Orders by customer
+        left: 0
+        top: 0
+        width: 4
+        height: 0.35
+        font:
+          size: 18
+          bold: true
+        foreColor: 31,78,121
+      - label: Order
+        left: 0.5
+        top: 0.45
+        width: 0.6
+        height: 0.2
+        font:
+          bold: true
+      - label: City
+        left: 1.3
+        top: 0.45
+        width: 2
+        height: 0.2
+        font:
+          bold: true
+      - label: Amount
+        left: 5
+        top: 0.45
+        width: 1.2
+        height: 0.2
+        font:
+          bold: true
+        align: right
+      - line: horizontal
+        left: 0
+        top: 0.67
+        width: 7.5
+        height: 0
+  - band: groupHeader
+    index: 1
+    height: 0.3
+    objects:
+      - shape: rectangle
+        left: 0
+        top: 0.03
+        width: 7.5
+        height: 0.24
+        penStyle: none
+        fillColor: 230,238,245
+      - field: rpt.name
+        left: 0.05
+        top: 0.05
+        width: 3
+        height: 0.2
+        font:
+          bold: true
+  - band: detail
+    height: 0.22
+    objects:
+      - field: rpt.id
+        left: 0.5
+        top: 0
+        width: 0.6
+        height: 0.2
+      - field: rpt.city
+        left: 1.3
+        top: 0
+        width: 3.4
+        height: 0.2
+        stretch: true
+      - field: rpt.amount
+        left: 5
+        top: 0
+        width: 1.2
+        height: 0.2
+        format: 99,999.99
+        align: right
+  - band: groupFooter
+    index: 1
+    height: 0.35
+    objects:
+      - line: horizontal
+        left: 5
+        top: 0.02
+        width: 1.2
+        height: 0
+      - label: Subtotal
+        left: 3.8
+        top: 0.06
+        width: 1
+        height: 0.2
+        font:
+          italic: true
+      - field: rpt.amount
+        left: 5
+        top: 0.06
+        width: 1.2
+        height: 0.2
+        format: 99,999.99
+        calculate: sum
+        reset: group 1
+        align: right
+        font:
+          bold: true
+  - band: pageFooter
+    height: 0.3
+    objects:
+      - field: "\"Page \" + TRANSFORM(_PAGENO) + \" of \" + TRANSFORM(_PAGETOTAL)"
+        left: 5
+        top: 0.05
+        width: 2.5
+        height: 0.2
+        align: right
+      - field: DATE()
+        left: 0
+        top: 0.05
+        width: 1.5
+        height: 0.2
+  - band: summary
+    height: 0.4
+    objects:
+      - label: Grand total
+        left: 3.6
+        top: 0.1
+        width: 1.2
+        height: 0.2
+        font:
+          bold: true
+      - field: rpt.amount
+        left: 5
+        top: 0.1
+        width: 1.2
+        height: 0.2
+        format: 99,999.99
+        calculate: sum
+        align: right
+        font:
+          bold: true
