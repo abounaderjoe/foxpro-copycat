@@ -83,6 +83,7 @@ public sealed class ProjectManager : UserControl
                 B("Set main", "Make the selected program the main program", () => { if (_selected != null) SetMain(_selected); }),
                 B("Exclude/Include", "Toggle whether the file is built into the application", () => { if (_selected != null) ToggleExclude(_selected); }),
                 B("Build…", "Build the project, an application or an executable", BuildDialog),
+                B("Packages…", "Packages the project uses; publish it as a package", PackagesDialog),
                 B("Save", "Save the project", Save),
             },
         };
@@ -351,6 +352,101 @@ public sealed class ProjectManager : UserControl
             catch (Exception ex) when (ex is ArgumentException or IOException) { message.Text = ex.Message; }
         };
         cancel.Click += (_, _) => dialog.Close();
+        if (TopLevel.GetTopLevel(this) is Window owner) _ = dialog.ShowDialog(owner); else dialog.Show();
+    }
+
+    // ---- Packages ---------------------------------------------------------------------------------
+
+    /// <summary>Adds a package (name, name@range; a folder or git+URL source) and installs it. Returns the installed version.</summary>
+    public string AddPackage(string spec, string? source = null)
+    {
+        var at = spec.IndexOf('@');
+        var name = (at > 0 ? spec[..at] : spec).Trim();
+        var version = PackageManager.Add(Project, ProjectDir, name, at > 0 ? spec[(at + 1)..].Trim() : null, string.IsNullOrWhiteSpace(source) ? null : source.Trim());
+        PackageManager.UsePackages(_ide.Runtime, ProjectDir);
+        Save();
+        Status?.Invoke($"Added {name} {version}.");
+        return version;
+    }
+
+    public void RemovePackage(string name)
+    {
+        PackageManager.Remove(Project, ProjectDir, name);
+        Save();
+        Status?.Invoke($"Removed {name}.");
+    }
+
+    public PackageManager.RestoreResult RestorePackages(bool update = false)
+    {
+        var result = PackageManager.Restore(Project, ProjectDir, update);
+        PackageManager.UsePackages(_ide.Runtime, ProjectDir);
+        Status?.Invoke($"{result.Packages.Count} package(s): " + string.Join(", ", result.Packages.Select(p => $"{p.Name} {p.Version}")));
+        return result;
+    }
+
+    public string PublishPackage(string registry)
+    {
+        Save();
+        var path = PackageManager.Publish(Project, ProjectDir, System.IO.Path.IsPathRooted(registry) || registry.Contains("://") ? registry : System.IO.Path.GetFullPath(System.IO.Path.Combine(ProjectDir, registry)));
+        Status?.Invoke($"Published {Project.Name} {Project.Version}.");
+        return path;
+    }
+
+    private void PackagesDialog()
+    {
+        var list = new ListBox { Height = 180, FontFamily = new FontFamily("Cascadia Mono,Consolas,Menlo,DejaVu Sans Mono,monospace") };
+        void Fill()
+        {
+            var locked = PackageManager.ReadLock(ProjectDir).ToDictionary(l => l.Name, StringComparer.OrdinalIgnoreCase);
+            list.ItemsSource = Project.Dependencies.Select(d => $"{d.Name,-20}{d.Version,-10}{(locked.TryGetValue(d.Name, out var l) ? "installed " + l.Version : "not installed")}{(d.Source != null ? "  from " + d.Source : "")}").ToList();
+        }
+        var spec = new TextBox { Watermark = "package or package@range (^1.2, 1.0.0)" };
+        var source = new TextBox { Watermark = "source (empty for the registry; a folder or git+url#tag)" };
+        var registry = new TextBox { Text = Project.Registry ?? PackageManager.DefaultRegistry ?? "", Watermark = "registry folder or URL" };
+        var message = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.85 };
+        void Act(Action a)
+        {
+            try
+            {
+                var reg = (registry.Text ?? "").Trim();
+                if (reg.Length > 0 && reg != Project.Registry) { Project.Registry = reg; IsDirty = true; }
+                a();
+                Fill();
+            }
+            catch (Exception ex) when (ex is VfpException or IOException or HttpRequestException or InvalidOperationException) { message.Text = ex.Message; }
+        }
+        Button B(string text, Action a) { var b = new Button { Content = text }; b.Click += (_, _) => Act(a); return b; }
+        var dialog = new Window
+        {
+            Title = $"Packages · {Project.Name}", Width = 560, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new Border
+            {
+                Padding = new Thickness(12),
+                Child = new StackPanel
+                {
+                    Spacing = 6,
+                    Children =
+                    {
+                        new TextBlock { Text = "Registry" }, registry,
+                        new TextBlock { Text = "Dependencies" }, list,
+                        spec, source,
+                        new WrapPanel
+                        {
+                            Children =
+                            {
+                                B("Add", () => message.Text = $"Installed {AddPackage(spec.Text ?? "", source.Text)}."),
+                                B("Remove", () => { if (list.SelectedIndex >= 0) RemovePackage(Project.Dependencies[list.SelectedIndex].Name); }),
+                                B("Restore", () => message.Text = string.Join(" ", RestorePackages().Messages.DefaultIfEmpty("Up to date."))),
+                                B("Update", () => message.Text = string.Join(" ", RestorePackages(update: true).Messages.DefaultIfEmpty("Up to date."))),
+                                B($"Publish {Project.Name} {Project.Version}", () => message.Text = "Published to " + PublishPackage((registry.Text ?? "").Trim())),
+                            },
+                        },
+                        message,
+                    },
+                },
+            },
+        };
+        Fill();
         if (TopLevel.GetTopLevel(this) is Window owner) _ = dialog.ShowDialog(owner); else dialog.Show();
     }
 

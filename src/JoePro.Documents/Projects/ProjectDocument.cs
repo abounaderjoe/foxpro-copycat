@@ -75,9 +75,20 @@ public sealed class ProjectDocument
         return file;
     }
 
+    /// <summary>Packages the project uses: name, version range (1.2.0, ^1.2, ~1.2.3, >=1.0, *) and an optional source.</summary>
+    public List<PackageReference> Dependencies { get; } = new();
+    /// <summary>The package registry (a folder or an http(s) URL) for dependencies without their own source.</summary>
+    public string? Registry { get; set; }
+
     public static ProjectDocument Load(string path) => ProjectSerializer.Parse(File.ReadAllText(path));
     public void Save(string path) => File.WriteAllText(path, ProjectSerializer.Write(this), new UTF8Encoding(false));
 }
+
+/// <summary>
+/// A dependency on a package. <see cref="Source"/> is null for the project's registry, a folder path for a local
+/// package or library project, or git+URL[#tag] for a repository.
+/// </summary>
+public sealed record PackageReference(string Name, string Version, string? Source = null);
 
 public static class ProjectSerializer
 {
@@ -98,14 +109,33 @@ public static class ProjectSerializer
             files.Add(m);
         }
         root.SetNode("files", files);
+        root.Set("registry", p.Registry);
+        if (p.Dependencies.Count > 0)
+        {
+            var deps = new YamlSeq();
+            foreach (var d in p.Dependencies.OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                var m = new YamlMap().Set("name", d.Name);
+                m.Add("version", new YamlScalar(d.Version, quoted: true));
+                m.Set("source", d.Source);
+                deps.Add(m);
+            }
+            root.SetNode("dependencies", deps);
+        }
         return YamlText.Write(root, Header);
     }
 
     public static ProjectDocument Parse(string text)
     {
         var root = YamlText.Parse(text);
-        root.CheckKeys("name", "main", "output", "debug", "icon", "version", "files");
-        var p = new ProjectDocument { Name = root.Str("name", ""), Main = root.Str("main"), Output = root.Str("output"), Debug = root.Bool("debug", true), Icon = root.Str("icon") };
+        root.CheckKeys("name", "main", "output", "debug", "icon", "version", "files", "registry", "dependencies");
+        var p = new ProjectDocument { Name = root.Str("name", ""), Main = root.Str("main"), Output = root.Str("output"), Debug = root.Bool("debug", true), Icon = root.Str("icon"), Registry = root.Str("registry") };
+        foreach (var node in root.Seq("dependencies"))
+        {
+            var m = node as YamlMap ?? throw new FormatException($"Line {node.Line}: a dependency should be a mapping.");
+            m.CheckKeys("name", "version", "source");
+            p.Dependencies.Add(new PackageReference(m.Str("name") ?? throw new FormatException($"Line {m.Line}: a dependency needs a name."), m.Str("version", "*"), m.Str("source")));
+        }
         if (root.Map("version") is { } v)
         {
             v.CheckKeys("number", "description", "company", "product", "copyright");

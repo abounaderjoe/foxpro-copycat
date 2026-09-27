@@ -23,6 +23,7 @@ public static class Program
                 "run" when args.Length >= 2 => RunProgram(args[1], args.Skip(2).ToArray()),
                 "exec" when args.Length >= 2 => Exec(string.Join(" ", args.Skip(1))),
                 "import" when args.Length >= 2 => Import(args.Skip(1).ToArray()),
+                "add" or "remove" or "restore" or "publish" or "pack" => Packages(cmd, args.Skip(1).ToArray()),
                 "version" or "--version" => Version(),
                 "functions" => Functions(),
                 "lsp" => new JoePro.Tooling.LspServer(Console.OpenStandardInput(), Console.OpenStandardOutput()).Run(),
@@ -110,6 +111,71 @@ public static class Program
         return report.Findings.Any(f => f.Status == FindingStatus.Failed) ? 3 : 0;
     }
 
+    /// <summary>joepro add|remove|restore|publish|pack: the packages of the project in the current folder (or --project).</summary>
+    private static int Packages(string cmd, string[] args)
+    {
+        string? projectPath = null, registry = null, source = null;
+        bool update = false;
+        var positional = new List<string>();
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] is "--project" or "-p" && i + 1 < args.Length) projectPath = args[++i];
+            else if (args[i] is "--registry" or "-r" && i + 1 < args.Length) registry = args[++i];
+            else if (args[i] is "--source" or "-s" && i + 1 < args.Length) source = args[++i];
+            else if (args[i] is "--update" or "-u") update = true;
+            else positional.Add(args[i]);
+        }
+        projectPath ??= Directory.EnumerateFiles(Directory.GetCurrentDirectory(), "*.jpproj").FirstOrDefault()
+                        ?? throw new VfpException(ErrorCodes.FileDoesNotExist, "No .jpproj project in this folder; use --project.");
+        projectPath = Path.GetFullPath(projectPath);
+        var dir = Path.GetDirectoryName(projectPath)!;
+        var project = JoePro.Documents.Projects.ProjectDocument.Load(projectPath);
+        if (registry != null && cmd is "add" or "restore") project.Registry = registry;
+        switch (cmd)
+        {
+            case "add":
+            {
+                if (positional.Count == 0) throw new VfpException(ErrorCodes.InvalidArgument, "joepro add <name>[@version]");
+                var spec = positional[0];
+                var at = spec.IndexOf('@');
+                var version = PackageManager.Add(project, dir, at > 0 ? spec[..at] : spec, at > 0 ? spec[(at + 1)..] : null, source);
+                project.Save(projectPath);
+                Console.WriteLine($"Added {(at > 0 ? spec[..at] : spec)} {version}.");
+                break;
+            }
+            case "remove":
+                if (positional.Count == 0) throw new VfpException(ErrorCodes.InvalidArgument, "joepro remove <name>");
+                PackageManager.Remove(project, dir, positional[0]);
+                project.Save(projectPath);
+                Console.WriteLine($"Removed {positional[0]}.");
+                break;
+            case "restore":
+            {
+                var result = PackageManager.Restore(project, dir, update);
+                if (registry != null) project.Save(projectPath);
+                foreach (var m in result.Messages) Console.WriteLine(m);
+                Console.WriteLine($"{result.Packages.Count} package(s): " + string.Join(", ", result.Packages.Select(p => $"{p.Name} {p.Version}")));
+                break;
+            }
+            case "publish":
+            {
+                var target = registry ?? project.Registry ?? PackageManager.DefaultRegistry ?? throw new VfpException(ErrorCodes.InvalidArgument, "joepro publish --registry <folder>");
+                var path = PackageManager.Publish(project, dir, Path.IsPathRooted(target) || target.Contains("://") ? target : Path.GetFullPath(Path.Combine(dir, target)));
+                Console.WriteLine($"Published {project.Name} {project.Version} to {path}.");
+                break;
+            }
+            default:
+            {
+                var bytes = PackageManager.Pack(project, dir, out var manifest);
+                var file = Path.Combine(dir, $"{manifest.Name.ToLowerInvariant()}-{manifest.Version}.jppkg");
+                File.WriteAllBytes(file, bytes);
+                Console.WriteLine($"Packed {manifest.Files.Length} file(s) into {file}.");
+                break;
+            }
+        }
+        return 0;
+    }
+
     private static int Functions()
     {
         foreach (var n in JoePro.Runtime.Builtins.Library.Names.Where(n => !n.StartsWith("__")).OrderBy(n => n)) Console.WriteLine(n);
@@ -134,6 +200,13 @@ public static class Program
               joepro import <path> [--to <folder>]
                                           Import a FoxPro .DBF, .DBC or a whole folder and
                                           write migration-report.html/.json
+              joepro add <name>[@range] [--source <folder|git+url#tag>]
+                                          Add a package to the project in this folder and install it
+              joepro remove <name>        Remove a package
+              joepro restore [--update]   Install the project's packages (pinned in packages.lock.json)
+              joepro publish [--registry <folder>]
+                                          Publish the project as a package to a registry
+              joepro pack                 Write the project's package (.jppkg)
               joepro functions            List the built-in functions implemented so far
               joepro lsp                  Run the Language Server Protocol server on stdio (editor integration)
               joepro dap                  Run the Debug Adapter Protocol server on stdio (debugging in VS Code)

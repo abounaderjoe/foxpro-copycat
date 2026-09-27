@@ -71,4 +71,29 @@ public class ProjectManagerTests : IDisposable
         pm.Save();
         Assert.DoesNotContain("items.jpt", File.ReadAllText(Path.Combine(_dir, "sales.jpproj")));
     }
+
+    [AvaloniaFact]
+    public void Project_manager_publishes_and_adds_packages()
+    {
+        var lib = Path.Combine(_dir, "mylib");
+        Directory.CreateDirectory(lib);
+        File.WriteAllText(Path.Combine(lib, "util.prg"), "FUNCTION Double(n)\nRETURN n * 2\n");
+        var libProject = new ProjectDocument { Name = "mylib", Version = "1.2.0" };
+        libProject.Add("util.prg");
+        libProject.Save(Path.Combine(lib, "mylib.jpproj"));
+        _session.Execute($"MODIFY PROJECT \"{Path.Combine(lib, "mylib.jpproj")}\"");
+        var libPm = Assert.IsType<ProjectManagerTab>(_window.Documents.SelectedItem).Manager;
+        Assert.EndsWith(".jppkg", libPm.PublishPackage("../registry"));
+
+        _session.Execute("CREATE PROJECT consumer");
+        var pm = Assert.IsType<ProjectManagerTab>(_window.Documents.SelectedItem).Manager;
+        pm.Project.Registry = "registry";
+        Assert.Equal("1.2.0", pm.AddPackage("mylib"));
+        Assert.Equal("^1.2.0", ProjectDocument.Load(Path.Combine(_dir, "consumer.jpproj")).Dependencies.Single().Version);
+        _session.Execute("SET PROCEDURE TO util ADDITIVE");
+        Assert.Equal(8, _session.Runtime.Evaluate("Double(4)").AsNumber);
+        Assert.Empty(pm.RestorePackages().Messages);
+        pm.RemovePackage("mylib");
+        Assert.Empty(pm.Project.Dependencies);
+    }
 }

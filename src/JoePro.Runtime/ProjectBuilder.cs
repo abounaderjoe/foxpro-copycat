@@ -127,9 +127,20 @@ public static class ProjectBuilder
             foreach (var h in Directory.EnumerateFiles(projectDir, "*.h", SearchOption.AllDirectories))
             {
                 var rel = Path.GetRelativePath(projectDir, h).Replace('\\', '/');
-                if (!result.Files.Contains(rel, StringComparer.OrdinalIgnoreCase) && !rel.StartsWith("..")) zip.CreateEntryFromFile(h, rel);
+                if (!result.Files.Contains(rel, StringComparer.OrdinalIgnoreCase) && !rel.StartsWith("..") && !rel.StartsWith(PackageManager.PackagesFolder + "/", StringComparison.OrdinalIgnoreCase))
+                    zip.CreateEntryFromFile(h, rel);
             }
-            var manifest = new Manifest(project.Name, project.Main!, project.Version, project.Debug, result.Files.ToArray());
+            // Installed packages travel with the application.
+            var packageFiles = new List<string>();
+            foreach (var folder in PackageManager.PackageFolders(projectDir))
+                foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+                {
+                    var rel = Path.GetRelativePath(projectDir, file).Replace('\\', '/');
+                    if (Path.GetFileName(file) is ".joepro-package" or PackageManager.ManifestName || result.Files.Contains(rel, StringComparer.OrdinalIgnoreCase)) continue;
+                    zip.CreateEntryFromFile(file, rel, CompressionLevel.Optimal);
+                    packageFiles.Add(rel);
+                }
+            var manifest = new Manifest(project.Name, project.Main!, project.Version, project.Debug, result.Files.Concat(packageFiles).ToArray());
             var entry = zip.CreateEntry(ManifestName);
             using var w = new StreamWriter(entry.Open(), new UTF8Encoding(false));
             w.Write(JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));

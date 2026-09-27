@@ -1331,10 +1331,15 @@ public sealed partial class Interpreter
     }
 
     /// <summary>Loads a project (.jpproj, or a legacy .pjx converted in memory).</summary>
-    public JoePro.Documents.Projects.ProjectDocument LoadProject(string path) =>
-        Path.GetExtension(path).Equals(".pjx", StringComparison.OrdinalIgnoreCase)
+    /// <summary>Loads a project; its installed packages join SET PATH.</summary>
+    public JoePro.Documents.Projects.ProjectDocument LoadProject(string path)
+    {
+        var project = Path.GetExtension(path).Equals(".pjx", StringComparison.OrdinalIgnoreCase)
             ? JoePro.Documents.Projects.LegacyProjectConverter.Convert(path, mapConverted: false).Document
             : JoePro.Documents.Projects.ProjectDocument.Load(path);
+        PackageManager.UsePackages(this, Path.GetDirectoryName(Path.GetFullPath(path))!);
+        return project;
+    }
 
     /// <summary>The last BUILD's result (errors, output).</summary>
     public BuildResult? LastBuild { get; private set; }
