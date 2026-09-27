@@ -261,7 +261,7 @@ internal static class SqlEngine
                 }
             }
 
-            result.Fields.AddRange(InferFields(columns, result.Rows));
+            result.Fields.AddRange(InferFields(columns, result.Rows, varchar: rt.Options.IsOn("VARCHARMAPPING", false)));
 
             // 4. DISTINCT
             if (q.Distinct) Distinct(result, repTuples);
@@ -646,7 +646,8 @@ internal static class SqlEngine
         _ => false,
     };
 
-    private static List<FieldDef> InferFields(List<OutColumn> columns, List<Value[]> rows)
+    /// <summary>Result column types. SET VARCHARMAPPING ON makes computed character columns Varchar instead of Character.</summary>
+    private static List<FieldDef> InferFields(List<OutColumn> columns, List<Value[]> rows, bool varchar = false)
     {
         var list = new List<FieldDef>();
         for (int i = 0; i < columns.Count; i++)
@@ -669,7 +670,7 @@ internal static class SqlEngine
             FieldDef f = sample.Kind switch
             {
                 ValueKind.Character when values.Where(v => !v.IsNull).Max(v => v.AsString.Length) > 254 => new FieldDef(c.Name, 'M'),
-                ValueKind.Character => new FieldDef(c.Name, 'C', Math.Max(1, values.Where(v => !v.IsNull).Max(v => v.AsString.Length))),
+                ValueKind.Character => new FieldDef(c.Name, varchar ? 'V' : 'C', Math.Max(1, values.Where(v => !v.IsNull).Max(v => v.AsString.Length))),
                 ValueKind.Number => NumericField(c.Name, values),
                 ValueKind.Currency => new FieldDef(c.Name, 'Y'),
                 ValueKind.Date => new FieldDef(c.Name, 'D'),

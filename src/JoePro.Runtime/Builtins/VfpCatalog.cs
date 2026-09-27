@@ -196,8 +196,8 @@ public static class VfpCatalog
 
         ["CURRENCY"] = (SetStatus.Supported, null), ["REPROCESS"] = (SetStatus.Supported, null), ["UDFPARMS"] = (SetStatus.Supported, null),
         ["COMPATIBLE"] = (SetStatus.Missing, null), ["KEY"] = (SetStatus.Supported, null),
-        ["SKIP"] = (SetStatus.Missing, null), ["STRICTDATE"] = (SetStatus.Supported, null), ["VARCHARMAPPING"] = (SetStatus.Missing, null), ["AUTOINCERROR"] = (SetStatus.Supported, null),
-        ["SYSFORMATS"] = (SetStatus.Missing, null),
+        ["SKIP"] = (SetStatus.Missing, null), ["STRICTDATE"] = (SetStatus.Supported, null), ["VARCHARMAPPING"] = (SetStatus.Supported, null), ["AUTOINCERROR"] = (SetStatus.Supported, null),
+        ["SYSFORMATS"] = (SetStatus.Supported, null),
 
         ["PRINTER"] = (SetStatus.Unsupported, "Direct printer streaming is not supported; print through REPORT FORM."),
         ["DEVICE"] = (SetStatus.Unsupported, "Direct printer streaming is not supported; print through REPORT FORM."),

@@ -86,6 +86,40 @@ public sealed partial class Interpreter
         wa.GoTop();
     }
 
+    private (DateFormat Date, bool Century, char Point, char Separator, string? Symbol)? _beforeSysFormats;
+
+    /// <summary>
+    /// SET SYSFORMATS ON: dates and numbers follow the operating system's regional settings (date order and separator,
+    /// century, decimal point, thousands separator, currency symbol). OFF restores what was set before.
+    /// </summary>
+    private void ApplySysFormats(bool on)
+    {
+        var o = Options;
+        if (!on)
+        {
+            if (_beforeSysFormats is { } b)
+            {
+                (o.Date, o.Century, o.Point, o.Separator) = (b.Date, b.Century, b.Point, b.Separator);
+                if (b.Symbol == null) o.Values.Remove("CURRENCY_SYMBOL"); else o.Values["CURRENCY_SYMBOL"] = b.Symbol;
+                _beforeSysFormats = null;
+            }
+            return;
+        }
+        _beforeSysFormats ??= (o.Date, o.Century, o.Point, o.Separator, o.Values.GetValueOrDefault("CURRENCY_SYMBOL"));
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        var pattern = culture.DateTimeFormat.ShortDatePattern;
+        var sep = culture.DateTimeFormat.DateSeparator;
+        int d = pattern.IndexOf('d'), m = pattern.IndexOf('M'), y = pattern.IndexOf('y');
+        o.Date = (y < m && m < d) ? (sep == "." ? DateFormat.Ansi : DateFormat.Japan)
+            : (d < m) ? (sep == "." ? DateFormat.German : sep == "-" ? DateFormat.Italian : DateFormat.British)
+            : (sep == "-" ? DateFormat.Usa : DateFormat.American);
+        o.Century = pattern.Contains("yyyy");
+        var nf = culture.NumberFormat;
+        if (nf.NumberDecimalSeparator.Length == 1) o.Point = nf.NumberDecimalSeparator[0];
+        if (nf.NumberGroupSeparator.Length == 1) o.Separator = nf.NumberGroupSeparator[0];
+        o.Values["CURRENCY_SYMBOL"] = nf.CurrencySymbol;
+    }
+
     /// <summary>Other SET values: kept so SET() returns what was set.</summary>
     private void StoreSetting(SetStmt st)
     {

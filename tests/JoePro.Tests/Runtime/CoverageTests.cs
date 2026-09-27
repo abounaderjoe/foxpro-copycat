@@ -367,6 +367,38 @@ public class CoverageTests : RuntimeHarness
     }
 
     [Fact]
+    public void Set_sysformats_follows_the_regional_settings_and_varcharmapping_types_results()
+    {
+        var saved = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+            var o = Run("""
+                SET SYSFORMATS ON
+                ? DTOC({^2024-03-05}), SET("POINT"), SET("DATE")
+                SET SYSFORMATS OFF
+                ? DTOC({^2024-03-05}), SET("POINT")
+                """);
+            var lines = o.Trim().Split('\n').Select(l => string.Join(" ", l.Split(' ', StringSplitOptions.RemoveEmptyEntries))).ToArray();
+            Assert.Equal("05.03.2024 , GERMAN", lines[0]);
+            Assert.Equal("03/05/24 .", lines[1]);
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = saved; }
+        var t = Run("""
+            CREATE CURSOR v (name C(10))
+            INSERT INTO v VALUES ("ab")
+            SELECT name, UPPER(name) AS big FROM v INTO CURSOR r1
+            = AFIELDS(a1)
+            ? a1[2, 2]
+            SET VARCHARMAPPING ON
+            SELECT name, UPPER(name) AS big FROM v INTO CURSOR r2
+            = AFIELDS(a2)
+            ? a2[1, 2], a2[2, 2]
+            """);
+        Assert.Equal("C C V", string.Join(" ", t.Trim().Split((char[])[' ', '\n'], StringSplitOptions.RemoveEmptyEntries)));
+    }
+
+    [Fact]
     public void Set_procedure_and_classlib_restore_from_a_saved_list()
     {
         File.WriteAllText(Path.Combine(Dir, "p1.prg"), "FUNCTION f1\nRETURN 1");
