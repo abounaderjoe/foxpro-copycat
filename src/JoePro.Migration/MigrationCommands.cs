@@ -55,6 +55,10 @@ public static class MigrationCommands
                     report.Source = Path.GetDirectoryName(src)!;
                     importer.ConvertProjectFile(src, dst);
                     break;
+                case ".qpr":
+                    report.Source = Path.GetDirectoryName(src)!;
+                    importer.ConvertQueryFile(src, dst);
+                    break;
                 case ".mnx":
                     report.Source = Path.GetDirectoryName(src)!;
                     importer.ConvertMenuFile(src, dst);
@@ -64,7 +68,7 @@ public static class MigrationCommands
                     importer.ConvertReportFile(src, dst);
                     break;
                 default:
-                    throw new VfpException(ErrorCodes.InvalidArgument, "IMPORT expects a .DBF, .DBC, .SCX, .VCX, .FRX, .LBX, .MNX or .PJX file, or a folder.");
+                    throw new VfpException(ErrorCodes.InvalidArgument, "IMPORT expects a .DBF, .DBC, .SCX, .VCX, .FRX, .LBX, .MNX, .QPR or .PJX file, or a folder.");
             }
         }
         report.Save(dst);

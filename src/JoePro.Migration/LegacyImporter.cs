@@ -71,7 +71,7 @@ public sealed class LegacyImporter
         }
         var analyzer = new ProgramAnalyzer(_report);
         analyzer.IncludeRoots.Add(Path.GetFullPath(folder));
-        foreach (var prg in files.Where(f => Ext(f) is ".prg" or ".h" or ".mpr" or ".qpr"))
+        foreach (var prg in files.Where(f => Ext(f) is ".prg" or ".h" or ".mpr"))
         {
             Step("Analyzing", prg);
             analyzer.AnalyzeFile(prg, Rel(prg));
@@ -94,6 +94,12 @@ public sealed class LegacyImporter
             Step(Ext(rpt) == ".frx" ? "Converting report" : "Converting label", rpt);
             try { ConvertReportFile(rpt, targetDir); }
             catch (Exception ex) { Fail(Ext(rpt) == ".frx" ? "REPORT.READ" : "LABEL.READ", Ext(rpt) == ".frx" ? "report" : "label", rpt, ex); CopyOriginal(rpt, targetDir); }
+        }
+        foreach (var qpr in files.Where(f => Ext(f) == ".qpr"))
+        {
+            Step("Converting query", qpr);
+            try { ConvertQueryFile(qpr, targetDir); }
+            catch (Exception ex) { Fail("QUERY.READ", "query", qpr, ex); CopyOriginal(qpr, targetDir); }
         }
         foreach (var mnx in files.Where(f => Ext(f) == ".mnx"))
         {
@@ -235,6 +241,25 @@ public sealed class LegacyImporter
         return dest;
     }
 
+    /// <summary>Converts a Query Designer file (.QPR) to .jpquery (DO query.qpr then runs the .jpquery).</summary>
+    public string ConvertQueryFile(string path, string targetDir)
+    {
+        if (string.IsNullOrEmpty(_report.Source)) _report.Source = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        if (string.IsNullOrEmpty(_report.Target)) _report.Target = Path.GetFullPath(targetDir);
+        var result = JoePro.Documents.Queries.LegacyQueryConverter.Convert(path);
+        var dest = Path.Combine(MirrorDir(path, targetDir), Path.GetFileNameWithoutExtension(path).ToLowerInvariant() + ".jpquery");
+        result.Document.Save(dest);
+        var src = new SourceLocation(Rel(path));
+        var target = new TargetLocation(dest);
+        foreach (var f in result.Findings)
+            _report.Add(FindingStatus.NeedsReview, "QUERY.REVIEW", "query", src, f.Message, target: target);
+        var doc = result.Document;
+        _report.Add(doc.IsSqlOnly ? FindingStatus.ConvertedWithChanges : FindingStatus.Converted, "QUERY.CONVERTED", "query", src,
+            doc.IsSqlOnly ? "Query converted; it is kept as SQL." : $"Query converted: {doc.Tables.Count} table(s), {doc.Fields.Count} field(s), {doc.Filters.Count} filter(s).", target: target);
+        new ProgramAnalyzer(_report).AnalyzeSource(doc.RunCode(), Rel(path), "query");
+        return dest;
+    }
+
     /// <summary>Converts a project (.PJX) to .jpproj, pointing at the converted files (.scx → .jpform, .dbf → .jpt, …).</summary>
     public string ConvertProjectFile(string path, string targetDir)
     {
@@ -284,7 +309,7 @@ public sealed class LegacyImporter
     private static readonly HashSet<string> ConvertedOrCompiled =
     [
         ".dbf", ".fpt", ".cdx", ".idx", ".dbc", ".dct", ".dcx", ".scx", ".sct", ".vcx", ".vct", ".frx", ".frt", ".lbx", ".lbt",
-        ".mnx", ".mnt", ".pjx", ".pjt", ".fxp", ".spx", ".mpx", ".qpx", ".app", ".err", ".bak", ".tbk", ".dbk", ".cdk",
+        ".mnx", ".mnt", ".pjx", ".pjt", ".qpr", ".fxp", ".spx", ".mpx", ".qpx", ".app", ".err", ".bak", ".tbk", ".dbk", ".cdk",
     ];
 
     private static bool IsVersionControl(string rel) =>
@@ -561,8 +586,23 @@ public sealed class LegacyImporter
                 "Persistent relation (and its referential integrity rules) was not converted; its definition lives in the DBC property format.",
                 "Recreate the relation in the Database Designer (Phase 5).");
         foreach (var v in objects.Where(o => o.Type == "View"))
-            _report.Add(FindingStatus.Unsupported, "DATA.DBC.VIEW", "database", dbcSrc with { Object = v.Name, Snippet = ExtractSql(v.Property) },
-                "Views are converted by the View Designer (Phase 5).", "The view SQL is shown here so it can be recreated with SELECT … INTO CURSOR in the meantime.");
+        {
+            var sql = ExtractSql(v.Property);
+            var vsrc = dbcSrc with { Object = v.Name, Snippet = sql };
+            if (sql == null)
+            {
+                _report.Add(FindingStatus.NeedsReview, "DATA.DBC.VIEW", "database", vsrc,
+                    "The view's SQL was not found in the database container.", "Recreate the view in the View Designer (CREATE VIEW).");
+                continue;
+            }
+            // The SQL is kept; the update criteria live in the DBC's binary property format (judgment call J2).
+            store.SaveView(new ViewDefinition { Name = v.Name, Sql = sql.Trim() });
+            var sqlOnly = JoePro.Documents.Queries.QueryDocument.FromSql(sql).IsSqlOnly;
+            _report.Add(FindingStatus.ConvertedWithChanges, "DATA.DBC.VIEW", "database", vsrc,
+                "View created from its SQL; its update criteria (key and updatable fields, SendUpdates) were not converted."
+                + (sqlOnly ? " The View Designer edits it as SQL." : ""),
+                "If the view updates its tables, set the update criteria in the View Designer (MODIFY VIEW).", new TargetLocation(target, v.Name));
+        }
         foreach (var c in objects.Where(o => o.Type == "Connection"))
             _report.Add(FindingStatus.Unsupported, "DATA.DBC.CONNECTION", "database", dbcSrc with { Object = c.Name },
                 "Remote connections are supported with SQL pass-through in Phase 2.");

@@ -8,6 +8,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using JoePro.Core;
 using JoePro.Data;
+using JoePro.Documents.Queries;
 using JoePro.Runtime;
 using DebugAction = JoePro.Runtime.DebugAction;
 using JoePro.Ui.Runtime;
@@ -272,6 +273,12 @@ public sealed class MainWindow : Window
                 return true;
             case "PROCEDURE":
                 OpenStoredProcedures(request.Path);
+                return true;
+            case "QUERY":
+                OpenQuery(request.Path.Length == 0 ? null : request.Path);
+                return true;
+            case "VIEW":
+                OpenViewDesigner(request.Path, request.ClassName);
                 return true;
             default:
                 return false;
@@ -558,6 +565,11 @@ public sealed class MainWindow : Window
 
     private void SaveActive()
     {
+        if (Documents.SelectedItem is QueryDesignerTab queryTab)
+        {
+            queryTab.Designer.Save();
+            return;
+        }
         if (Documents.SelectedItem is TableDesignerTab tableTab)
         {
             tableTab.Designer.Save();
@@ -643,6 +655,9 @@ public sealed class MainWindow : Window
             case ".jpproj" or ".pjx":
                 OpenProject(path);
                 break;
+            case ".jpquery" or ".qpr":
+                OpenQuery(path);
+                break;
             case ".jpapp":
                 Run($"DO \"{path}\"");
                 break;
@@ -722,7 +737,8 @@ public sealed class MainWindow : Window
             ShowTableDesigner(new TableDesigner(design, designer.Database, null, _session));
         };
         designer.ModifyTableRequested += name => OpenTableDesigner(designer.DatabasePath, name);
-        designer.ModifyViewRequested += name => SetStatus($"{name.ToLowerInvariant()} is a view; MODIFY VIEW {name.ToLowerInvariant()} changes it.");
+        designer.ModifyViewRequested += name => OpenViewDesigner(designer.DatabasePath, name);
+        designer.NewViewRequested += () => OpenViewDesigner(designer.DatabasePath, null);
         designer.BrowseRequested += name =>
         {
             var alias = _session.Runtime.Session.OpenWorkAreas().FirstOrDefault(w => w.Table.Store == designer.Database && w.Table.Name.Equals(name, StringComparison.OrdinalIgnoreCase))?.Alias;
@@ -803,6 +819,57 @@ public sealed class MainWindow : Window
         return tab;
     }
 
+    // ---- Query and View Designer -----------------------------------------------------------------
+
+    /// <summary>CREATE/MODIFY QUERY: a .jpquery, a legacy .qpr converted (saving writes .jpquery), or a new query.</summary>
+    public QueryDesigner OpenQuery(string? path)
+    {
+        var legacy = path != null && Path.GetExtension(path).Equals(".qpr", StringComparison.OrdinalIgnoreCase);
+        var target = legacy ? Path.ChangeExtension(path!, ".jpquery") : path;
+        var existing = Documents.Items.OfType<QueryDesignerTab>().FirstOrDefault(t => !t.Designer.IsView && t.Designer.FilePath != null && target != null && SameFile(t.Designer.FilePath, target));
+        if (existing != null) { Documents.SelectedItem = existing; return existing.Designer; }
+        QueryDocument doc;
+        if (path != null && File.Exists(path))
+        {
+            if (legacy)
+            {
+                var r = LegacyQueryConverter.Convert(path);
+                doc = r.Document;
+                SetStatus($"{Path.GetFileName(path)} was converted; saving writes {Path.GetFileName(target)}." + (r.Findings.Count > 0 ? " " + r.Findings[0].Message : ""));
+            }
+            else doc = QueryDocument.Load(path);
+        }
+        else doc = new QueryDocument();
+        return ShowQueryDesigner(new QueryDesigner(doc, target, _session, IsDark));
+    }
+
+    /// <summary>CREATE/MODIFY VIEW: a view of a database in the View Designer.</summary>
+    public QueryDesigner OpenViewDesigner(string databasePath, string? viewName)
+    {
+        var db = _session.Runtime.Session.StoreOf(databasePath);
+        var existing = Documents.Items.OfType<QueryDesignerTab>().FirstOrDefault(t => t.Designer.IsView && viewName != null && string.Equals(t.Designer.ViewName, viewName, StringComparison.OrdinalIgnoreCase));
+        if (existing != null) { Documents.SelectedItem = existing; return existing.Designer; }
+        var doc = viewName != null && db.GetView(viewName) is { } v ? QueryDocument.FromSql(v.Sql) : new QueryDocument();
+        return ShowQueryDesigner(new QueryDesigner(doc, null, _session, IsDark, db, viewName));
+    }
+
+    private QueryDesigner ShowQueryDesigner(QueryDesigner designer)
+    {
+        designer.Status += SetStatus;
+        designer.SaveAsRequested += async () =>
+        {
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Save query", SuggestedFileName = "query1.jpquery", DefaultExtension = "jpquery",
+                FileTypeChoices = [new FilePickerFileType("Joe Pro query") { Patterns = ["*.jpquery"] }],
+            });
+            if (file?.TryGetLocalPath() is { } p) designer.Save(p);
+        };
+        designer.Saved += () => { foreach (var db in Documents.Items.OfType<DatabaseDesignerTab>()) db.Designer.Refresh(); };
+        OpenDocument(new QueryDesignerTab(designer));
+        return designer;
+    }
+
     /// <summary>A generated script in an unsaved code editor.</summary>
     public CodeEditorTab OpenScript(string name, string text)
     {
@@ -862,6 +929,7 @@ public sealed class MainWindow : Window
         A("New report", "", () => OpenReport(null));
         A("New label", "", () => OpenReport(null, label: true));
         A("New menu", "", () => OpenMenu(null));
+        A("New query", "", () => OpenQuery(null));
         A("New database…", "", () => _ = NewDatabaseWithPicker());
         A("Modify database…", "", () => _ = OpenDatabaseWithPicker());
         A("Modify structure", "", () => Run("MODIFY STRUCTURE"));
@@ -940,6 +1008,7 @@ public sealed class MainWindow : Window
                     Item("New _Report", "New report"),
                     Item("New _Label", "New label"),
                     Item("New _Menu", "New menu"),
+                    Item("New _Query", "New query"),
                     Item("New _Database…", "New database…"),
                     Item("_Open…", "Open…", "Ctrl+O"),
                     Item("_Save", "Save", "Ctrl+S"),

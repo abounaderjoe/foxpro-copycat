@@ -33,4 +33,13 @@ public class QueryTests : RuntimeHarness
         Run("USE allcust");
         Assert.Equal("Acme", Eval("TRIM(allcust.name)"));
     }
+
+    [Fact]
+    public void Into_after_a_union_applies_to_the_whole_statement()
+    {
+        Run("CREATE CURSOR c1 (name C(5))\nINSERT INTO c1 VALUES ('a')\nCREATE CURSOR c2 (name C(5))\nINSERT INTO c2 VALUES ('b')");
+        Run("SELECT name FROM c1 UNION SELECT name FROM c2 ORDER BY 1 DESC INTO CURSOR both");
+        Assert.Equal("2", Eval("TRANSFORM(RECCOUNT('both'))"));
+        Assert.Equal("b", Eval("TRIM(both.name)"));
+    }
 }

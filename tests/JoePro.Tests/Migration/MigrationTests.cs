@@ -255,4 +255,28 @@ public class MigrationTests
         var cancelled = new LegacyImporter(new MigrationReport()) { Cancellation = cts.Token };
         Assert.Throws<OperationCanceledException>(() => cancelled.ImportFolder(legacy, Path.Combine(_dir, "out6")));
     }
+
+    [Fact]
+    public void Qpr_queries_convert_and_run_by_their_old_name()
+    {
+        var legacy = Path.Combine(_dir, "legacy7");
+        Directory.CreateDirectory(legacy);
+        DbfWriter.Write(Path.Combine(legacy, "items.dbf"), [new FieldDef("NAME", 'C', 10), new FieldDef("QTY", 'N', 5)],
+            [(false, [Value.String("bolt"), Value.Number(5)]), (false, [Value.String("nut"), Value.Number(50)])]);
+        File.WriteAllText(Path.Combine(legacy, "big.qpr"), "* Query\nSELECT Items.name;\n FROM items;\n WHERE Items.qty > 10;\n INTO CURSOR bigitems\n");
+        File.WriteAllText(Path.Combine(legacy, "main.prg"), "DO big.qpr\n");
+        var report = new MigrationReport();
+        var output = Path.Combine(_dir, "out7");
+        new LegacyImporter(report).ImportFolder(legacy, output);
+        Assert.True(File.Exists(Path.Combine(output, "big.jpquery")));
+        Assert.False(File.Exists(Path.Combine(output, "big.qpr")));
+        Assert.Contains(report.Findings, f => f.Rule == "QUERY.CONVERTED" && f.Status == FindingStatus.Converted);
+        var rt = new Interpreter(new TextWriterOutput(new StringWriter()), output);
+        try
+        {
+            rt.ExecuteCommand("DO main");
+            Assert.Equal("nut", rt.Evaluate("TRIM(bigitems.name)").AsString);
+        }
+        finally { rt.Session.Dispose(); }
+    }
 }

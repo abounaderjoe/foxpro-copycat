@@ -67,6 +67,7 @@ public sealed class DatabaseDesigner : UserControl
             {
                 B("New table", "Create a table in the Table Designer", () => NewTableRequested?.Invoke()),
                 B("Add table…", "Move a free table into the database (ADD TABLE)", () => AddTableRequested?.Invoke()),
+                B("New view", "Create a view in the View Designer", () => NewViewRequested?.Invoke()),
                 B("Modify", "Open the selected table in the Table Designer", () => { if (SelectedTable != null) ModifyTableRequested?.Invoke(SelectedTable); }),
                 B("Browse", "Browse the selected table", () => { if (SelectedTable != null) BrowseRequested?.Invoke(SelectedTable); }),
                 B("Remove", "Remove the selected table from the database (it stays as a free table)", () => { if (SelectedTable != null) RemoveTable(SelectedTable, delete: false); }),
@@ -104,6 +105,7 @@ public sealed class DatabaseDesigner : UserControl
     public event Action? AddTableRequested;
     public event Action<string>? ModifyTableRequested;
     public event Action<string>? ModifyViewRequested;
+    public event Action? NewViewRequested;
     public event Action<string>? BrowseRequested;
     public event Action? ProceduresRequested;
     public event Action? CompareRequested;

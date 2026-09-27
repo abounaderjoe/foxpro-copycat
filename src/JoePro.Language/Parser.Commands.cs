@@ -993,8 +993,19 @@ public sealed partial class Parser
             {
                 bool all = AcceptKw("ALL");
                 bool paren = AcceptOp("(");
-                unions.Add((SelectCore(), all));
+                var member = SelectCore();
                 if (paren) ExpectOp(")");
+                if (!paren)
+                {
+                    // ORDER BY, INTO and further UNIONs written after the last member belong to the whole statement.
+                    unions.Add((member with { Unions = [], OrderBy = [], IntoKind = null, IntoName = null, ReadWrite = false, NoFilter = false }, all));
+                    unions.AddRange(member.Unions);
+                    order.AddRange(member.OrderBy);
+                    if (member.IntoKind != null) { intoKind = member.IntoKind; intoName = member.IntoName; }
+                    readWrite |= member.ReadWrite;
+                    noFilter |= member.NoFilter;
+                }
+                else unions.Add((member, all));
                 continue;
             }
             if (AcceptKw("ORDER"))
