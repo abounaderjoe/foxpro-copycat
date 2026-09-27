@@ -244,6 +244,25 @@ public class CommandCoverageTests : RuntimeHarness
     }
 
     [Fact]
+    public void File_commands_take_parenthesized_names()
+    {
+        Run("""
+            lcDir = "made"
+            MKDIR (lcDir)
+            MD (lcDir + "2")
+            = STRTOFILE("x", "made/f1.txt")
+            RENAME ("made/f1.txt") TO ("made/f2.txt")
+            CD (lcDir)
+            ERASE ("f2.txt")
+            CD ..
+            RD (lcDir + "2")
+            """);
+        Assert.True(Directory.Exists(Path.Combine(Dir, "made")));
+        Assert.False(Directory.Exists(Path.Combine(Dir, "made2")));
+        Assert.Empty(Directory.GetFiles(Path.Combine(Dir, "made")));
+    }
+
+    [Fact]
     public void Unsupported_commands_say_why()
     {
         Run("EJECT");

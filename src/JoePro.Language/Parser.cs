@@ -453,6 +453,7 @@ public sealed partial class Parser
         "IF", "DO", "FOR", "SCAN", "WAIT", "USE", "SELECT", "SKIP", "SEEK", "REPLACE", "RETURN", "ERROR", "CASE", "WHILE",
         "INSERT", "DELETE", "UPDATE", "STORE", "LOCAL", "PUBLIC", "PRIVATE", "DIMENSION", "DECLARE", "LOCATE", "APPEND",
         "INDEX", "CREATE", "SET", "COUNT", "SUM", "AVERAGE", "CALCULATE", "RELEASE", "THROW", "COPY", "IMPORT", "WITH",
+        "MD", "MKDIR", "CD", "CHDIR", "RD", "RMDIR", "DIR", "ERASE", "RUN",
     ];
 
     private static bool IsCommandWord(Token t) => CommandWords.Any(w => KwMatch(t, w));
@@ -1002,7 +1003,12 @@ public sealed partial class Parser
     private Expr NameArg(params string[] stopWords)
     {
         var t = Peek() ?? throw Error("Missing name.");
-        if (t.IsOp("(")) return Primary();
+        if (t.IsOp("("))
+        {
+            // (name expression): a bare (lcVar) must evaluate the variable, not be taken as the name "lcVar".
+            var e = Primary();
+            return e is NameExpr ? new CallExpr("ALLTRIM", [e]) : e;
+        }
         if (t.Kind == TokenKind.String) { _p++; return new LiteralExpr(Value.String(t.Text)); }
         if (t.Kind == TokenKind.Macro && (Peek(1) == null || stopWords.Any(w => Kw(1, w)))) { _p++; return new MacroExpr(t.Text); }
         int start = _p;

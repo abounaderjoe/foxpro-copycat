@@ -530,7 +530,7 @@ public sealed partial class Interpreter
         }
         else
         {
-            var full = Path.Combine(Options.Default_, words.Trim('"', '\''));
+            var full = Path.Combine(Options.Default_, NameText(words));
             var dir = Directory.Exists(full) ? full : Path.GetDirectoryName(full) ?? Options.Default_;
             var pattern = Directory.Exists(full) ? "*" : Path.GetFileName(full);
             if (pattern == "*.*") pattern = "*";
@@ -559,7 +559,7 @@ public sealed partial class Interpreter
         var nm = System.Text.RegularExpressions.Regex.Match(words, @"\s+NUMBER\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         if (nm.Success) { number = true; words = words[..nm.Index].Trim(); }
         words = System.Text.RegularExpressions.Regex.Replace(words, @"\s+(AUTO|WRAP|TO\s+PRINTER(\s+PROMPT)?)\b.*$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
-        var name = words.StartsWith('(') ? Eval(Parser.ParseExpression(words)).AsString.Trim() : words.Trim('"', '\'');
+        var name = NameText(words);
         var path = Session.ResolvePath(name, "");
         if (!File.Exists(path)) throw VfpException.FileNotFound(name);
         var lines = File.ReadAllLines(path);
@@ -665,7 +665,7 @@ public sealed partial class Interpreter
     {
         var words = System.Text.RegularExpressions.Regex.Replace(rest.Trim(), @"\s+RECYCLE\s*$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
         if (words.Length == 0 || words == "?") return;
-        var name = words.StartsWith('(') ? Eval(Parser.ParseExpression(words)).AsString.Trim() : words.Trim('"', '\'');
+        var name = NameText(words);
         var full = Path.Combine(Options.Default_, name);
         var dir = Path.GetDirectoryName(full) ?? Options.Default_;
         var pattern = Path.GetFileName(full);

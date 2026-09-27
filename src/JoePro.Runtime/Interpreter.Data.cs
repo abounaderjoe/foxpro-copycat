@@ -1104,17 +1104,24 @@ public sealed partial class Interpreter
                 break;
             case "RENAME":
             {
-                var parts = rest.Split(" TO ", 2, StringSplitOptions.TrimEntries);
+                var parts = System.Text.RegularExpressions.Regex.Split(rest, @"\s+TO\s+", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 if (parts.Length != 2) throw VfpException.Syntax();
-                File.Move(Session.ResolvePath(parts[0].Trim('"', '\''), ""), Path.Combine(Options.Default_, parts[1].Trim('"', '\'')));
+                var from = NameText(parts[0]);
+                var src = Session.ResolvePath(from, "");
+                if (!File.Exists(src)) throw VfpException.FileNotFound(from);
+                File.Move(src, Path.Combine(Options.Default_, NameText(parts[1])));
                 break;
             }
             case "MD" or "MKDIR":
-                Directory.CreateDirectory(Path.Combine(Options.Default_, rest.Trim('"', '\'')));
+                Directory.CreateDirectory(Path.Combine(Options.Default_, NameText(rest)));
                 break;
             case "RD" or "RMDIR":
-                Directory.Delete(Path.Combine(Options.Default_, rest.Trim('"', '\'')));
+            {
+                var dir = Path.Combine(Options.Default_, NameText(rest));
+                if (!Directory.Exists(dir)) throw new VfpException(202, "Invalid path or file name.", rest.Trim());
+                Directory.Delete(dir);
                 break;
+            }
             case "FLUSH" or "UNLOCK" or "DOEVENTS" or "EXTERNAL" or "SLEEP" or "LOCK" or "VALIDATE" or "ASSERT":
                 if (verb == "UNLOCK") foreach (var w in Session.OpenWorkAreas()) w.Unlock();
                 break;
@@ -1150,6 +1157,14 @@ public sealed partial class Interpreter
                 Notify($"{verb} {rest}: this designer/command is not available in this build (see roadmap).");
                 break;
         }
+    }
+
+    /// <summary>A file or folder name argument in raw command text: (expression), "quoted" or plain.</summary>
+    internal string NameText(string raw)
+    {
+        var t = raw.Trim();
+        if (t.StartsWith('(') && t.EndsWith(')')) return Eval(Parser.ParseExpression(t)).AsString.Trim();
+        return t.Trim('"', '\'').Trim();
     }
 
     /// <summary>Designer file extensions by kind (the first is the native format, later ones are legacy formats read by conversion).</summary>
