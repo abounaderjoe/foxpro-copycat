@@ -1189,7 +1189,10 @@ public sealed partial class Parser
             case TokenKind.Date when t.Text.Contains('&'):
                 return new DateMacroExpr(t.Text); // {^&lcYear-01-01}: expanded when evaluated
             case TokenKind.Date:
-                return new LiteralExpr(ParseDateLiteral(t.Text));
+            {
+                var date = ParseDateLiteral(t.Text);
+                return new LiteralExpr(date) { AmbiguousDate = !date.IsEmptyDate && !t.Text.TrimStart().StartsWith('^') };
+            }
             case TokenKind.Macro:
                 return new MacroExpr(t.Text);
             case TokenKind.Op when t.Text == "(":

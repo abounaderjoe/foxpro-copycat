@@ -195,8 +195,8 @@ public static class VfpCatalog
         ["REFRESH"] = (SetStatus.NoEffect, "Changes by other users are visible at once."), ["ODOMETER"] = (SetStatus.NoEffect, CharMode),
 
         ["CURRENCY"] = (SetStatus.Supported, null), ["REPROCESS"] = (SetStatus.Supported, null), ["UDFPARMS"] = (SetStatus.Supported, null),
-        ["COMPATIBLE"] = (SetStatus.Missing, null), ["KEY"] = (SetStatus.Missing, null),
-        ["SKIP"] = (SetStatus.Missing, null), ["STRICTDATE"] = (SetStatus.Missing, null), ["VARCHARMAPPING"] = (SetStatus.Missing, null), ["AUTOINCERROR"] = (SetStatus.Missing, null),
+        ["COMPATIBLE"] = (SetStatus.Missing, null), ["KEY"] = (SetStatus.Supported, null),
+        ["SKIP"] = (SetStatus.Missing, null), ["STRICTDATE"] = (SetStatus.Supported, null), ["VARCHARMAPPING"] = (SetStatus.Missing, null), ["AUTOINCERROR"] = (SetStatus.Missing, null),
         ["SYSFORMATS"] = (SetStatus.Missing, null),
 
         ["PRINTER"] = (SetStatus.Unsupported, "Direct printer streaming is not supported; print through REPORT FORM."),

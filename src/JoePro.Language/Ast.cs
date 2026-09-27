@@ -8,7 +8,11 @@ namespace JoePro.Language;
 
 public abstract record Expr;
 
-public sealed record LiteralExpr(Value Value) : Expr;
+public sealed record LiteralExpr(Value Value) : Expr
+{
+    /// <summary>A date or datetime constant not written in the strict {^yyyy-mm-dd} form (SET STRICTDATE rejects it).</summary>
+    public bool AmbiguousDate { get; init; }
+}
 /// <summary>A bare name: memory variable, field of the current work area, or constant-like identifier.</summary>
 public sealed record NameExpr(string Name) : Expr;
 /// <summary>m.name: always a memory variable.</summary>

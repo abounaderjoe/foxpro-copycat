@@ -23,6 +23,9 @@ public sealed partial class Interpreter
         switch (e)
         {
             case LiteralExpr l:
+                // SET STRICTDATE TO 1 or 2: dates must be written {^yyyy-mm-dd}, whatever SET DATE says.
+                if (l.AmbiguousDate && Options.Values.TryGetValue("STRICTDATE", out var sd) && sd is "1" or "2")
+                    throw new VfpException(2032, "Ambiguous date/datetime constant.");
                 return l.Value;
             case NameExpr n:
                 return ResolveName(n.Name);

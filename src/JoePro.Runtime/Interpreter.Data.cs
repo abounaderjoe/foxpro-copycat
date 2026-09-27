@@ -1051,6 +1051,9 @@ public sealed partial class Interpreter
             case "ALTERNATE":
                 SetAlternate(st, st.Expr != null ? Text() : st.Value);
                 break;
+            case "KEY":
+                SetKeyCommand(st);
+                break;
             case "CURRENCY":
                 // SET CURRENCY TO cSymbol, or SET CURRENCY LEFT | RIGHT.
                 if (st.Value is "LEFT" or "RIGHT") Options.Values["CURRENCY"] = st.Value;
@@ -1066,7 +1069,7 @@ public sealed partial class Interpreter
                 or "RESOURCE" or "CURSOR" or "TYPEAHEAD" or "CARRY" or "CONFIRM" or "FULLPATH" or "UNIQUE" or "LOCK"
                 or "REFRESH" or "CLOCK" or "ROLLOVER" or "BLOCKSIZE" or "VARCHARMAPPING"
                 or "TABLEVALIDATE" or "LIBRARY"
-                or "AUTOINCERROR" or "INDEX" or "KEY" or "SKIP" or "DEBUG" or "PRINTER" or "DEVICE" or "LOGERRORS"
+                or "AUTOINCERROR" or "INDEX" or "SKIP" or "DEBUG" or "PRINTER" or "DEVICE" or "LOGERRORS"
                 or "SYSFORMATS" or "NOCPTRANS" or "OLEOBJECT" or "SQLBUFFERING" or "SPACE" or "HEADINGS" or "":
                 StoreSetting(st);
                 if (!UnsupportedSettings.Contains(st.Option)) UnsupportedSettings.Add(st.Option);

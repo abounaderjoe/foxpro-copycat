@@ -309,6 +309,46 @@ public class CoverageTests : RuntimeHarness
     }
 
     [Fact]
+    public void Set_key_limits_records_to_a_key_range_of_the_controlling_index()
+    {
+        var o = Run("""
+            CREATE CURSOR k (id I, name C(10))
+            FOR i = 1 TO 9
+                INSERT INTO k VALUES (i, IIF(i < 4, "Smith", IIF(i < 7, "Jones", "Adams")))
+            ENDFOR
+            INDEX ON name TAG name
+            INDEX ON id TAG id
+            SET ORDER TO name
+            SET KEY TO "Jones"
+            COUNT TO a
+            SET KEY TO RANGE "J", "Sm"
+            COUNT TO b
+            SET ORDER TO id
+            SET KEY TO RANGE 3, 5
+            COUNT TO c
+            SET KEY TO RANGE 8,
+            COUNT TO d
+            SET ORDER TO name
+            COUNT TO e
+            SET KEY TO
+            SET ORDER TO id
+            COUNT TO f
+            ? a, b, c, d, e, f
+            """);
+        Assert.Equal("3 6 3 2 9 9", string.Join(" ", o.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)));
+    }
+
+    [Fact]
+    public void Set_strictdate_rejects_ambiguous_date_constants()
+    {
+        Assert.Equal("0 .T.", string.Join(" ", Run("? SET(\"STRICTDATE\"), {01/02/2024} = {^2024-01-02}").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)));
+        Run("SET STRICTDATE TO 1");
+        Assert.Equal(".T. .T.", string.Join(" ", Run("? {^2024-01-02} > {}, {} = {}").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)));
+        var ex = Assert.Throws<JoePro.Core.VfpException>(() => Run("? {01/02/2024}"));
+        Assert.Equal(2032, ex.Number);
+    }
+
+    [Fact]
     public void Set_procedure_and_classlib_restore_from_a_saved_list()
     {
         File.WriteAllText(Path.Combine(Dir, "p1.prg"), "FUNCTION f1\nRETURN 1");

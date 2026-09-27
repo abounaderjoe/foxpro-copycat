@@ -204,6 +204,16 @@ public sealed class WorkArea : IRecord
 
     public void SetFilter(ICompiledExpression? filter) => Filter = filter;
 
+    /// <summary>SET KEY TO: the range of index keys that stays visible while <see cref="KeyRangeTag"/> is the order.</summary>
+    public Func<IRecord, bool>? KeyRange { get; private set; }
+    public string? KeyRangeTag { get; private set; }
+
+    public void SetKeyRange(string? tag, Func<IRecord, bool>? range)
+    {
+        KeyRangeTag = tag;
+        KeyRange = range;
+    }
+
     public void SetBuffering(int mode)
     {
         if (mode is < 1 or > 5) throw VfpException.InvalidArgument();
@@ -366,6 +376,7 @@ public sealed class WorkArea : IRecord
     private bool IsVisible(RowData row)
     {
         if (Options.Deleted && row.Deleted) return false;
+        if (KeyRange != null && Order != null && Order.Name.Equals(KeyRangeTag, StringComparison.OrdinalIgnoreCase) && !KeyRange(row)) return false;
         if (Filter == null) return true;
         var f = Filter.Evaluate(row);
         return f.Kind == ValueKind.Logical && f.AsBool;

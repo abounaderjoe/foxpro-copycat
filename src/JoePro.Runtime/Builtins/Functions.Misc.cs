@@ -755,7 +755,7 @@ public static partial class Library
     /// <summary>VFP's defaults for the SET options that are stored rather than acted on.</summary>
     private static readonly Dictionary<string, string> SetDefaults = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["MULTILOCKS"] = "OFF", ["REPROCESS"] = "0", ["STRICTDATE"] = "1", ["ESCAPE"] = "ON", ["BELL"] = "ON", ["NOTIFY"] = "ON",
+        ["MULTILOCKS"] = "OFF", ["REPROCESS"] = "0", ["STRICTDATE"] = "0", ["ESCAPE"] = "ON", ["BELL"] = "ON", ["NOTIFY"] = "ON",
         ["CONFIRM"] = "OFF", ["CARRY"] = "OFF", ["STATUS"] = "OFF", ["ECHO"] = "OFF", ["FIXED"] = "OFF", ["UDFPARMS"] = "VALUE",
         ["COMPATIBLE"] = "OFF", ["CURRENCY"] = "LEFT", ["LOCK"] = "OFF", ["REFRESH"] = "0", ["UNIQUE"] = "OFF", ["AUTOINCERROR"] = "ON",
         ["TABLEVALIDATE"] = "3", ["VARCHARMAPPING"] = "OFF", ["SYSFORMATS"] = "OFF", ["LOGERRORS"] = "ON", ["PRINTER"] = "OFF",
