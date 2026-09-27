@@ -1,11 +1,11 @@
 namespace JoePro.Tooling;
 
 /// <summary>Signatures and one-line descriptions of built-in functions and commands (hover, completion, signature help).</summary>
-public static class FunctionDocs
+public static partial class FunctionDocs
 {
     public sealed record Doc(string Signature, string Returns, string Summary);
 
-    public static readonly IReadOnlyDictionary<string, Doc> Functions = new Dictionary<string, Doc>(StringComparer.OrdinalIgnoreCase)
+    public static readonly IReadOnlyDictionary<string, Doc> Functions = Merge(new Dictionary<string, Doc>(StringComparer.OrdinalIgnoreCase)
     {
         ["ABS"] = new("ABS(nExpression)", "N", "Absolute value."),
         ["SQLSTRINGCONNECT"] = new("SQLSTRINGCONNECT(cConnectString [, lSharable])", "N", "Opens a pass-through connection; returns a handle or -1. \"Provider=sqlite;…\" or an ODBC string (Driver=…, DSN=…)."),
@@ -143,7 +143,7 @@ public static class FunctionDocs
         ["VARTYPE"] = new("VARTYPE(eExpression [, lNullDataType])", "C", "Type letter of a value ('U' if undefined, 'X' for .NULL.)."),
         ["VERSION"] = new("VERSION([nExpression])", "V", "Version information."),
         ["YEAR"] = new("YEAR(dExpression | tExpression)", "N", "Year."),
-    };
+    });
 
     public static readonly IReadOnlyDictionary<string, string> Commands = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -164,6 +164,22 @@ public static class FunctionDocs
         ["GATHER"] = "GATHER FROM ArrayName | MEMVAR | NAME ObjectName [FIELDS FieldList] [MEMO]",
         ["BROWSE"] = "BROWSE [FIELDS FieldList] [FOR lExpression] — opens an editable grid",
         ["IMPORT"] = "IMPORT FOXPRO cFileOrFolder [TO cTargetFolder] — converts FoxPro tables, databases or a whole folder",
+        ["SORT"] = "SORT TO TableName ON FieldName1 [/A | /D] [/C] [, …] [ASCENDING | DESCENDING] [Scope] [FOR lExpression] [WHILE lExpression] [FIELDS FieldList]",
+        ["TOTAL"] = "TOTAL TO TableName ON FieldName [FIELDS FieldList] [Scope] [FOR lExpression] [WHILE lExpression]",
+        ["JOIN"] = "JOIN WITH nWorkArea | cTableAlias TO TableName FOR lExpression [FIELDS FieldList]",
+        ["SAVE"] = "SAVE TO FileName | MEMO MemoFieldName [ALL LIKE Skeleton | ALL EXCEPT Skeleton]",
+        ["RESTORE"] = "RESTORE FROM FileName | MEMO MemoFieldName [ADDITIVE]",
+        ["ACCEPT"] = "ACCEPT [cPromptText] TO VarName",
+        ["INPUT"] = "INPUT [cPromptText] TO VarName — the typed text is evaluated as an expression",
+        ["KEYBOARD"] = "KEYBOARD cKeyboardValue [PLAIN] [CLEAR] — puts keys in the buffer INKEY() reads",
+        ["ON"] = "ON ERROR [Command] | ON KEY LABEL KeyLabel [Command] | ON SHUTDOWN [Command] | ON ESCAPE [Command]",
+        ["RUN"] = "RUN [/N] OperatingSystemCommand",
+        ["DIR"] = "DIR [[ON Drive] [[LIKE] FileSkeleton]] [TO FILE FileName]",
+        ["TYPE"] = "TYPE FileName [NUMBER] [TO FILE FileName]",
+        ["LIST"] = "LIST [FieldList] [Scope] [FOR lExpression] [OFF] — LIST MEMORY | STATUS | OBJECTS | DATABASE | TABLES | VIEWS | FILES [TO FILE FileName]",
+        ["DISPLAY"] = "DISPLAY [FieldList] [Scope] [FOR lExpression] — DISPLAY MEMORY | STATUS | STRUCTURE | …",
+        ["DROP"] = "DROP TABLE TableName | DROP VIEW ViewName | DROP CONNECTION ConnectionName",
+        ["EXPORT"] = "EXPORT TO FileName [TYPE] XLS [FIELDS FieldList] [Scope] [FOR lExpression]",
     };
 
     public static readonly string[] Keywords =

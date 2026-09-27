@@ -131,7 +131,9 @@ What exists today, measured against the [roadmap](../plan/03-roadmap.md). Update
 | Command coverage matrix: 302 VFP 9 commands, each run as a sample in a scratch folder (`joepro functions --commands`) | ✅ 242 supported, 57 listed as unsupported with a reason, 3 missing (HELP, MODIFY CONNECTION, MODIFY MEMO) |
 | Commands added in the sweep: SORT, TOTAL, JOIN, REPLACE FROM ARRAY, COPY/APPEND MEMO, SAVE TO/RESTORE FROM (variables and arrays), ACCEPT, INPUT, GETEXPR, KEYBOARD with INKEY()/LASTKEY(), ON KEY LABEL (fires in running forms), ON SHUTDOWN/ESCAPE with PUSH/POP KEY, RUN, DIR, TYPE, LIST/DISPLAY MEMORY/STATUS/OBJECTS/DATABASE/TABLES/VIEWS/CONNECTIONS/PROCEDURES/FILES, DROP TABLE, DROP/RENAME VIEW and CONNECTION, DELETE/PACK/COMPILE DATABASE, RELEASE CLASSLIB/PROCEDURE, PUSH/POP MENU and POPUP, BUILD PROJECT … FROM, CREATE (Table Designer), CREATE … FROM, EXPORT and COPY TO … TYPE XLS (Excel XML), DEBUG, MODIFY/ZOOM WINDOW SCREEN. Fixed: DELETE FILE did nothing | ✅ Done |
 | Decision on @…SAY/GET, READ and DEFINE WINDOW: not supported (character-mode screens); they are listed with reasons and the runtime says so when it meets them | ✅ Decided |
-| "For FoxPro developers" guide, language reference, performance and accessibility passes | ⏳ In progress |
+| Language reference generated from the function registry (`joepro docs --reference`); every implemented function has a signature and description, which also feed hover and completion | ✅ Done (see [language reference](../reference/language.md)) |
+| "For FoxPro developers" guide mapping VFP files, data, multi-user, language, forms, reports, IDE, builds and migration to Joe Pro | ✅ Done (see [guide](../guide/for-foxpro-developers.md)) |
+| Performance and accessibility passes, localization, installer | ⏳ In progress |
 
 ## Screenshots
 

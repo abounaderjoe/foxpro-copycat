@@ -6,6 +6,7 @@ and a migration and sync layer for existing FoxPro applications.
 - **Plan:** [docs/plan](docs/plan/README.md) (research, architecture, roadmap)
 - **What works today:** [docs/status](docs/status/README.md)
 - **Decisions:** [docs/adr](docs/adr)
+- **Coming from Visual FoxPro:** [the guide](docs/guide/for-foxpro-developers.md), the [language reference](docs/reference/language.md) and the [coverage matrix](docs/reference/coverage.md)
 
 ## Try it
 

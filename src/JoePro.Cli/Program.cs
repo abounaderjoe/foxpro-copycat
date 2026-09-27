@@ -27,6 +27,7 @@ public static class Program
                 "sync" => Sync(args.Skip(1).ToArray()),
                 "version" or "--version" => Version(),
                 "functions" => Functions(args),
+                "docs" when args.Contains("--reference") => WriteText(JoePro.Tooling.LanguageReference.Markdown()),
                 "lsp" => new JoePro.Tooling.LspServer(Console.OpenStandardInput(), Console.OpenStandardOutput()).Run(),
                 "dap" => new JoePro.Tooling.DapServer(Console.OpenStandardInput(), Console.OpenStandardOutput()).Run(),
                 "help" or "--help" or "-h" => Help(),
@@ -255,6 +256,12 @@ public static class Program
         }
     }
 
+    private static int WriteText(string text)
+    {
+        Console.Write(text);
+        return 0;
+    }
+
     private static int Functions(string[] args)
     {
         if (args.Contains("--commands"))
@@ -299,7 +306,9 @@ public static class Program
               joepro sync config|init|run|status|conflicts|resolve|cutover
                                           Two-way sync with a legacy VFP application during a transition
               joepro functions            List the built-in functions implemented so far
-              joepro functions --coverage The VFP 9 function coverage matrix (Markdown)
+              joepro functions --coverage The VFP 9 function and command coverage matrix (Markdown)
+              joepro functions --commands Run every VFP 9 command sample and show its status
+              joepro docs --reference     The language reference (Markdown), from the function registry
               joepro lsp                  Run the Language Server Protocol server on stdio (editor integration)
               joepro dap                  Run the Debug Adapter Protocol server on stdio (debugging in VS Code)
               joepro version              Show the version
