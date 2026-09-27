@@ -276,7 +276,7 @@ public static partial class Library
             var type = c.Str(1).ToUpperInvariant();
             var prop = c.Str(2).ToUpperInvariant();
             var db = c.Rt.Session.CurrentDatabase ?? throw new VfpException(1520, "No database is open or set as the current database.");
-            if (type == "DATABASE") return prop == "VERSION" ? N(1) : Value.EmptyString;
+            if (type == "DATABASE") return prop switch { "VERSION" => N(1), "JOURNAL" => L(db.JournalEnabled), "COMMENT" => S(db.GetMeta("comment") ?? ""), _ => Value.EmptyString };
             var dot = name.IndexOf('.');
             if (type == "CONNECTION") return ConnectionProp(db, name, prop);
             if (type == "VIEW" || (type == "FIELD" && dot > 0 && db.GetView(name[..dot]) != null))
@@ -356,6 +356,11 @@ public static partial class Library
                     db.SaveConnection(conn);
                     return Value.True;
                 }
+                case "DATABASE":
+                    if (prop.Equals("Journal", StringComparison.OrdinalIgnoreCase)) db.JournalEnabled = value.AsBool;
+                    else if (prop.Equals("Comment", StringComparison.OrdinalIgnoreCase)) db.SetMeta("comment", value.AsString);
+                    else throw new VfpException(1559, $"Property {prop.ToUpperInvariant()} is invalid.");
+                    return Value.True;
                 case "TABLE":
                 {
                     if (!prop.Equals("Comment", StringComparison.OrdinalIgnoreCase))

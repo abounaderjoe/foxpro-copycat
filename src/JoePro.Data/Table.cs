@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using JoePro.Core;
-using Microsoft.Data.Sqlite;
 
 namespace JoePro.Data;
 
@@ -39,7 +38,7 @@ public sealed partial class Table
     private string Col(FieldDef f) => $"\"c_{f.Name.ToLowerInvariant()}\"";
     private string SelectList => "_recno, _deleted, _rowver" + string.Concat(Fields.Select(f => ", " + Col(f)));
 
-    public int RecordCount => Store.Prepared($"SELECT MAX(_recno) FROM \"{SqlName}\"").ExecuteScalar() is long n ? (int)n : 0;
+    public int RecordCount => Store.ReadScalarPrepared($"SELECT MAX(_recno) FROM \"{SqlName}\"") is { } n ? Convert.ToInt32(n) : 0;
 
     internal void InvalidateCaches() => _scanCache = null;
 
@@ -70,26 +69,27 @@ public sealed partial class Table
 
     // ---- Reading ----------------------------------------------------------------------
 
-    private RowData ReadRow(SqliteDataReader r)
+    private RowData ReadRow(object?[] r)
     {
         var values = new Value[Fields.Count];
-        for (int i = 0; i < Fields.Count; i++) values[i] = ValueCodec.FromDb(Fields[i], r.GetValue(3 + i));
-        return new RowData(this, r.GetInt32(0), r.GetInt64(1) != 0, values, r.GetInt64(2));
+        for (int i = 0; i < Fields.Count; i++) values[i] = ValueCodec.FromDb(Fields[i], r[3 + i]);
+        return new RowData(this, (int)(long)r[0]!, (long)r[1]! != 0, values, (long)r[2]!);
     }
 
     public RowData? Read(int recNo)
     {
-        using var r = Store.Prepared($"SELECT {SelectList} FROM \"{SqlName}\" WHERE _recno=$r", ("$r", recNo)).ExecuteReader();
-        return r.Read() ? ReadRow(r) : null;
+        RowData? row = null;
+        Store.QueryEachPrepared($"SELECT {SelectList} FROM \"{SqlName}\" WHERE _recno=$r", [("$r", recNo)], r => row = ReadRow(r));
+        return row;
     }
 
     public long RowVersion(int recNo) =>
-        Store.Prepared($"SELECT _rowver FROM \"{SqlName}\" WHERE _recno=$r", ("$r", recNo)).ExecuteScalar() is long v ? v : 0;
+        Store.ReadScalarPrepared($"SELECT _rowver FROM \"{SqlName}\" WHERE _recno=$r", ("$r", recNo)) is { } v ? Convert.ToInt64(v) : 0;
 
     public byte[]? ReadKey(TagDef tag, int recNo)
     {
         if (_scanCache is { } c && c.Tag == tag.Name && c.Index.TryGetValue(recNo, out var i) && FreshCache() != null) return c.Rows[i].Key;
-        return Store.Prepared($"SELECT \"{tag.KeyColumn}\" FROM \"{SqlName}\" WHERE _recno=$r", ("$r", recNo)).ExecuteScalar() as byte[];
+        return Store.ReadScalarPrepared($"SELECT \"{tag.KeyColumn}\" FROM \"{SqlName}\" WHERE _recno=$r", ("$r", recNo)) as byte[];
     }
 
     /// <summary>
@@ -230,14 +230,9 @@ public sealed partial class Table
         var sql = $"SELECT {SelectList}{keySel} FROM \"{SqlName}\"" +
                   (where.Count > 0 ? " WHERE " + string.Join(" AND ", where) : "") +
                   $" ORDER BY {orderBy} LIMIT {size}";
-        using var r = Store.Prepared(sql, args.ToArray()).ExecuteReader();
         var list = new List<(RowData, byte[]?)>();
-        while (r.Read())
-        {
-            var row = ReadRow(r);
-            byte[]? key = order == null ? null : r.GetValue(3 + Fields.Count) as byte[];
-            list.Add((row, key));
-        }
+        var keyAt = 3 + Fields.Count;
+        Store.QueryEachPrepared(sql, args.ToArray(), r => list.Add((ReadRow(r), order == null ? null : r[keyAt] as byte[])));
         return list;
     }
 
@@ -281,9 +276,10 @@ public sealed partial class Table
                 var recNo = (int)(long)ExecWriteScalar(InsertSql(withRecno: false) + " RETURNING _recno", args)!;
                 row = new RowData(this, recNo, deleted, vals, 1);
             }
+            Store.Journal(this, 'I', row.RecNo, null, vals);
         }
         // Autoincrement counters must move with the row; otherwise the INSERT is atomic on its own.
-        if (Fields.Any(f => f.AutoIncNext != null)) Store.InTransaction(Insert);
+        if (Fields.Any(f => f.AutoIncNext != null) || (Store.Kind == StoreKind.Database && Store.JournalEnabled)) Store.InTransaction(Insert);
         else Insert();
         return row;
     }
@@ -292,6 +288,8 @@ public sealed partial class Table
     public void Update(RowData row)
     {
         for (int i = 0; i < Fields.Count; i++) row.Values[i] = Fields[i].Coerce(row.Values[i]);
+        var journal = Store.Kind == StoreKind.Database && Store.JournalEnabled;
+        var before = journal ? Read(row.RecNo) : null;
         var sets = new StringBuilder("_deleted = $d, _rowver = _rowver + 1");
         var args = new List<(string, object?)> { ("$r", row.RecNo), ("$d", row.Deleted ? 1 : 0) };
         for (int i = 0; i < Fields.Count; i++)
@@ -306,7 +304,16 @@ public sealed partial class Table
             keys[t] = ComputeKey(Schema.Tags[t], row);
             args.Add(($"$k{t}", keys[t]));
         }
-        ExecWrite($"UPDATE \"{SqlName}\" SET {sets} WHERE _recno = $r", args);
+        void Write()
+        {
+            ExecWrite($"UPDATE \"{SqlName}\" SET {sets} WHERE _recno = $r", args);
+            if (before != null)
+            {
+                var op = before.Deleted != row.Deleted ? (row.Deleted ? 'D' : 'R') : 'U';
+                Store.Journal(this, op, row.RecNo, before.Values, op == 'D' ? null : row.Values);
+            }
+        }
+        if (before != null) Store.InTransaction(Write); else Write();
         row.RowVersion++;
         PatchCache(row, keys);
     }
@@ -344,7 +351,7 @@ public sealed partial class Table
         {
             return Store.ScalarPrepared(sql, args.ToArray());
         }
-        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        catch (StoreConstraintException ex)
         {
             var tag = Schema.Tags.FirstOrDefault(t => ex.Message.Contains(t.KeyColumn, StringComparison.OrdinalIgnoreCase));
             throw VfpException.UniqueViolation(tag?.Name ?? "?");
@@ -357,7 +364,7 @@ public sealed partial class Table
         {
             Store.ExecPrepared(sql, args.ToArray());
         }
-        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        catch (StoreConstraintException ex)
         {
             var tag = Schema.Tags.FirstOrDefault(t => ex.Message.Contains(t.KeyColumn, StringComparison.OrdinalIgnoreCase));
             throw VfpException.UniqueViolation(tag?.Name ?? "?");
@@ -440,7 +447,7 @@ public sealed partial class Table
             {
                 Store.Exec($"CREATE {unique}INDEX \"ix_{SqlName}_{keyCol}\" ON \"{SqlName}\" ({cols}) WHERE \"{keyCol}\" IS NOT NULL");
             }
-            catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+            catch (StoreConstraintException ex)
             {
                 Schema.Tags.Remove(tag);
                 throw VfpException.UniqueViolation(tag.Name);
@@ -480,7 +487,7 @@ public sealed partial class Table
             {
                 Store.Exec($"UPDATE \"{SqlName}\" SET \"{tag.KeyColumn}\" = $k WHERE _recno = $r", ("$k", ComputeKey(tag, row)), ("$r", row.RecNo));
             }
-            catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+            catch (StoreConstraintException ex)
             {
                 throw VfpException.UniqueViolation(tag.Name);
             }

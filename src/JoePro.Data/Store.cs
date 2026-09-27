@@ -1,6 +1,5 @@
 using System.Text.Json;
 using JoePro.Core;
-using Microsoft.Data.Sqlite;
 
 namespace JoePro.Data;
 
@@ -11,7 +10,7 @@ public enum StoreKind { Database, FreeTable, Cursors }
 /// in-memory store that holds a data session's cursors. Each data session opens its own
 /// connection, so sessions are isolated like VFP data sessions.
 /// </summary>
-public sealed class Store : IDisposable
+public sealed partial class Store : IDisposable
 {
     public const int FormatVersion = 1;
     public const string DatabaseExtension = ".jpdb";
@@ -23,15 +22,17 @@ public sealed class Store : IDisposable
     public string Path { get; }
     public string Name { get; }
     public StoreKind Kind { get; }
-    internal SqliteConnection Connection { get; }
+    /// <summary>The database connection: SQLite in embedded mode, the Data Server in server mode.</summary>
+    public IStoreConnection Link { get; }
+    public bool IsRemote => Link.IsRemote;
     public int TransactionLevel => _savepointDepth;
 
-    private Store(string path, StoreKind kind, SqliteConnection connection)
+    private Store(string path, StoreKind kind, IStoreConnection link, string? name = null)
     {
         Path = path;
         Kind = kind;
-        Name = kind == StoreKind.Cursors ? "(cursors)" : System.IO.Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
-        Connection = connection;
+        Name = name ?? (kind == StoreKind.Cursors ? "(cursors)" : System.IO.Path.GetFileNameWithoutExtension(path).ToUpperInvariant());
+        Link = link;
     }
 
     public static Store Create(string path, StoreKind kind)
@@ -57,14 +58,24 @@ public sealed class Store : IDisposable
     public static Store Open(string path)
     {
         if (!File.Exists(path)) throw VfpException.FileNotFound(path);
-        var store = OpenInternal(path, StoreKind.Database, create: false);
-        var kind = store.ScalarString("SELECT value FROM _jp_meta WHERE key='kind'");
+        return Attach(path, SqliteStoreConnection.Open(path, create: false));
+    }
+
+    /// <summary>
+    /// A store over an open connection (a Data Server database): <paramref name="path"/> names it (joepro://host/db),
+    /// <paramref name="name"/> is its database name.
+    /// </summary>
+    public static Store Attach(string path, IStoreConnection link, string? name = null)
+    {
+        string? kind;
+        try { kind = link.Scalar("SELECT value FROM _jp_meta WHERE key='kind'", []) as string; }
+        catch (StoreException) { kind = null; }
         if (kind == null)
         {
-            store.Dispose();
+            link.Dispose();
             throw new VfpException(ErrorCodes.FileAccessDenied, $"'{path}' is not a Joe Pro database or table.", path);
         }
-        var s = new Store(path, Enum.Parse<StoreKind>(kind), store.Connection);
+        var s = new Store(path, Enum.Parse<StoreKind>(kind), link, name?.ToUpperInvariant());
         // Files written before field properties (comment, format, input mask, display class) were stored.
         if (s.ScalarLong("SELECT COUNT(*) FROM pragma_table_info('_jp_fields') WHERE name='props'") == 0)
             s.Exec("ALTER TABLE _jp_fields ADD COLUMN props TEXT");
@@ -77,43 +88,21 @@ public sealed class Store : IDisposable
         return store;
     }
 
-    private static Store OpenInternal(string path, StoreKind kind, bool create)
-    {
-        var cs = new SqliteConnectionStringBuilder
-        {
-            DataSource = path,
-            Mode = path == ":memory:" ? SqliteOpenMode.Memory : create ? SqliteOpenMode.ReadWriteCreate : SqliteOpenMode.ReadWrite,
-            Pooling = false,
-        }.ToString();
-        var conn = new SqliteConnection(cs);
-        conn.Open();
-        var s = new Store(path, kind, conn);
-        if (path != ":memory:") s.Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
-        s.Exec("PRAGMA busy_timeout=5000;");
-        return s;
-    }
+    private static Store OpenInternal(string path, StoreKind kind, bool create) =>
+        new(path, kind, SqliteStoreConnection.Open(path, create));
 
     // ---- SQL helpers -------------------------------------------------------------------
-
-    internal SqliteCommand Command(string sql, params (string, object?)[] args)
-    {
-        var cmd = Connection.CreateCommand();
-        cmd.CommandText = sql;
-        foreach (var (n, v) in args) cmd.Parameters.AddWithValue(n, v ?? DBNull.Value);
-        return cmd;
-    }
 
     internal void Exec(string sql, params (string, object?)[] args)
     {
         BumpVersion();
-        using var cmd = Command(sql, args);
-        cmd.ExecuteNonQuery();
+        Link.Execute(sql, args);
     }
+
+    internal List<object?[]> Query(string sql, params (string, object?)[] args) => Link.Query(sql, args);
 
     // ---- Prepared statements and change tracking ----------------------------------------
 
-    private readonly Dictionary<string, SqliteCommand> _prepared = new();
-    private SqliteCommand? _dataVersionCmd;
     private long _lastDataVersion;
     private long _dataVersionCheckedAt = long.MinValue;
     private const long DataVersionIntervalMs = 250;
@@ -137,39 +126,28 @@ public sealed class Store : IDisposable
 
     private void BumpVersion() => Interlocked.Increment(ref Version.Value);
 
-    /// <summary>
-    /// A cached, prepared command for a hot statement (row reads, index scans, inserts). The caller must not
-    /// dispose it, and must finish with any reader before the same statement is used again.
-    /// </summary>
-    internal SqliteCommand Prepared(string sql, params (string Name, object? Value)[] args)
-    {
-        if (!_prepared.TryGetValue(sql, out var cmd))
-        {
-            cmd = Connection.CreateCommand();
-            cmd.CommandText = sql;
-            foreach (var (n, v) in args) cmd.Parameters.AddWithValue(n, v ?? DBNull.Value);
-            _prepared[sql] = cmd;
-            return cmd;
-        }
-        foreach (var (n, v) in args) cmd.Parameters[n].Value = v ?? DBNull.Value;
-        return cmd;
-    }
+    /// <summary>Rows from a hot statement (row reads, index scans), prepared once and reused.</summary>
+    internal List<object?[]> QueryPrepared(string sql, params (string Name, object? Value)[] args) => Link.Query(sql, args, prepared: true);
+
+    internal int QueryEachPrepared(string sql, (string Name, object? Value)[] args, Action<object?[]> onRow) => Link.QueryEach(sql, args, true, onRow);
+
+    internal object? ReadScalarPrepared(string sql, params (string Name, object? Value)[] args) => Link.Scalar(sql, args, prepared: true);
 
     internal object? ScalarPrepared(string sql, params (string Name, object? Value)[] args)
     {
         BumpVersion();
-        return Prepared(sql, args).ExecuteScalar();
+        return Link.Scalar(sql, args, prepared: true);
     }
 
     internal int ExecPrepared(string sql, params (string Name, object? Value)[] args)
     {
         BumpVersion();
-        return Prepared(sql, args).ExecuteNonQuery();
+        return Link.Execute(sql, args, prepared: true);
     }
 
     /// <summary>
-    /// Changes when another process commits to this file. Checked at most every 250 ms (like SET REFRESH);
-    /// writes from this process are tracked exactly by <see cref="WriteVersion"/>.
+    /// Changes when another process (or Data Server client) commits to this database. Checked at most every 250 ms
+    /// (like SET REFRESH); writes from this process are tracked exactly by <see cref="WriteVersion"/>.
     /// </summary>
     internal long DataVersion()
     {
@@ -177,37 +155,23 @@ public sealed class Store : IDisposable
         var now = Environment.TickCount64;
         if (now - _dataVersionCheckedAt < DataVersionIntervalMs) return _lastDataVersion;
         _dataVersionCheckedAt = now;
-        _dataVersionCmd ??= Connection.CreateCommand();
-        _dataVersionCmd.CommandText = "PRAGMA data_version";
-        return _lastDataVersion = (long)_dataVersionCmd.ExecuteScalar()!;
+        return _lastDataVersion = Link.DataVersion();
     }
 
     internal string? ScalarString(string sql, params (string, object?)[] args)
     {
-        try
-        {
-            using var cmd = Command(sql, args);
-            return cmd.ExecuteScalar() as string;
-        }
-        catch (SqliteException) { return null; }
+        try { return Link.Scalar(sql, args) as string; }
+        catch (StoreException) { return null; }
     }
 
-    internal long ScalarLong(string sql, params (string, object?)[] args)
-    {
-        using var cmd = Command(sql, args);
-        var r = cmd.ExecuteScalar();
-        return r is null or DBNull ? 0 : Convert.ToInt64(r);
-    }
+    internal long ScalarLong(string sql, params (string, object?)[] args) =>
+        Link.Scalar(sql, args) is { } r ? Convert.ToInt64(r) : 0;
 
     // ---- Tables -----------------------------------------------------------------------
 
     public IReadOnlyList<string> TableNames()
     {
-        using var cmd = Command("SELECT name FROM _jp_tables ORDER BY name");
-        using var r = cmd.ExecuteReader();
-        var list = new List<string>();
-        while (r.Read()) list.Add(r.GetString(0));
-        return list;
+        return Query("SELECT name FROM _jp_tables ORDER BY name").Select(r => (string)r[0]!).ToList();
     }
 
     public bool HasTable(string name) =>
@@ -248,48 +212,37 @@ public sealed class Store : IDisposable
             if (host != null) t.ExpressionHost ??= host;
             return t;
         }
-        using var cmd = Command("SELECT name, sqlname, comment, rule_expr, rule_text, insert_trigger, update_trigger, delete_trigger FROM _jp_tables WHERE name=$n", ("$n", name));
-        using var r = cmd.ExecuteReader();
-        if (!r.Read()) throw VfpException.FileNotFound(name);
-        var tableName = r.GetString(0);
-        var sqlName = r.GetString(1);
-        string? S(int i) => r.IsDBNull(i) ? null : r.GetString(i);
+        var head = Query("SELECT name, sqlname, comment, rule_expr, rule_text, insert_trigger, update_trigger, delete_trigger FROM _jp_tables WHERE name=$n", ("$n", name));
+        if (head.Count == 0) throw VfpException.FileNotFound(name);
+        var r = head[0];
+        var tableName = (string)r[0]!;
+        var sqlName = (string)r[1]!;
+        string? S(int i) => r[i] as string;
         var comment = S(2); var ruleExpr = S(3); var ruleText = S(4); var it = S(5); var ut = S(6); var dt = S(7);
-        r.Close();
+        static int I(object? o) => o == null ? 0 : Convert.ToInt32(o);
 
         var fields = new List<FieldDef>();
-        using (var fc = Command("SELECT name, type, width, decimals, nullable, isbinary, autoinc_next, autoinc_step, default_expr, rule_expr, rule_text, caption, props FROM _jp_fields WHERE tbl=$t ORDER BY ord", ("$t", tableName)))
-        using (var fr = fc.ExecuteReader())
+        foreach (var fr in Query("SELECT name, type, width, decimals, nullable, isbinary, autoinc_next, autoinc_step, default_expr, rule_expr, rule_text, caption, props FROM _jp_fields WHERE tbl=$t ORDER BY ord", ("$t", tableName)))
         {
-            while (fr.Read())
+            string? FS(int i) => fr[i] as string;
+            var props = FS(12) is { Length: > 0 } json ? JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new() : new();
+            fields.Add(new FieldDef((string)fr[0]!, ((string)fr[1]!)[0], I(fr[2]), I(fr[3]))
             {
-                string? FS(int i) => fr.IsDBNull(i) ? null : fr.GetString(i);
-                var props = FS(12) is { Length: > 0 } json ? JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new() : new();
-                fields.Add(new FieldDef(fr.GetString(0), fr.GetString(1)[0], fr.GetInt32(2), fr.GetInt32(3))
-                {
-                    Nullable = fr.GetInt32(4) != 0,
-                    Binary = fr.GetInt32(5) != 0,
-                    AutoIncNext = fr.IsDBNull(6) ? null : fr.GetInt64(6),
-                    AutoIncStep = fr.IsDBNull(7) ? 1 : fr.GetInt32(7),
-                    DefaultExpr = FS(8), RuleExpr = FS(9), RuleText = FS(10), Caption = FS(11),
-                    Comment = props.GetValueOrDefault("Comment"), Format = props.GetValueOrDefault("Format"), InputMask = props.GetValueOrDefault("InputMask"),
-                    DisplayClass = props.GetValueOrDefault("DisplayClass"), DisplayClassLibrary = props.GetValueOrDefault("DisplayClassLibrary"),
-                });
-            }
+                Nullable = I(fr[4]) != 0,
+                Binary = I(fr[5]) != 0,
+                AutoIncNext = fr[6] == null ? null : Convert.ToInt64(fr[6]),
+                AutoIncStep = fr[7] == null ? 1 : I(fr[7]),
+                DefaultExpr = FS(8), RuleExpr = FS(9), RuleText = FS(10), Caption = FS(11),
+                Comment = props.GetValueOrDefault("Comment"), Format = props.GetValueOrDefault("Format"), InputMask = props.GetValueOrDefault("InputMask"),
+                DisplayClass = props.GetValueOrDefault("DisplayClass"), DisplayClassLibrary = props.GetValueOrDefault("DisplayClassLibrary"),
+            });
         }
         var schema = new TableSchema(tableName, fields)
         {
             Comment = comment, RuleExpr = ruleExpr, RuleText = ruleText, InsertTrigger = it, UpdateTrigger = ut, DeleteTrigger = dt,
         };
-        using (var tc = Command("SELECT name, expr, for_expr, descending, kind, collation, keycol FROM _jp_tags WHERE tbl=$t ORDER BY rowid", ("$t", tableName)))
-        using (var tr = tc.ExecuteReader())
-        {
-            while (tr.Read())
-            {
-                schema.Tags.Add(new TagDef(tr.GetString(0), tr.GetString(1), tr.IsDBNull(2) ? null : tr.GetString(2), tr.GetInt32(3) != 0,
-                    Enum.Parse<TagKind>(tr.GetString(4)), tr.GetString(5)) { KeyColumn = tr.GetString(6) });
-            }
-        }
+        foreach (var tr in Query("SELECT name, expr, for_expr, descending, kind, collation, keycol FROM _jp_tags WHERE tbl=$t ORDER BY rowid", ("$t", tableName)))
+            schema.Tags.Add(new TagDef((string)tr[0]!, (string)tr[1]!, tr[2] as string, I(tr[3]) != 0, Enum.Parse<TagKind>((string)tr[4]!), (string)tr[5]!) { KeyColumn = (string)tr[6]! });
         t = new Table(this, schema, sqlName) { ExpressionHost = host };
         _tables[tableName] = t;
         return t;
@@ -420,11 +373,7 @@ public sealed class Store : IDisposable
     public IReadOnlyList<string> ObjectNames(string kind)
     {
         EnsureObjectTable();
-        using var cmd = Command("SELECT name FROM _jp_objects WHERE kind=$k ORDER BY name", ("$k", kind));
-        using var r = cmd.ExecuteReader();
-        var list = new List<string>();
-        while (r.Read()) list.Add(r.GetString(0));
-        return list;
+        return Query("SELECT name FROM _jp_objects WHERE kind=$k ORDER BY name", ("$k", kind)).Select(r => (string)r[0]!).ToList();
     }
 
     public bool DeleteObject(string kind, string name)
@@ -437,8 +386,7 @@ public sealed class Store : IDisposable
     private int ExecCount(string sql, params (string, object?)[] args)
     {
         BumpVersion();
-        using var cmd = Command(sql, args);
-        return cmd.ExecuteNonQuery();
+        return Link.Execute(sql, args);
     }
 
     private IReadOnlyList<RelationDef>? _relations;
@@ -486,10 +434,8 @@ public sealed class Store : IDisposable
     {
         var version = SchemaVersion;
         if (_relations != null && _relationsVersion == version) return _relations;
-        using var cmd = Command("SELECT parent, parent_tag, child, child_tag, ri_update, ri_delete, ri_insert FROM _jp_relations");
-        using var r = cmd.ExecuteReader();
-        var list = new List<RelationDef>();
-        while (r.Read()) list.Add(new RelationDef(r.GetString(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4), r.GetString(5), r.GetString(6)).Normalize());
+        var list = Query("SELECT parent, parent_tag, child, child_tag, ri_update, ri_delete, ri_insert FROM _jp_relations")
+            .Select(r => new RelationDef((string)r[0]!, (string)r[1]!, (string)r[2]!, (string)r[3]!, (string)r[4]!, (string)r[5]!, (string)r[6]!).Normalize()).ToList();
         _relationsVersion = version;
         return _relations = list;
     }
@@ -552,9 +498,6 @@ public sealed class Store : IDisposable
     public void Dispose()
     {
         while (_savepointDepth > 0) Rollback();
-        foreach (var cmd in _prepared.Values) cmd.Dispose();
-        _prepared.Clear();
-        _dataVersionCmd?.Dispose();
-        Connection.Dispose();
+        Link.Dispose();
     }
 }
